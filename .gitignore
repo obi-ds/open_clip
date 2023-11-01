@@ -4,6 +4,8 @@ models/
 features/
 results/
 
+*.DS_Store
+
 tests/data/
 *.pt
 
