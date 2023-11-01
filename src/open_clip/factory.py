@@ -12,8 +12,8 @@ import torch
 from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype, resize_text_pos_embed, set_model_preprocess_cfg
-from .coca_model import CoCa
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss
+from .coca_model import CoCa, ScatterCoCa, ScatterCaption
+from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, CaptionLoss
 from .openai import load_openai_model
 from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrained,\
     list_pretrained_tags_by_model, download_pretrained_from_hf
@@ -150,9 +150,6 @@ def load_checkpoint(model, checkpoint_path, strict=True):
     # detect old format and make compatible with new format
     if 'positional_embedding' in state_dict and not hasattr(model, 'positional_embedding'):
         state_dict = convert_to_custom_text_state_dict(state_dict)
-    # If loading a non-SigLIP model for SigLIP training. See https://github.com/mlfoundations/open_clip/issues/712
-    if 'logit_bias' not in state_dict and model.logit_bias is not None:
-        state_dict["logit_bias"] = torch.zeros_like(state_dict["logit_scale"])
     # Certain text transformers no longer expect position_ids after transformers==4.31
     position_id_key = 'text.transformer.embeddings.position_ids'
     if position_id_key in state_dict and not hasattr(model, position_id_key):
@@ -243,14 +240,17 @@ def create_model(
             model_cfg['text_cfg']['hf_model_pretrained'] = pretrained_hf and not pretrained
         custom_text = model_cfg.pop('custom_text', False) or force_custom_text or is_hf_model
 
-        model_cfg = dict(model_cfg, **model_kwargs)  # merge cfg dict w/ kwargs (kwargs overrides cfg)
         if custom_text:
-            if "multimodal_cfg" in model_cfg:
-                model = CoCa(**model_cfg, cast_dtype=cast_dtype)
+            if "scatter_cfg" in model_cfg:
+                # TODO: COCA model or Caption only
+                # model = ScatterCaption(**model_cfg, **model_kwargs, cast_dtype=cast_dtype)
+                model = ScatterCoCa(**model_cfg, **model_kwargs, cast_dtype=cast_dtype)
+            elif "multimodal_cfg" in model_cfg:
+                model = CoCa(**model_cfg, **model_kwargs, cast_dtype=cast_dtype)
             else:
-                model = CustomTextCLIP(**model_cfg, cast_dtype=cast_dtype)
+                model = CustomTextCLIP(**model_cfg, **model_kwargs, cast_dtype=cast_dtype)
         else:
-            model = CLIP(**model_cfg, cast_dtype=cast_dtype)
+            model = CLIP(**model_cfg, **model_kwargs, cast_dtype=cast_dtype)
 
         if precision in ("fp16", "bf16"):
             dtype = torch.float16 if 'fp16' in precision else torch.bfloat16
@@ -292,7 +292,7 @@ def create_model(
             else:
                 error_str = (
                     f'Pretrained weights ({pretrained}) not found for model {model_name}.'
-                    f' Available pretrained tags ({list_pretrained_tags_by_model(model_name)}.')
+                    f'Available pretrained tags ({list_pretrained_tags_by_model(model_name)}.')
                 logging.warning(error_str)
                 raise RuntimeError(error_str)
             pretrained_loaded = True
@@ -331,6 +331,26 @@ def create_loss(args):
             world_size=args.world_size,
             use_horovod=args.horovod,
         )
+    elif 'scatter' in args.model.lower():
+        # return CaptionLoss()
+        return CaptionLoss(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod,
+        )
+        # return CoCaLoss(
+        #     caption_loss_weight=args.coca_caption_loss_weight,
+        #     clip_loss_weight=args.coca_contrastive_loss_weight,
+        #     local_loss=args.local_loss,
+        #     gather_with_grad=args.gather_with_grad,
+        #     cache_labels=True,
+        #     rank=args.rank,
+        #     world_size=args.world_size,
+        #     use_horovod=args.horovod,
+        # )
     elif "coca" in args.model.lower():
         return CoCaLoss(
             caption_loss_weight=args.coca_caption_loss_weight,
@@ -402,15 +422,20 @@ def create_model_and_transforms(
 
     pp_cfg = PreprocessCfg(**model.visual.preprocess_cfg)
 
-    preprocess_train = image_transform_v2(
-        pp_cfg,
-        is_train=True,
-        aug_cfg=aug_cfg,
-    )
-    preprocess_val = image_transform_v2(
-        pp_cfg,
-        is_train=False,
-    )
+    if "scatter" in model_name:
+        preprocess_train = lambda x: x
+        preprocess_val = lambda x: x
+
+    else:
+        preprocess_train = image_transform_v2(
+            pp_cfg,
+            is_train=True,
+            aug_cfg=aug_cfg,
+        )
+        preprocess_val = image_transform_v2(
+            pp_cfg,
+            is_train=False,
+        )
 
     return model, preprocess_train, preprocess_val
 

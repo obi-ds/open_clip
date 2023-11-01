@@ -8,6 +8,8 @@ import sys
 import braceexpand
 from dataclasses import dataclass
 from multiprocessing import Value
+import blosc
+from functools import partial
 
 import numpy as np
 import pandas as pd
@@ -19,6 +21,24 @@ from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler, IterableD
 from torch.utils.data.distributed import DistributedSampler
 from webdataset.filters import _shuffle
 from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander, valid_sample
+
+from .instruct.icd import (
+    ICDStatusClassificationTask,
+    ICDStatusRangeClassificationTask,
+    ICDStatusRangeClassificationTaskEval
+)
+from .instruct.icd.descriptions import ICDDescription
+from .instruct.icd.processing import (
+    EncounterDataframeProcess,
+    DataFrameSampling,
+    ICDConvert,
+    NegativeICDSampling
+)
+from .instruct.utils import (
+    get_icd_status_classification_instructions,
+    get_icd_status_range_classification_instructions
+)
+from .instruct import ICDInstruct
 
 try:
     import horovod.torch as hvd
@@ -78,7 +98,7 @@ def expand_urls(urls, weights=None):
     if isinstance(urls, str):
         urllist = urls.split("::")
         weights = weights.split('::')
-        assert len(weights) == len(urllist),\
+        assert len(weights) == len(urllist), \
             f"Expected the number of data components ({len(urllist)}) and weights({len(weights)}) to match."
         weights = [float(weight) for weight in weights]
         all_urls, all_weights = [], []
@@ -275,13 +295,13 @@ class ResampledShards2(IterableDataset):
     """An iterable dataset yielding a list of urls."""
 
     def __init__(
-        self,
-        urls,
-        weights=None,
-        nshards=sys.maxsize,
-        worker_seed=None,
-        deterministic=False,
-        epoch=-1,
+            self,
+            urls,
+            weights=None,
+            nshards=sys.maxsize,
+            worker_seed=None,
+            deterministic=False,
+            epoch=-1,
     ):
         """Sample shards from the shard list with replacement.
 
@@ -292,7 +312,7 @@ class ResampledShards2(IterableDataset):
         self.urls = urls
         self.weights = weights
         if self.weights is not None:
-            assert len(self.urls) == len(self.weights),\
+            assert len(self.urls) == len(self.weights), \
                 f"Number of urls {len(self.urls)} and weights {len(self.weights)} should match."
         assert isinstance(self.urls[0], str)
         self.nshards = nshards
@@ -326,121 +346,22 @@ class ResampledShards2(IterableDataset):
 
 
 def get_wds_dataset(args, preprocess_img, is_train, epoch=0, floor=False, tokenizer=None):
-    input_shards = args.train_data if is_train else args.val_data
-    assert input_shards is not None
-    resampled = getattr(args, 'dataset_resampled', False) and is_train
-
-    num_shards = None
-    if is_train:
-        if args.train_num_samples is not None:
-            num_samples = args.train_num_samples
-        else:
-            num_samples, num_shards = get_dataset_size(input_shards)
-            if not num_samples:
-                raise RuntimeError(
-                    'Currently, the number of dataset samples must be specified for the training dataset. '
-                    'Please specify it via `--train-num-samples` if no dataset length info is present.')
-    else:
-        # Eval will just exhaust the iterator if the size is not specified.
-        num_samples = args.val_num_samples or 0 
-
-    shared_epoch = SharedEpoch(epoch=epoch)  # create a shared epoch store to sync epoch to dataloader worker proc
-
-    if is_train and args.train_data_upsampling_factors is not None:
-        assert resampled, "--train_data_upsampling_factors is only supported when sampling with replacement (with --dataset-resampled)."
-    
-    if resampled:
-        pipeline = [ResampledShards2(
-            input_shards,
-            weights=args.train_data_upsampling_factors,
-            deterministic=True,
-            epoch=shared_epoch,
-        )]
-    else:
-        pipeline = [wds.SimpleShardList(input_shards)]
-
-    # at this point we have an iterator over all the shards
-    if is_train:
-        if not resampled:
-            pipeline.extend([
-                detshuffle2(
-                    bufsize=_SHARD_SHUFFLE_SIZE,
-                    initial=_SHARD_SHUFFLE_INITIAL,
-                    seed=args.seed,
-                    epoch=shared_epoch,
-                ),
-                wds.split_by_node,
-                wds.split_by_worker,
-            ])
-        pipeline.extend([
-            # at this point, we have an iterator over the shards assigned to each worker at each node
-            tarfile_to_samples_nothrow,  # wds.tarfile_to_samples(handler=log_and_continue),
-            wds.shuffle(
-                bufsize=_SAMPLE_SHUFFLE_SIZE,
-                initial=_SAMPLE_SHUFFLE_INITIAL,
-            ),
-        ])
-    else:
-        pipeline.extend([
-            wds.split_by_worker,
-            # at this point, we have an iterator over the shards assigned to each worker
-            wds.tarfile_to_samples(handler=log_and_continue),
-        ])
-    pipeline.extend([
+    pipeline_extension = [
         wds.select(filter_no_caption_or_no_image),
         wds.decode("pilrgb", handler=log_and_continue),
         wds.rename(image="jpg;png;jpeg;webp", text="txt"),
         wds.map_dict(image=preprocess_img, text=lambda text: tokenizer(text)[0]),
         wds.to_tuple("image", "text"),
         wds.batched(args.batch_size, partial=not is_train)
-    ])
+    ]
 
-    dataset = wds.DataPipeline(*pipeline)
-
-    if is_train:
-        if not resampled:
-            num_shards = num_shards or len(expand_urls(input_shards)[0])
-            assert num_shards >= args.workers * args.world_size, 'number of shards must be >= total workers'
-        # roll over and repeat a few samples to get same number of full batches on each node
-        round_fn = math.floor if floor else math.ceil
-        global_batch_size = args.batch_size * args.world_size
-        num_batches = round_fn(num_samples / global_batch_size)
-        num_workers = max(1, args.workers)
-        num_worker_batches = round_fn(num_batches / num_workers)  # per dataloader worker
-        num_batches = num_worker_batches * num_workers
-        num_samples = num_batches * global_batch_size
-        dataset = dataset.with_epoch(num_worker_batches)  # each worker is iterating over this
-    else:
-        # last batches are partial, eval is done on single (master) node
-        num_batches = math.ceil(num_samples / args.batch_size)
-
-    dataloader = wds.WebLoader(
-        dataset,
-        batch_size=None,
-        shuffle=False,
-        num_workers=args.workers,
-        persistent_workers=args.workers > 0,
+    return get_wds_data_info(
+        args=args,
+        pipeline_extension=pipeline_extension,
+        is_train=is_train,
+        epoch=epoch,
+        floor=floor
     )
-
-    # FIXME not clear which approach is better, with_epoch before vs after dataloader?
-    # hoping to resolve via https://github.com/webdataset/webdataset/issues/169
-    # if is_train:
-    #     # roll over and repeat a few samples to get same number of full batches on each node
-    #     global_batch_size = args.batch_size * args.world_size
-    #     num_batches = math.ceil(num_samples / global_batch_size)
-    #     num_workers = max(1, args.workers)
-    #     num_batches = math.ceil(num_batches / num_workers) * num_workers
-    #     num_samples = num_batches * global_batch_size
-    #     dataloader = dataloader.with_epoch(num_batches)
-    # else:
-    #     # last batches are partial, eval is done on single (master) node
-    #     num_batches = math.ceil(num_samples / args.batch_size)
-
-    # add meta-data to dataloader instance for convenience
-    dataloader.num_batches = num_batches
-    dataloader.num_samples = num_samples
-
-    return DataInfo(dataloader=dataloader, shared_epoch=shared_epoch)
 
 
 def get_csv_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None):
@@ -523,9 +444,164 @@ def get_synthetic_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None
     return DataInfo(dataloader, sampler)
 
 
+def get_wds_dataset_icd_instruct(
+        args,
+        preprocess_img,
+        is_train,
+        epoch=0,
+        floor=False,
+        tokenizer=None,
+        evaluate_attribute=None,
+        example_attributes=None,
+        custom_prompt=False
+):
+    max_seq_length = 76
+    pad_id = 0
+
+    args.time_difference_normalize = 30
+    args.shuffle = True
+
+    encounter_dataframe = pd.read_parquet(
+        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD']
+    )
+
+    encounter_dataframe_process = EncounterDataframeProcess(
+        encounter_dataframe=encounter_dataframe,
+        patient_id_column=args.patient_id_column,
+        contact_date_column=args.contact_date_column,
+        time_difference_column=args.time_difference_column,
+        icd_10_column=args.icd_10_column,
+        position_column=args.position_column,
+    )
+
+    dataframe_sampling = DataFrameSampling()
+
+    negative_icd_sampling = NegativeICDSampling()
+
+    icd_convert = ICDConvert(
+        icd_descriptions=ICDDescription(),
+        billable_probability=args.billable_probability,
+        top_non_probability=args.top_non_probability,
+        mixed_non_probability=args.mixed_non_probability,
+        lowercase=False
+    )
+
+    # icd_status_classification_instructions = get_icd_status_classification_instructions(
+    #     task_definition='Patient is diagnosed with: \n\n',
+    #     future_input='- {diagnosis} in {time} months:',
+    #     future_target='{answer}',
+    #     past_input='- {diagnosis} {time} months ago:',
+    #     past_target='{answer}',
+    #     positive_answer_target='yes',
+    #     negative_answer_target='no'
+    # )
+    # icd_status_classification_task = ICDStatusClassificationTask(
+    #     encounter_dataframe_process=encounter_dataframe_process,
+    #     dataframe_sampling=dataframe_sampling,
+    #     negative_icd_sampling=negative_icd_sampling,
+    #     icd_instructions=icd_status_classification_instructions,
+    #     icd_convert=icd_convert,
+    #     patient_id_column=args.patient_id_column,
+    #     icd_10_column=args.icd_10_column,
+    #     position_column=args.position_column,
+    # )
+
+    if args.lock_range:
+        assert args.random_negative_probability == 1, "If range is locked/fixed, random negative probability needs to be 1"
+
+    icd_status_range_classification_instructions = get_icd_status_range_classification_instructions(
+        task_definition='Patient is diagnosed with: \n\n',
+        future_input='- {diagnosis} between months {start_time} and {end_time}:',
+        future_target='{answer}',
+        past_input='- {diagnosis} between {start_time} and {end_time} months ago:',
+        past_target='{answer}',
+        positive_answer_target='yes',
+        negative_answer_target='no',
+        lock_range=args.lock_range
+    )
+    if not custom_prompt:
+        icd_status_range_classification_task = ICDStatusRangeClassificationTask(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            negative_icd_sampling=negative_icd_sampling,
+            icd_instructions=icd_status_range_classification_instructions,
+            icd_convert=icd_convert,
+            patient_id_column=args.patient_id_column,
+            icd_10_column=args.icd_10_column,
+            position_column=args.position_column,
+        )
+    else:
+        # if evaluate_attribute is None:
+        #     evaluate_attribute=[['I50', (0, 6), None]]
+        icd_status_range_classification_task = ICDStatusRangeClassificationTaskEval(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            negative_icd_sampling=negative_icd_sampling,
+            icd_instructions=icd_status_range_classification_instructions,
+            icd_convert=icd_convert,
+            patient_id_column=args.patient_id_column,
+            icd_10_column=args.icd_10_column,
+            position_column=args.position_column,
+            example_attributes=example_attributes,
+            evaluate_attribute=evaluate_attribute
+        )
+
+    icd_instruct = ICDInstruct(
+        instruction_tasks=[icd_status_range_classification_task],
+        tokenizer=tokenizer,
+        max_seq_length=max_seq_length,
+        pad_id=pad_id
+    )
+
+    instruct_function = partial(
+        icd_instruct.process_sample_from_args, args=args
+    )
+
+    count = 0
+
+    def test(sample):
+        return encounter_dataframe.loc[sample['PatientID']]
+
+    # Build pipeline extension
+    pipeline_extension = [
+        wds.decode(
+            wds.handle_extension("blosc", blosc.unpack_array),
+        ),
+        wds.rename(image="dict.x.blosc", text="dict.meta.pyd"),
+        wds.map_dict(text=instruct_function),
+        wds.map_dict(image=wds_ecg_to_torch),
+        wds.map_dict(image=preprocess_img),
+        wds.to_tuple("image", "text"),
+        wds.batched(args.batch_size, partial=not is_train),
+    ]
+
+    # pipeline_extension = [
+    #     wds.decode(
+    #         wds.handle_extension("blosc", blosc.unpack_array),
+    #     ),
+    #     wds.rename(image="dict.x.blosc", text="dict.meta.pyd", labels="dict.meta.pyd"),
+    #     wds.map_dict(text=instruct_function),
+    #     wds.map_dict(image=wds_ecg_to_torch),
+    #     wds.map_dict(image=preprocess_img),
+    #     wds.map_dict(labels=test),
+    #     wds.to_tuple("image", "text", "labels"),
+    #     wds.batched(args.batch_size, partial=not is_train),
+    # ]
+
+    return get_wds_data_info(
+        args=args,
+        pipeline_extension=pipeline_extension,
+        is_train=is_train,
+        epoch=epoch,
+        floor=floor
+    )
+
+
 def get_dataset_fn(data_path, dataset_type):
     if dataset_type == "webdataset":
         return get_wds_dataset
+    elif dataset_type == "icddataset":
+        return get_wds_dataset_icd_instruct
     elif dataset_type == "csv":
         return get_csv_dataset
     elif dataset_type == "synthetic":
@@ -541,7 +617,7 @@ def get_dataset_fn(data_path, dataset_type):
                 f"Tried to figure out dataset type, but failed for extension {ext}.")
     else:
         raise ValueError(f"Unsupported dataset type: {dataset_type}")
-    
+
 
 def get_data(args, preprocess_fns, epoch=0, tokenizer=None):
     preprocess_train, preprocess_val = preprocess_fns
@@ -562,3 +638,197 @@ def get_data(args, preprocess_fns, epoch=0, tokenizer=None):
         data["imagenet-v2"] = get_imagenet(args, preprocess_fns, "v2")
 
     return data
+
+# def get_icd_instruct_validation_data(args, preprocess_fns, epoch=0, tokenizer=None, do_train=True):
+#     preprocess_train, preprocess_val = preprocess_fns
+#     data = {}
+#
+#     if args.val_data:
+#         if args.dataset_type == "icddataset":
+#             data["val"] = get_dataset_fn(args.val_data, args.dataset_type)(
+#                 args, preprocess_val, is_train=False, tokenizer=tokenizer)
+#         else:
+#             data["val"] = get_dataset_fn(args.val_data, args.dataset_type)(
+#                 args, preprocess_val, is_train=False, tokenizer=tokenizer)
+#
+#     return data
+
+
+
+def wds_ecg_to_torch(x):
+    # time in last dimension, shape (12, 2500)
+    return torch.from_numpy(x.transpose(1, 0))
+
+
+def get_number_of_shards_samples(input_shards, is_train, train_num_samples, val_num_samples):
+    num_shards = None
+    if is_train:
+        if train_num_samples is not None:
+            num_samples = train_num_samples
+        else:
+            num_samples, num_shards = get_dataset_size(input_shards)
+            if not num_samples:
+                raise RuntimeError(
+                    'Currently, the number of dataset samples must be specified for the training dataset. '
+                    'Please specify it via `--train-num-samples` if no dataset length info is present.')
+    else:
+        # Eval will just exhaust the iterator if the size is not specified.
+        num_samples = val_num_samples or 0
+    return num_shards, num_samples
+
+
+def get_initial_pipeline(args, input_shards, resampled, is_train, shared_epoch):
+    if is_train and args.train_data_upsampling_factors is not None:
+        assert resampled, "--train_data_upsampling_factors is only supported when sampling with replacement (with " \
+                          "--dataset-resampled)."
+
+    if resampled:
+        pipeline = [ResampledShards2(
+            input_shards,
+            weights=args.train_data_upsampling_factors,
+            deterministic=True,
+            epoch=shared_epoch,
+        )]
+    else:
+        pipeline = [wds.SimpleShardList(input_shards)]
+
+    # at this point we have an iterator over all the shards
+    if is_train:
+        if not resampled:
+            pipeline.extend([
+                detshuffle2(
+                    bufsize=_SHARD_SHUFFLE_SIZE,
+                    initial=_SHARD_SHUFFLE_INITIAL,
+                    seed=args.seed,
+                    epoch=shared_epoch,
+                ),
+                wds.split_by_node,
+                wds.split_by_worker,
+            ])
+        pipeline.extend([
+            # at this point, we have an iterator over the shards assigned to each worker at each node
+            tarfile_to_samples_nothrow,  # wds.tarfile_to_samples(handler=log_and_continue),
+            wds.shuffle(
+                bufsize=_SAMPLE_SHUFFLE_SIZE,
+                initial=_SAMPLE_SHUFFLE_INITIAL,
+            ),
+        ])
+    else:
+        pipeline.extend([
+            wds.split_by_worker,
+            # at this point, we have an iterator over the shards assigned to each worker
+            wds.tarfile_to_samples(handler=log_and_continue),
+        ])
+
+    return pipeline
+
+
+def get_global_batch_size(args):
+    return args.batch_size * args.world_size
+
+
+def get_number_of_workers(args):
+    return max(1, args.workers)
+
+
+def get_dataset(pipeline, is_train, num_worker_batches=None):
+    dataset = wds.DataPipeline(*pipeline)
+    if is_train:
+        dataset = dataset.with_epoch(num_worker_batches)  # each worker is iterating over this
+    return dataset
+
+
+def get_wds_dataloader(dataset, num_workers, num_batches, num_samples):
+    dataloader = wds.WebLoader(
+        dataset,
+        batch_size=None,
+        shuffle=False,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+    )
+    dataloader.num_batches = num_batches
+    dataloader.num_samples = num_samples
+
+    return dataloader
+
+
+def get_number_of_worker_batches(
+        args,
+        input_shards,
+        resampled,
+        global_batch_size,
+        num_workers,
+        num_shards,
+        num_samples,
+        floor
+):
+    if not resampled:
+        num_shards = num_shards or len(expand_urls(input_shards)[0])
+        assert num_shards >= args.workers * args.world_size, 'number of shards must be >= total workers'
+    # roll over and repeat a few samples to get same number of full batches on each node
+    round_fn = math.floor if floor else math.ceil
+    num_batches = round_fn(num_samples / global_batch_size)
+    num_worker_batches = round_fn(num_batches / num_workers)  # per dataloader worker
+    return num_worker_batches
+
+
+def get_wds_data_info(args, pipeline_extension, is_train, epoch=0, floor=False):
+    input_shards = args.train_data if is_train else args.val_data
+    assert input_shards is not None
+
+    resampled = getattr(args, 'dataset_resampled', False) and is_train
+
+    shared_epoch = SharedEpoch(epoch=epoch)  # create a shared epoch store to sync epoch to dataloader worker proc
+
+    num_shards, num_samples = get_number_of_shards_samples(
+        input_shards=input_shards,
+        is_train=is_train,
+        train_num_samples=args.train_num_samples,
+        val_num_samples=args.val_num_samples
+    )
+
+    pipeline = get_initial_pipeline(
+        args=args,
+        input_shards=input_shards,
+        resampled=resampled,
+        is_train=is_train,
+        shared_epoch=shared_epoch
+    )
+
+    pipeline.extend(pipeline_extension)
+
+    if is_train:
+        global_batch_size = get_global_batch_size(args)
+        num_workers = get_number_of_workers(args)
+        num_worker_batches = get_number_of_worker_batches(
+            args=args,
+            input_shards=input_shards,
+            resampled=resampled,
+            global_batch_size=global_batch_size,
+            num_shards=num_shards,
+            num_samples=num_samples,
+            num_workers=num_workers,
+            floor=floor
+        )
+        num_batches = num_worker_batches * num_workers
+        num_samples = num_batches * global_batch_size
+    else:
+        num_worker_batches = None
+        # last batches are partial, eval is done on single (master) node
+        num_batches = math.ceil(num_samples / args.batch_size)
+
+    dataset = get_dataset(pipeline=pipeline, is_train=is_train, num_worker_batches=num_worker_batches)
+
+    dataloader = get_wds_dataloader(
+        dataset=dataset,
+        num_workers=args.workers,
+        num_batches=num_batches,
+        num_samples=num_samples
+    )
+
+    print(f'#### constructed dataloader (batches, samples): ####')
+    print(f'#### {num_batches}, {num_samples} ####')
+
+    return DataInfo(dataloader=dataloader, shared_epoch=shared_epoch)
+
+

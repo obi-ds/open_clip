@@ -34,7 +34,7 @@ from training.distributed import is_master, init_distributed_device, broadcast_o
 from training.logger import setup_logging
 from training.params import parse_args
 from training.scheduler import cosine_lr, const_lr, const_lr_cooldown
-from training.train import train_one_epoch, evaluate
+from training.train import train_one_epoch, evaluate, evaluate_caption_only
 from training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
 
 
@@ -437,7 +437,16 @@ def main(args):
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
+            # TODO: We changed from coca eval to only gen eval
             evaluate(model, data, completed_epoch, args, tb_writer=writer, tokenizer=tokenizer)
+            # evaluate_caption_only(model, data, completed_epoch, args, tb_writer=writer, tokenizer=tokenizer)
+            # TODO - Other evaluations
+            # val_data = get_data(
+            #         args,
+            #         (preprocess_train, preprocess_val),
+            #         epoch=start_epoch,
+            #         tokenizer=tokenizer,
+            #     )
 
         # Saving checkpoints.
         if args.save_logs:

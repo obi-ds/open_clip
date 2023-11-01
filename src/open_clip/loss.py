@@ -130,6 +130,45 @@ class ClipLoss(nn.Module):
 
         return {"contrastive_loss": total_loss} if output_dict else total_loss
 
+class CaptionLoss(ClipLoss):
+    def __init__(
+            self,
+            pad_id=0,  # pad_token for open_clip custom tokenizer
+            local_loss=False,
+            gather_with_grad=False,
+            cache_labels=False,
+            rank=0,
+            world_size=1,
+            use_horovod=False,
+    ):
+        super().__init__(
+            local_loss=local_loss,
+            gather_with_grad=gather_with_grad,
+            cache_labels=cache_labels,
+            rank=rank,
+            world_size=world_size,
+            use_horovod=use_horovod
+        )
+
+        self.clip_loss_weight = 0
+        self.caption_loss = nn.CrossEntropyLoss(ignore_index=pad_id)
+
+    def forward(self, image_features, text_features, logits, labels, logit_scale, output_dict=False):
+
+        clip_loss = super().forward(image_features, text_features, logit_scale)
+        clip_loss = self.clip_loss_weight * clip_loss
+
+        caption_loss = self.caption_loss(
+            logits.permute(0, 2, 1),
+            labels,
+        )
+        caption_loss = caption_loss
+
+        if output_dict:
+            return {"contrastive_loss": clip_loss, "caption_loss": caption_loss}
+
+        return clip_loss, caption_loss
+
 
 class CoCaLoss(ClipLoss):
     def __init__(
@@ -160,7 +199,7 @@ class CoCaLoss(ClipLoss):
     def forward(self, image_features, text_features, logits, labels, logit_scale, output_dict=False):
         
         clip_loss = torch.tensor(0)
-        
+
         if self.clip_loss_weight:
             clip_loss = super().forward(image_features, text_features, logit_scale)
             clip_loss = self.clip_loss_weight * clip_loss

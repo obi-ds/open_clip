@@ -7,6 +7,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torch.utils.checkpoint import checkpoint
+from kymatio.torch import Scattering1D
 
 from .utils import to_2tuple
 from .pos_embed import get_2d_sincos_pos_embed
@@ -708,6 +709,141 @@ class TextTransformer(nn.Module):
         return pooled
 
 
+class ScatteringTransformer(nn.Module):
+    output_tokens: torch.jit.Final[bool]
+
+    def __init__(self,
+                 scattering_j: int = 6,
+                 scattering_q: int = 8,
+                 scattering_t: int = None,
+                 layers: int = 2,
+                 width: int = 768,
+                 heads: int = 12,
+                 mlp_ratio: float = 4.0,
+                 ls_init_value: float = None,
+                 dropout: float = 0.0,
+                 global_average_pool: bool = False,
+                 attentional_pool: bool = False,
+                 n_queries: int = 256,
+                 attn_pooler_heads: int = 8,
+                 output_dim: int = 512,
+                 output_tokens: bool = False,
+                 act_layer: Callable = nn.GELU,
+                 norm_layer: Callable = LayerNorm
+                 ):
+        super().__init__()
+
+        print(layers, scattering_j, scattering_q, scattering_t)
+
+        # TODO T is an optional low-pass filter, could drop that parameter
+        # T=2**13
+        shape = 2500
+        # Scattering transformation
+        self.scattering = Scattering1D(J=scattering_j, shape=shape, Q=scattering_q, T=scattering_t)
+
+        # TODO is there a function for the signal length dimension as well?
+        # this is running it to look up the output size
+        dummy_signal = torch.randn(shape)
+        dummy_output = self.scattering(dummy_signal)
+        self.scattering_signal_length = dummy_output.shape[1]
+        self.scattering_output_size = dummy_output.shape[0]
+        # this is the same as the function below
+        # self.scattering_output_size = self.scattering.output_size()
+
+        scale = width ** -0.5
+        self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
+        self.pos_embed = nn.Parameter(scale * torch.randn(1, 12 + 1, width))
+        self.pos_drop = nn.Dropout(p=dropout)
+
+        # TODO dropping zero-order coefficients and log-scaling should be config parameters
+        # scattering_output_size - 1 takes into account dropping zero-order coefficients
+        self.input_projection = nn.Linear(in_features=(
+                (self.scattering_output_size - 1) * self.scattering_signal_length),
+            out_features=width)
+
+        # TODO could also use a Conv2d layer here
+        # self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=width, kernel_size=patch_size, stride=patch_size,
+        #                       bias=False)
+
+        # Transformer network
+        self.transformer = Transformer(
+            width=width,
+            layers=layers,
+            heads=heads,
+            mlp_ratio=mlp_ratio,
+            ls_init_value=ls_init_value,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+        )
+
+        self.global_average_pool = global_average_pool
+        if attentional_pool:
+            self.attn_pool = AttentionalPooler(output_dim, width, n_head=attn_pooler_heads, n_queries=n_queries)
+            self.ln_post = norm_layer(output_dim)
+            self.proj = nn.Parameter(scale * torch.randn(output_dim, output_dim))
+        else:
+            self.attn_pool = None
+            self.ln_post = norm_layer(width)
+            self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
+
+        # Whether to return tokens as well
+        self.output_tokens = output_tokens
+
+    def _global_pool(self, x):
+        return x.mean(dim=1), x
+
+    def forward(self, x):
+
+        batch_size, leads, _ = x.shape
+        # Reshape the input to treat each lead as a separate signal
+        x_reshaped = x.view(-1, 2500)
+
+        # Apply the scattering transform
+        scattered_x = self.scattering.forward(x_reshaped)
+
+        # log-scale and dropping zero-order coefficients
+        scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
+
+        # Reshape to [64, 12, 125, 39]
+        x1 = scattered_x.view(batch_size,
+                              leads,
+                              self.scattering_output_size - 1,
+                              self.scattering_signal_length)
+
+        # Reshape to [64, 12, 125 * 39]
+        x2 = x1.contiguous().view(batch_size,
+                                  leads,
+                                  (self.scattering_output_size - 1) * self.scattering_signal_length)
+
+        # use this to project down to transformer input width
+        x = self.input_projection(x2)
+
+        # concatenate the CLS token, and add the position tokens to each lead
+        x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
+        x = x + self.pos_embed
+        x = self.pos_drop(x)
+
+        # TODO verify the dimensions here
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        x = self.transformer(x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+
+        if self.attn_pool is not None:
+            x = self.attn_pool(x)
+            x = self.ln_post(x)
+            pooled, tokens = self._global_pool(x)
+        else:
+            pooled, tokens = self._global_pool(x)
+            pooled = self.ln_post(pooled)
+
+        if self.proj is not None:
+            pooled = pooled @ self.proj
+
+        if self.output_tokens:
+            return pooled, tokens
+        return pooled
+
+
 class MultimodalTransformer(Transformer):
     def __init__(
             self,
@@ -749,6 +885,9 @@ class MultimodalTransformer(Transformer):
 
         self.ln_final = norm_layer(width)
         self.text_projection = nn.Parameter(torch.empty(width, output_dim))
+
+        # if self.text_projection is not None:
+        #     nn.init.normal_(self.text_projection, std=width ** -0.5)
 
     def init_parameters(self):
         proj_std = (self.transformer.width ** -0.5) * ((2 * self.transformer.layers) ** -0.5)

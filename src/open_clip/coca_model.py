@@ -12,7 +12,14 @@ from .transformer import (
     QuickGELU,
     MultimodalTransformer,
 )
-from .model import CLIPTextCfg, CLIPVisionCfg, _build_vision_tower, _build_text_tower
+from .model import (
+    CLIPTextCfg,
+    CLIPVisionCfg,
+    CLIPScatterCfg,
+    _build_vision_tower,
+    _build_text_tower,
+    _build_scattering_tower
+)
 
 try:
     from transformers import (
@@ -76,59 +83,14 @@ def _build_text_decoder_tower(
     return decoder
 
 
-class CoCa(nn.Module):
-    def __init__(
-            self,
-            embed_dim,
-            multimodal_cfg: MultimodalCfg,
-            text_cfg: CLIPTextCfg,
-            vision_cfg: CLIPVisionCfg,
-            quick_gelu: bool = False,
-            init_logit_scale: float = np.log(1 / 0.07),
-            init_logit_bias: Optional[float] = None,
-            cast_dtype: Optional[torch.dtype] = None,
-            pad_id: int = 0,
-    ):
+class CoCaInterface(nn.Module):
+    def __init__(self):
         super().__init__()
-        multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
-        text_cfg = CLIPTextCfg(**text_cfg) if isinstance(text_cfg, dict) else text_cfg
-        vision_cfg = CLIPVisionCfg(**vision_cfg) if isinstance(vision_cfg, dict) else vision_cfg
-
-        self.text = _build_text_tower(
-            embed_dim=embed_dim,
-            text_cfg=text_cfg,
-            quick_gelu=quick_gelu,
-            cast_dtype=cast_dtype,
-        )
-
-        vocab_size = (
-            text_cfg.vocab_size  # for hf models
-            if hasattr(text_cfg, "hf_model_name") and text_cfg.hf_model_name is not None
-            else text_cfg.vocab_size
-        )
-
-        self.visual = _build_vision_tower(
-            embed_dim=embed_dim,
-            vision_cfg=vision_cfg,
-            quick_gelu=quick_gelu,
-            cast_dtype=cast_dtype,
-        )
-
-        self.text_decoder = _build_text_decoder_tower(
-            vocab_size,
-            multimodal_cfg=multimodal_cfg,
-            quick_gelu=quick_gelu,
-            cast_dtype=cast_dtype,
-        )
-
-        self.logit_scale = nn.Parameter(torch.ones([]) * init_logit_scale)
-        if init_logit_bias is not None:
-            self.logit_bias = nn.Parameter(torch.ones([]) * init_logit_bias)
-        else:
-            self.logit_bias = None
-        self.pad_id = pad_id
-
-        self.context_length = multimodal_cfg.context_length
+        self.text = None
+        self.visual = None
+        self.text_decoder = None
+        self.logit_scale = None
+        self.pad_id = None
 
     @torch.jit.ignore
     def set_grad_checkpointing(self, enable: bool = True):
@@ -141,7 +103,8 @@ class CoCa(nn.Module):
         image_latent = F.normalize(image_latent, dim=-1) if normalize else image_latent
         return image_latent, tokens_embs
 
-    def _encode_text(self, text, normalize: bool = True):
+    def _encode_text(self, text, normalize: bool = True, embed_cls: bool = True):
+        text = text[:, :-1] if embed_cls else text # make space for CLS token
         text_latent, token_emb = self.text(text)
         text_latent = F.normalize(text_latent, dim=-1) if normalize else text_latent
         return text_latent, token_emb
@@ -150,14 +113,15 @@ class CoCa(nn.Module):
         image_latent, _ = self._encode_image(images, normalize=normalize)
         return image_latent
 
-    def encode_text(self, text, normalize: bool = True):
-        text_latent, _ = self._encode_text(text, normalize=normalize)
+    def encode_text(self, text, normalize: bool = True, embed_cls: bool = True):
+        text_latent, _ = self._encode_text(text, normalize=normalize, embed_cls=embed_cls)
         return text_latent
 
     def forward(
             self,
             image,
             text: Optional[torch.Tensor] = None,
+            embed_cls: bool = True,
             image_latent: Optional[torch.Tensor] = None,
             image_embs: Optional[torch.Tensor] = None,
     ):
@@ -167,22 +131,20 @@ class CoCa(nn.Module):
         if text is None:
             return {"image_features": image_latent, "image_embs": image_embs}
 
-        text_latent, token_embs = self._encode_text(text)
+        text_latent, token_embs = self._encode_text(text, embed_cls=embed_cls)
 
         # TODO: add assertion to avoid bugs?
         labels = text[:, -token_embs.shape[1]:]
 
         logits = self.text_decoder(image_embs, token_embs)
-        out_dict = {
+
+        return {
             "image_features": image_latent,
             "text_features": text_latent,
             "logits": logits,
             "labels": labels,
             "logit_scale": self.logit_scale.exp()
         }
-        if self.logit_bias is not None:
-            out_dict["logit_bias"] = self.logit_bias
-        return out_dict
 
     def generate(
         self,
@@ -231,7 +193,7 @@ class CoCa(nn.Module):
 
             if generation_type == "beam_search":
                 output = self._generate_beamsearch(
-                    image_inputs=image,
+                    image_inputs = image,
                     pad_token_id=pad_token_id,
                     eos_token_id=eos_token_id,
                     sot_token_id=sot_token_id,
@@ -276,7 +238,7 @@ class CoCa(nn.Module):
             while True:
                 x = out[:, -max_seq_len:]
                 cur_len = x.shape[1]
-                logits = self(image, x, image_latent=image_latent, image_embs=image_embs)["logits"][:, -1]
+                logits = self(image, x, image_latent=image_latent, image_embs=image_embs, embed_cls=False)["logits"][:, -1]
                 mask = (out[:, -1] == eos_token_id) | (out[:, -1] == pad_token_id)
                 sample = torch.ones((out.shape[0], 1), device=device, dtype=torch.long) * pad_token_id
 
@@ -371,6 +333,7 @@ class CoCa(nn.Module):
             outputs = self(
                 model_inputs['images'],
                 model_inputs['text'],
+                embed_cls=False,
                 image_latent=image_latent,
                 image_embs=image_embs
             )
@@ -454,6 +417,203 @@ class CoCa(nn.Module):
             beam_indices=final_beam_indices,
         )
         return sequence_outputs['sequences']
+
+
+class CoCa(CoCaInterface):
+    def __init__(
+            self,
+            embed_dim,
+            multimodal_cfg: MultimodalCfg,
+            text_cfg: CLIPTextCfg,
+            vision_cfg: CLIPVisionCfg,
+            quick_gelu: bool = False,
+            cast_dtype: Optional[torch.dtype] = None,
+            pad_id: int = 0,
+    ):
+        super().__init__()
+        multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
+        text_cfg = CLIPTextCfg(**text_cfg) if isinstance(text_cfg, dict) else text_cfg
+        vision_cfg = CLIPVisionCfg(**vision_cfg) if isinstance(vision_cfg, dict) else vision_cfg
+
+        self.text = _build_text_tower(
+            embed_dim=embed_dim,
+            text_cfg=text_cfg,
+            quick_gelu=quick_gelu,
+            cast_dtype=cast_dtype,
+        )
+
+        vocab_size = (
+            text_cfg.vocab_size  # for hf models
+            if hasattr(text_cfg, "hf_model_name") and text_cfg.hf_model_name is not None
+            else text_cfg.vocab_size
+        )
+
+        self.visual = _build_vision_tower(
+            embed_dim=embed_dim,
+            vision_cfg=vision_cfg,
+            quick_gelu=quick_gelu,
+            cast_dtype=cast_dtype,
+        )
+
+        self.text_decoder = _build_text_decoder_tower(
+            vocab_size,
+            multimodal_cfg=multimodal_cfg,
+            quick_gelu=quick_gelu,
+            cast_dtype=cast_dtype,
+        )
+
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self.pad_id = pad_id
+
+
+class ScatterCoCa(CoCaInterface):
+    def __init__(
+            self,
+            embed_dim,
+            multimodal_cfg: MultimodalCfg,
+            text_cfg: CLIPTextCfg,
+            scatter_cfg: CLIPScatterCfg,
+            vision_cfg: CLIPVisionCfg,
+            quick_gelu: bool = False,
+            cast_dtype: Optional[torch.dtype] = None,
+            pad_id: int = 0,
+    ):
+        super().__init__()
+        multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
+        text_cfg = CLIPTextCfg(**text_cfg) if isinstance(text_cfg, dict) else text_cfg
+        scatter_cfg = CLIPScatterCfg(**scatter_cfg) if isinstance(scatter_cfg, dict) else scatter_cfg
+
+        self.text = _build_text_tower(
+            embed_dim=embed_dim,
+            text_cfg=text_cfg,
+            quick_gelu=quick_gelu,
+            cast_dtype=cast_dtype,
+        )
+
+        vocab_size = (
+            text_cfg.vocab_size  # for hf models
+            if hasattr(text_cfg, "hf_model_name") and text_cfg.hf_model_name is not None
+            else text_cfg.vocab_size
+        )
+
+        self.visual = _build_scattering_tower(
+            embed_dim=embed_dim,
+            scatter_cfg=scatter_cfg,
+        )
+
+        self.text_decoder = _build_text_decoder_tower(
+            vocab_size,
+            multimodal_cfg=multimodal_cfg,
+            quick_gelu=quick_gelu,
+            cast_dtype=cast_dtype,
+        )
+
+        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+        self.pad_id = pad_id
+
+    def forward(
+            self,
+            image,
+            text: Optional[torch.Tensor] = None,
+            embed_cls: bool = True,
+            image_latent: Optional[torch.Tensor] = None,
+            image_embs: Optional[torch.Tensor] = None,
+    ):
+        labels = None
+        if text.dim() == 3:
+            labels = text[:, 1, :]
+            text = text[:, 0, :]
+
+        text_latent, token_embs = self._encode_text(text, embed_cls=embed_cls)
+        if image_latent is None or image_embs is None:
+            image_latent, image_embs = self._encode_image(image)
+
+        if labels is None:
+            labels = text[:, -token_embs.shape[1]:]
+        else:
+            labels = labels[:, 1:]
+
+        logits = self.text_decoder(image_embs, token_embs)
+
+        return {
+            "image_features": image_latent,
+            "text_features": text_latent,
+            "logits": logits,
+            "labels": labels,
+            "logit_scale": self.logit_scale.exp()
+        }
+
+class ScatterCaption(CoCaInterface):
+    def __init__(
+            self,
+            embed_dim,
+            multimodal_cfg: MultimodalCfg,
+            text_cfg: CLIPTextCfg,
+            scatter_cfg: CLIPScatterCfg,
+            vision_cfg: CLIPVisionCfg,
+            quick_gelu: bool = False,
+            cast_dtype: Optional[torch.dtype] = None,
+            pad_id: int = 0,
+    ):
+        super().__init__()
+        multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
+        text_cfg = CLIPTextCfg(**text_cfg) if isinstance(text_cfg, dict) else text_cfg
+        scatter_cfg = CLIPScatterCfg(**scatter_cfg) if isinstance(scatter_cfg, dict) else scatter_cfg
+
+        self.text = _build_text_tower(
+            embed_dim=embed_dim,
+            text_cfg=text_cfg,
+            quick_gelu=quick_gelu,
+            cast_dtype=cast_dtype,
+        )
+
+        vocab_size = (
+            text_cfg.vocab_size  # for hf models
+            if hasattr(text_cfg, "hf_model_name") and text_cfg.hf_model_name is not None
+            else text_cfg.vocab_size
+        )
+
+        self.visual = _build_scattering_tower(
+            embed_dim=embed_dim,
+            scatter_cfg=scatter_cfg,
+        )
+
+        self.text_decoder = _build_text_decoder_tower(
+            vocab_size,
+            multimodal_cfg=multimodal_cfg,
+            quick_gelu=quick_gelu,
+            cast_dtype=cast_dtype,
+        )
+
+        self.pad_id = pad_id
+
+    def forward(
+            self,
+            image,
+            text: Optional[torch.Tensor] = None,
+            embed_cls: bool = True,
+            image_latent: Optional[torch.Tensor] = None,
+            image_embs: Optional[torch.Tensor] = None,
+    ):
+        labels = None
+        if text.dim() == 3:
+            labels = text[:, 1, :]
+            text = text[:, 0, :]
+
+        _, token_embs = self._encode_text(text, embed_cls=embed_cls)
+        if image_latent is None or image_embs is None:
+            _, image_embs = self._encode_image(image)
+
+        if labels is None:
+            labels = text[:, -token_embs.shape[1]:]
+        else:
+            labels = labels[:, -token_embs.shape[1]:]
+
+        logits = self.text_decoder(image_embs, token_embs)
+        return {
+            "logits": logits,
+            "labels": labels,
+        }
 
 
 def prepare_inputs_for_generation(input_ids, image_inputs, past=None, **kwargs):
