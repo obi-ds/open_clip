@@ -12,8 +12,8 @@ import torch
 from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype, resize_text_pos_embed, set_model_preprocess_cfg
-from .coca_model import CoCa
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss
+from .coca_model import CoCa, ScatterCoCa
+from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, CaptionLoss
 from .openai import load_openai_model
 from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrained,\
     list_pretrained_tags_by_model, download_pretrained_from_hf
@@ -245,7 +245,9 @@ def create_model(
 
         model_cfg = dict(model_cfg, **model_kwargs)  # merge cfg dict w/ kwargs (kwargs overrides cfg)
         if custom_text:
-            if "multimodal_cfg" in model_cfg:
+            if "scatter_cfg" in model_cfg:
+                model = ScatterCoCa(**model_cfg, **model_kwargs, cast_dtype=cast_dtype)
+            elif "multimodal_cfg" in model_cfg:
                 model = CoCa(**model_cfg, cast_dtype=cast_dtype)
             else:
                 model = CustomTextCLIP(**model_cfg, cast_dtype=cast_dtype)
@@ -331,6 +333,15 @@ def create_loss(args):
             world_size=args.world_size,
             use_horovod=args.horovod,
         )
+    elif 'scatter' in args.model.lower():
+        return CaptionLoss(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod,
+        )
     elif "coca" in args.model.lower():
         return CoCaLoss(
             caption_loss_weight=args.coca_caption_loss_weight,
@@ -400,17 +411,22 @@ def create_model_and_transforms(
         **model_kwargs,
     )
 
-    pp_cfg = PreprocessCfg(**model.visual.preprocess_cfg)
+    if "scatter" in model_name:
+        preprocess_train = lambda x: x
+        preprocess_val = lambda x: x
 
-    preprocess_train = image_transform_v2(
-        pp_cfg,
-        is_train=True,
-        aug_cfg=aug_cfg,
-    )
-    preprocess_val = image_transform_v2(
-        pp_cfg,
-        is_train=False,
-    )
+    else:
+        pp_cfg = PreprocessCfg(**model.visual.preprocess_cfg)
+
+        preprocess_train = image_transform_v2(
+            pp_cfg,
+            is_train=True,
+            aug_cfg=aug_cfg,
+        )
+        preprocess_val = image_transform_v2(
+            pp_cfg,
+            is_train=False,
+        )
 
     return model, preprocess_train, preprocess_val
 

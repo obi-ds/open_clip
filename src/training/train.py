@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import time
+from sklearn.metrics import accuracy_score, roc_auc_score
 
 import numpy as np
 import torch
@@ -356,6 +357,141 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
 
     return metrics
 
+def evaluate_icd_binary_instruct(
+        model,
+        data,
+        epoch,
+        args,
+        tokenizer=None,
+        tb_writer=None,
+        prefix='',
+        pad_id=0,
+        eot_token_id=49407,
+        positive_token_id=1958,
+        step=None
+):
+    metrics = {}
+    if not is_master(args):
+        return metrics
+    device = torch.device(args.device)
+    model.eval()
+
+    autocast = get_autocast(args.precision)
+    input_dtype = get_input_dtype(args.precision)
+
+    if 'val' in data and (args.val_frequency and ((epoch % args.val_frequency) == 0 or epoch == args.epochs)):
+        dataloader = data['val'].dataloader
+        num_samples = 0
+        samples_per_val = dataloader.num_samples
+
+        # FIXME this does not scale past small eval datasets
+        # all_image_features @ all_text_features will blow up memory and compute very quickly
+        cumulative_gen_loss = 0.0
+        all_scores, all_predictions, all_labels = [], [], []
+        with torch.no_grad():
+            for i, batch in enumerate(dataloader):
+                images, texts = batch
+                images = images.to(device=device, dtype=input_dtype, non_blocking=True)
+                texts = texts.to(device=device, non_blocking=True)
+
+                with autocast():
+                    # TODO = For multi code eval - we don't want to run forward pass add some caching mechanism,
+                    #  and when using cache get the labels directly from the text variable
+                    model_out = model(images, texts)
+                    model_logits = model_out['logits']
+                    model_labels = model_out['labels']
+                    mask = (model_labels != pad_id) & (model_labels != eot_token_id)
+                    labels = model_labels[mask]
+                    logits = model_logits[mask]
+
+                    all_scores.append(logits[:, positive_token_id].cpu())
+                    all_predictions.append(logits.argmax(dim=-1).cpu())
+                    all_labels.append(labels.cpu())
+                    # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
+                    # however, system RAM is easily exceeded and compute time becomes problematic
+
+                    batch_size = images.shape[0]
+                    gen_loss = compute_generative_loss(token_logits=model_logits, token_labels=model_labels)
+
+                num_samples += batch_size
+                if is_master(args) and (i % 100) == 0:
+                    logging.info(
+                        f"Eval Epoch: {epoch} [{num_samples} / {samples_per_val}]\t"
+                    )
+
+                    if gen_loss is not None:
+                        cumulative_gen_loss += gen_loss * batch_size
+                        logging.info(
+                            f"{prefix} Generative Loss: {cumulative_gen_loss / num_samples:.6f}\t")
+            generative_metrics = compute_generative_metrics(
+                scores=torch.cat(all_scores),
+                predictions=torch.cat(all_predictions),
+                labels=torch.cat(all_labels),
+                prefix=prefix
+            )
+            metrics.update(
+                {**generative_metrics, "epoch": epoch, "num_samples": num_samples}
+            )
+            if gen_loss is not None:
+                gen_loss = cumulative_gen_loss / num_samples
+                metrics.update({f"{prefix}generative_loss": gen_loss.item()})
+
+    if not metrics:
+        return metrics
+
+    logging.info(
+        f"Eval Epoch: {epoch} "
+        + "\t".join([f"{k}: {round(v, 4):.4f}" for k, v in metrics.items()])
+    )
+
+    log_data = {"val/" + name: val for name, val in metrics.items()}
+
+    if args.save_logs:
+        if tb_writer is not None:
+            for name, val in log_data.items():
+                tb_writer.add_scalar(name, val, epoch)
+
+        with open(os.path.join(args.checkpoint_path, "results.jsonl"), "a+") as f:
+            f.write(json.dumps(metrics))
+            f.write("\n")
+
+    if args.wandb:
+        assert wandb is not None, 'Please install wandb.'
+        # if 'train' in data:
+        #     dataloader = data['train'].dataloader
+        #     num_batches_per_epoch = dataloader.num_batches // args.accum_freq
+        #     step = num_batches_per_epoch * epoch
+        # else:
+        #     step = None
+        log_data['epoch'] = epoch
+        wandb.log(log_data, step=step)
+
+    return metrics
+
+def get_step(data, accum_freq, epoch):
+    if 'train' in data:
+        dataloader = data['train'].dataloader
+        num_batches_per_epoch = dataloader.num_batches // accum_freq
+        return num_batches_per_epoch * epoch
+    else:
+        return None
+
+def log_metrics(metrics, args, tb_writer, epoch, step):
+    log_data = {"val/" + name: val for name, val in metrics.items()}
+
+    if args.save_logs:
+        if tb_writer is not None:
+            for name, val in log_data.items():
+                tb_writer.add_scalar(name, val, epoch)
+
+        with open(os.path.join(args.checkpoint_path, "results.jsonl"), "a+") as f:
+            f.write(json.dumps(metrics))
+            f.write("\n")
+
+    if args.wandb:
+        assert wandb is not None, 'Please install wandb.'
+        log_data['epoch'] = epoch
+        wandb.log(log_data, step=step)
 
 def get_clip_metrics(image_features, text_features, logit_scale):
     metrics = {}
@@ -382,3 +518,12 @@ def maybe_compute_generative_loss(model_out):
         token_logits = model_out["logits"]
         token_labels = model_out["labels"]
         return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels)
+
+def compute_generative_loss(token_logits, token_labels, pad_id=0):
+    return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels, ignore_index=pad_id)
+
+def compute_generative_metrics(scores, predictions, labels, prefix):
+    metrics = {}
+    metrics[f'{prefix}accuracy'] = accuracy_score(labels, predictions)
+    metrics[f'{prefix}auc'] = roc_auc_score(labels, scores)
+    return metrics

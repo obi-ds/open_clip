@@ -12,7 +12,7 @@ from .transformer import (
     QuickGELU,
     MultimodalTransformer,
 )
-from .model import CLIPTextCfg, CLIPVisionCfg, _build_vision_tower, _build_text_tower
+from .model import CLIPTextCfg, CLIPVisionCfg, CLIPScatterCfg, _build_vision_tower, _build_text_tower, _build_scattering_tower
 
 try:
     from transformers import (
@@ -82,7 +82,7 @@ class CoCa(nn.Module):
             embed_dim,
             multimodal_cfg: MultimodalCfg,
             text_cfg: CLIPTextCfg,
-            vision_cfg: CLIPVisionCfg,
+            vision_cfg: Optional[CLIPVisionCfg],
             quick_gelu: bool = False,
             init_logit_scale: float = np.log(1 / 0.07),
             init_logit_bias: Optional[float] = None,
@@ -92,7 +92,9 @@ class CoCa(nn.Module):
         super().__init__()
         multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
         text_cfg = CLIPTextCfg(**text_cfg) if isinstance(text_cfg, dict) else text_cfg
-        vision_cfg = CLIPVisionCfg(**vision_cfg) if isinstance(vision_cfg, dict) else vision_cfg
+
+        if vision_cfg is not None:
+            vision_cfg = CLIPVisionCfg(**vision_cfg) if isinstance(vision_cfg, dict) else vision_cfg
 
         self.text = _build_text_tower(
             embed_dim=embed_dim,
@@ -107,12 +109,13 @@ class CoCa(nn.Module):
             else text_cfg.vocab_size
         )
 
-        self.visual = _build_vision_tower(
-            embed_dim=embed_dim,
-            vision_cfg=vision_cfg,
-            quick_gelu=quick_gelu,
-            cast_dtype=cast_dtype,
-        )
+        if vision_cfg is not None:
+            self.visual = _build_vision_tower(
+                embed_dim=embed_dim,
+                vision_cfg=vision_cfg,
+                quick_gelu=quick_gelu,
+                cast_dtype=cast_dtype,
+            )
 
         self.text_decoder = _build_text_decoder_tower(
             vocab_size,
@@ -476,3 +479,66 @@ def prepare_inputs_for_generation(input_ids, image_inputs, past=None, **kwargs):
         "position_ids": position_ids,
         "attention_mask": attention_mask,
     }
+
+class ScatterCoCa(CoCa):
+    def __init__(
+            self,
+            embed_dim,
+            multimodal_cfg: MultimodalCfg,
+            text_cfg: CLIPTextCfg,
+            scatter_cfg: CLIPScatterCfg,
+            vision_cfg: Optional[CLIPVisionCfg] = None,
+            quick_gelu: bool = False,
+            init_logit_scale: float = np.log(1 / 0.07),
+            init_logit_bias: Optional[float] = None,
+            cast_dtype: Optional[torch.dtype] = None,
+            pad_id: int = 0,
+    ):
+
+        super().__init__(
+            embed_dim=embed_dim,
+            multimodal_cfg=multimodal_cfg,
+            text_cfg=text_cfg,
+            vision_cfg=None,
+            quick_gelu=quick_gelu,
+            init_logit_scale=init_logit_scale,
+            init_logit_bias=init_logit_bias,
+            cast_dtype=cast_dtype,
+            pad_id=pad_id
+        )
+
+        self.visual = _build_scattering_tower(
+            embed_dim=embed_dim,
+            scatter_cfg=scatter_cfg,
+        )
+
+    def forward(
+            self,
+            image,
+            text: Optional[torch.Tensor] = None,
+            image_latent: Optional[torch.Tensor] = None,
+            image_embs: Optional[torch.Tensor] = None,
+    ):
+        labels = None
+        if text.dim() == 3:
+            labels = text[:, 1, :]
+            text = text[:, 0, :]
+
+        text_latent, token_embs = self._encode_text(text)
+        if image_latent is None or image_embs is None:
+            image_latent, image_embs = self._encode_image(image)
+
+        if labels is None:
+            labels = text[:, -token_embs.shape[1]:]
+        else:
+            labels = labels[:, 1:]
+
+        logits = self.text_decoder(image_embs, token_embs)
+
+        return {
+            "image_features": image_latent,
+            "text_features": text_latent,
+            "logits": logits,
+            "labels": labels,
+            "logit_scale": self.logit_scale.exp()
+        }
