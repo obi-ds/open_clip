@@ -1,6 +1,7 @@
 """Convert icd codes into the desired label format for training models"""
 import random
-from typing import Callable, List, Sequence
+import pandas as pd
+from typing import Callable, List, Sequence, Union
 
 import numpy as np
 from functools import partial
@@ -130,13 +131,12 @@ class ICDConvert(object):
             p=[billable_probability, top_non_probability, mixed_non_probability]
         )
 
-    def transform_codes(self, icd_code: str, lowercase: bool) -> str:
+    def transform_code(self, icd_code: str) -> str:
         """
         Return raw codes or the textual code descriptions
 
         Args:
             icd_code (str): A given icd code
-            lowercase (bool): Whether to lowercase the output
 
         Returns:
             icd_code (str): String that contains the raw codes or text descriptions
@@ -149,36 +149,12 @@ class ICDConvert(object):
         else:
             return (
                 self._icd_descriptions.get_description(icd_code).lower()
-                if lowercase else self._icd_descriptions.get_description(icd_code)
+                if self._lowercase else self._icd_descriptions.get_description(icd_code)
             )
-
-    def get_converted_code(
-            self,
-            icd_code: str
-    ) -> str:
-        """
-        Given a set of codes, leave them as is, or convert to relevant codes in their hierarchy.
-        Post which the codes can be returned as is or mapped to their textual descriptions.
-        Args:
-            icd_code (str): An icd code
-
-        Returns:
-            icd_code (str): Converted icd code
-        """
-
-        # Get the mapping function - to map icd codes to codes in the hierarchy or keep the code as is
-        mapping_function = self.get_mapping_function(
-            billable_probability=self._billable_probability,
-            top_non_probability=self._top_non_probability,
-            mixed_non_probability=self._mixed_non_probability
-        )
-
-        # Map to textual descriptions
-        return self.transform_codes(icd_code=mapping_function(icd_code), lowercase=self._lowercase)
 
     def get_converted_codes(
             self,
-            icd_codes: Sequence[str],
+            icd_codes: Union[Sequence[str], pd.Series]
     ) -> List[str]:
         """
         Given a set of codes, leave them as is, or convert to relevant codes in their hierarchy.
@@ -198,9 +174,5 @@ class ICDConvert(object):
         )
 
         # Map codes
-        icd_codes = map(mapping_function, icd_codes)
+        return [mapping_function(code) for code in icd_codes]
 
-        # Map to textual descriptions
-        icd_codes = map(partial(self.transform_codes, lowercase=self._lowercase), icd_codes)
-
-        return list(icd_codes)
