@@ -398,8 +398,8 @@ def evaluate_icd_binary_instruct(
                     # TODO = For multi code eval - we don't want to run forward pass add some caching mechanism,
                     #  and when using cache get the labels directly from the text variable
                     model_out = model(images, texts)
-                    model_logits = model_out['logits']
-                    model_labels = model_out['labels']
+                    model_logits = model_out['logits'][:, :-1, :]
+                    model_labels = model_out['labels'][:, 1:]
                     mask = (model_labels != pad_id) & (model_labels != eot_token_id)
                     labels = model_labels[mask]
                     logits = model_logits[mask]
