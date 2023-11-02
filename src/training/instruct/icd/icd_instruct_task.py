@@ -66,6 +66,17 @@ class ICDStatusClassificationTask(object):
             shuffle=args.shuffle
         )
 
+    def map_encounter_codes(self, encounter_history: pd.DataFrame):
+        encounter_history[self._icd_10_column] = self._icd_convert.get_converted_codes(
+            icd_codes=encounter_history[self._icd_10_column]
+        )
+        return encounter_history
+
+    def filter_encounter_codes(self, encounter_history: pd.DataFrame):
+        encounter_history.sort_values(by=self._position_column, inplace=True)
+        encounter_history.drop_duplicates(subset=self._icd_10_column, inplace=True)
+        return encounter_history
+
     def get_instruction_samples(
             self,
             patient_id: Union[str, int],
@@ -107,6 +118,10 @@ class ICDStatusClassificationTask(object):
             future_time_delta=future_time_delta,
             use_log_position=use_log_position,
             time_difference_normalize=time_difference_normalize
+        )
+
+        encounter_history = self.filter_encounter_codes(
+            encounter_history=self.map_encounter_codes(encounter_history=encounter_history)
         )
 
         # Check if dataframe contains any data
@@ -301,12 +316,12 @@ class ICDStatusClassificationTask(object):
 
         # Get positive instruction inputs and target
         positive_instructions = self._icd_instructions.get_positive_instructions(
-            diagnosis_list=sampled_positives[self._icd_10_column].apply(self._icd_convert.get_converted_code),
+            diagnosis_list=sampled_positives[self._icd_10_column].apply(self._icd_convert.transform_code),
             positions_list=sampled_positives[self._position_column]
         )
 
         negative_instructions = self._icd_instructions.get_negative_instructions(
-            diagnosis_list=sampled_negatives[self._icd_10_column].apply(self._icd_convert.get_converted_code),
+            diagnosis_list=sampled_negatives[self._icd_10_column].apply(self._icd_convert.transform_code),
             positions_list=sampled_negatives[self._position_column]
         )
 
@@ -480,7 +495,7 @@ class ICDStatusRangeClassificationTask(ICDStatusClassificationTask):
 
         # Get positive instruction inputs and target
         positive_instructions = self._icd_instructions.get_positive_instructions(
-            diagnosis_list=sampled_positives[self._icd_10_column].apply(self._icd_convert.get_converted_code),
+            diagnosis_list=sampled_positives[self._icd_10_column].apply(self._icd_convert.transform_code),
             positions_list=sampled_positives[self._position_column],
             past_start_range_limit=past_start_range_limit,
             past_end_range_limit=past_end_range_limit,
@@ -489,7 +504,7 @@ class ICDStatusRangeClassificationTask(ICDStatusClassificationTask):
         )
 
         negative_instructions = self._icd_instructions.get_negative_instructions(
-            diagnosis_list=sampled_negatives[self._icd_10_column].apply(self._icd_convert.get_converted_code),
+            diagnosis_list=sampled_negatives[self._icd_10_column].apply(self._icd_convert.transform_code),
             positions_list=sampled_negatives[self._position_column],
             past_start_range_limit=past_start_range_limit,
             past_end_range_limit=past_end_range_limit,
@@ -513,7 +528,7 @@ class ICDStatusRangeClassificationTaskEval(ICDStatusRangeClassificationTask):
 
     def __init__(
             self,
-            evaluate_attribute: List[Tuple[str, Tuple[int, int], Optional[bool]]],
+            evaluate_attribute: Tuple[str, Tuple[int, int], Optional[bool]],
             encounter_dataframe_process: EncounterDataframeProcess,
             dataframe_sampling: DataFrameSampling,
             icd_instructions: Any,
@@ -555,8 +570,8 @@ class ICDStatusRangeClassificationTaskEval(ICDStatusRangeClassificationTask):
         else:
             raise ValueError('Invalid time period')
 
-    def __get_answer(self, encounter_history, icd_code):
-        return sum(encounter_history[self._icd_10_column].str.contains(icd_code))
+    def __get_answer(self, encounter_history, icd_code, regex):
+        return sum(encounter_history[self._icd_10_column].str.contains(icd_code, regex=regex))
 
     def get_sample(self, icd_code, start_time, end_time):
         return {
@@ -566,7 +581,7 @@ class ICDStatusRangeClassificationTaskEval(ICDStatusRangeClassificationTask):
             self._end_range_limit_column: end_time
         }
 
-    def get_answer(self, encounter_history, icd_code, start_time, end_time, answer):
+    def get_answer(self, encounter_history, icd_code, start_time, end_time, answer, regex):
 
         if answer is None:
             # Select the dataframe values within the time range
@@ -578,11 +593,11 @@ class ICDStatusRangeClassificationTaskEval(ICDStatusRangeClassificationTask):
             )
 
             # Find the answer
-            answer = self.__get_answer(encounter_history=encounter_subset, icd_code=icd_code)
+            answer = self.__get_answer(encounter_history=encounter_subset, icd_code=icd_code, regex=regex)
 
         return answer
 
-    def process_example_attributes(self, example_attributes, encounter_history):
+    def process_example_attributes(self, example_attributes, encounter_history, regex):
         # Initialize instructions with task definition
         instructions = list()
         instructions.append(self._icd_instructions.get_task_definition())
@@ -595,19 +610,20 @@ class ICDStatusRangeClassificationTaskEval(ICDStatusRangeClassificationTask):
                 icd_code=icd_code,
                 start_time=start_time,
                 end_time=end_time,
-                answer=example_attribute[2]
+                answer=example_attribute[2],
+                regex=regex
             )
 
             if answer:
                 instruction = self._icd_instructions.get_positive_instruction(
-                    diagnosis=self._icd_convert.get_converted_code(icd_code),
+                    diagnosis=self._icd_convert.transform_code(icd_code),
                     position=-1 if end_time < 0 else 1,
                     start_range_limit=start_time,
                     end_range_limit=end_time
                 )
             else:
                 instruction = self._icd_instructions.get_negative_instruction(
-                    diagnosis=self._icd_convert.get_converted_code(icd_code),
+                    diagnosis=self._icd_convert.transform_code(icd_code),
                     position=-1 if end_time < 0 else 1,
                     start_range_limit=start_time,
                     end_range_limit=end_time
@@ -640,11 +656,8 @@ class ICDStatusRangeClassificationTaskEval(ICDStatusRangeClassificationTask):
             time_difference_normalize=time_difference_normalize
         )
 
-        # evaluate_attribute = np.random.choice(self._evaluate_attribute)
-        evaluate_attribute = self._evaluate_attribute[0]
-
         if self._example_attributes is None and k_shot == 0:
-            example_attributes = [evaluate_attribute]
+            example_attributes = [self._evaluate_attribute]
         elif self._example_attributes is None:
             sampled_positives, sampled_negatives = self.get_instruction_samples(
                 patient_id=patient_id,
@@ -656,15 +669,16 @@ class ICDStatusRangeClassificationTaskEval(ICDStatusRangeClassificationTask):
                 random_negative_probability=random_negative_probability,
                 time_difference_normalize=time_difference_normalize
             )
-
+            example_attributes = None
         else:
             # The evaluate attribute will be at the end of the prompt
-            example_attributes = self._example_attributes + evaluate_attribute
+            example_attributes = self._example_attributes + [self._evaluate_attribute]
 
         # Get the instructions - this should contain the instruction inputs and instruction targets
         return self.process_example_attributes(
             example_attributes=example_attributes,
-            encounter_history=encounter_history
+            encounter_history=encounter_history,
+            regex=False
         )
 
 
@@ -790,12 +804,12 @@ class ICDT2EPredictionTask(ICDStatusClassificationTask):
 
         # Get positive instruction inputs and target
         positive_instructions = self._icd_instructions.get_positive_instructions(
-            diagnosis_list=sampled_positives[self._icd_10_column].apply(self._icd_convert.get_converted_code),
+            diagnosis_list=sampled_positives[self._icd_10_column].apply(self._icd_convert.transform_code),
             positions_list=sampled_positives[self._position_column]
         )
 
         negative_instructions = self._icd_instructions.get_negative_instructions(
-            diagnosis_list=sampled_negatives[self._icd_10_column].apply(self._icd_convert.get_converted_code),
+            diagnosis_list=sampled_negatives[self._icd_10_column].apply(self._icd_convert.transform_code),
             positions_list=sampled_negatives[self._position_column]
         )
 
