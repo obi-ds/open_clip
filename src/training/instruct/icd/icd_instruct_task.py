@@ -212,7 +212,7 @@ class ICDStatusClassificationTask(object):
         )
 
         # Get the instructions - this should contain the instruction inputs and instruction targets
-        return self.process_status_classification_instructions(
+        return self.process_task_instructions(
             sampled_positives=sampled_positives,
             sampled_negatives=sampled_negatives,
             shuffle=shuffle,
@@ -293,7 +293,7 @@ class ICDStatusClassificationTask(object):
             {self._icd_10_column: codes, self._position_column: positions}
         )
 
-    def process_status_classification_instructions(
+    def process_task_instructions(
             self,
             sampled_positives: pd.DataFrame,
             sampled_negatives: pd.DataFrame,
@@ -454,7 +454,7 @@ class ICDStatusRangeClassificationTask(ICDStatusClassificationTask):
         future_end_range_limit = math.ceil(pd.to_timedelta(future_time_delta).days /  time_difference_normalize)
 
         # Get the instructions - this should contain the instruction inputs and instruction targets
-        return self.process_status_classification_instructions(
+        return self.process_task_instructions(
             sampled_positives=sampled_positives,
             sampled_negatives=sampled_negatives,
             shuffle=shuffle,
@@ -464,7 +464,7 @@ class ICDStatusRangeClassificationTask(ICDStatusClassificationTask):
             future_end_range_limit=future_end_range_limit
         )
 
-    def process_status_classification_instructions(
+    def process_task_instructions(
             self,
             sampled_positives: pd.DataFrame,
             sampled_negatives: pd.DataFrame,
@@ -775,13 +775,13 @@ class ICDT2EPredictionTask(ICDStatusClassificationTask):
         )
 
         # Get the instructions - this should contain the instruction inputs and instruction targets
-        return self.process_status_classification_instructions(
+        return self.process_task_instructions(
             sampled_positives=sampled_positives,
             sampled_negatives=sampled_negatives,
             shuffle=shuffle,
         )
 
-    def process_status_classification_instructions(
+    def process_task_instructions(
             self,
             sampled_positives: pd.DataFrame,
             sampled_negatives: pd.DataFrame,
