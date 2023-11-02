@@ -530,8 +530,6 @@ class ScatterCoCa(CoCa):
 
         if labels is None:
             labels = text[:, -token_embs.shape[1]:]
-        else:
-            labels = labels[:, 1:]
 
         logits = self.text_decoder(image_embs, token_embs)
 

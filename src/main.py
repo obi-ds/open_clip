@@ -436,7 +436,7 @@ def main(args):
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
-
+            # evaluate(model, data, completed_epoch, args, tb_writer=writer, tokenizer=tokenizer)
             log_step = get_step(data=data, accum_freq=args.accum_freq, epoch=completed_epoch)
 
             # TODO: We changed from coca eval to only gen eval
@@ -490,8 +490,8 @@ def main(args):
 
             # eval_metrics = {**binary_status_metrics, **afib_status_metrics}
 
-            # log_metrics(metrics=binary_status_metrics, args=args, tb_writer=writer, epoch=completed_epoch, step=log_step)
-
+            # log_metrics(metrics=binary_status_metrics, args=args, tb_writer=writer, epoch=completed_epoch,
+            # step=log_step)
 
         # Saving checkpoints.
         if args.save_logs:
