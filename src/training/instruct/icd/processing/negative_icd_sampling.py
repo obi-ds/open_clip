@@ -5,6 +5,7 @@ import pandas as pd
 import os.path as path
 from typing import Optional, List
 
+from .icd_convert import ICDConvert
 
 class NegativeICDSampling(object):
     """
@@ -12,17 +13,19 @@ class NegativeICDSampling(object):
     # TODO - maintain a cache of stuff that has been sampled - so we don't sample from that hierarchy again, once we have sampled from all distinct hierarchies - reset the cache
     """
 
-    def __init__(self, icd_source: Optional[str] = None):
+    def __init__(self, icd_convert: ICDConvert, icd_source: Optional[str] = None):
         """
         Initialize a mapping from icd code to description
 
         Args:
+            self._icd_convert
             icd_source (Optional[str], defaults to `None`): The file that contains a list of ICD10 codes
         """
+        self._icd_convert = icd_convert
         if icd_source is None:
             icd_source = path.dirname(path.abspath(__file__)) + '/negatives.txt'
             with open(icd_source, 'r') as f:
-                self.codes = set(map(str.strip, f.readlines()))
+                self.codes = set(self._icd_convert.get_converted_codes(map(str.strip, f.readlines())))
         else:
             raise NotImplementedError('Custom icd source files are not supported yet')
 
