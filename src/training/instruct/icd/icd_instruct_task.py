@@ -38,7 +38,7 @@ class ICDStatusClassificationTask(object):
             pre-defined list
             icd_instructions (Any): A list of icd instruction tasks. At any point one of these
             tasks is randomly chosen and trained on
-            icd_convert (ICDConvert): The object to map codes to their textual descriptions'
+            icd_convert (ICDConvert): The object to map codes to other codes in hierarchy and their textual descriptions
             patient_id_column (str, defaults to `PatientID`): The column name for the patient id
             icd_10_column (str, defaults to `ICD10CD`): The column that contains the icd codes
             position_column (str, defaults to `positions`): The column where position values
@@ -54,6 +54,15 @@ class ICDStatusClassificationTask(object):
         self._position_column = position_column
 
     def process_sample_from_args(self, sample, args):
+        """
+
+        Args:
+            sample:
+            args:
+
+        Returns:
+
+        """
         return self.process_sample(
             patient_id=sample[args.patient_id_column],
             current_time=sample[args.sample_result_date_column],
@@ -66,41 +75,156 @@ class ICDStatusClassificationTask(object):
             shuffle=args.shuffle
         )
 
-    def map_encounter_codes(self, encounter_history: pd.DataFrame):
+    def map_encounter_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
+        """
+        Map codes from one format to another and return the dataframe
+        with the mapped codes
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+
+        Returns:
+            encounter_history (pd.DataFrame): The dataframe with codes mapped
+        """
         encounter_history[self._icd_10_column] = self._icd_convert.get_converted_codes(
             icd_codes=encounter_history[self._icd_10_column]
         )
         return encounter_history
 
-    def filter_encounter_codes(self, encounter_history: pd.DataFrame):
+    def filter_encounter_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
+        """
+        Drop duplicate entries - entries that repeat codes
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+
+        Returns:
+            encounter_history (pd.DataFrame): The dataframe with duplicate codes dropped
+        """
         encounter_history.sort_values(by=self._position_column, inplace=True)
         encounter_history.drop_duplicates(subset=self._icd_10_column, inplace=True)
         return encounter_history
 
-    def get_instruction_samples(
+    def filter_encounter_history_time_delta(
             self,
-            patient_id: Union[str, int],
-            current_time: str,
+            encounter_history: pd.DataFrame,
+            past_time_delta: str,
+            future_time_delta:str
+    ) -> pd.DataFrame:
+        """
+        Filter encounter history by time
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+            past_time_delta (str): Filter out encounters beyond this point in time
+            future_time_delta (str): Filter out encounters beyond this point in time
+
+        Returns:
+            encounter_history (pd.DataFrame): Dataframe that contains only those entries within the time frame
+        """
+        if past_time_delta is not None or future_time_delta is not None:
+            # Filter based on time range
+            # Keep only the rows within this range
+            time_filter = self._encounter_dataframe_process.get_time_filter(
+                time_difference=encounter_history[self._encounter_dataframe_process.time_difference_column],
+                past_time_delta=past_time_delta,
+                future_time_delta=future_time_delta
+            )
+            encounter_history = self._encounter_dataframe_process.filter_dataframe(
+                dataframe=encounter_history,
+                filter_mask=time_filter
+            )
+        return encounter_history
+
+    def fix_empty_encounter_history(
+            self,
             past_time_delta: str,
             future_time_delta: str,
-            use_log_position: bool,
             k_shot: int,
-            random_negative_probability: float,
-            time_difference_normalize: int
+            time_difference_normalize: int,
+            exclude_codes: pd.Series
+    ) -> pd.DataFrame:
+        """
+        Check if encounter history is empty - if it is, create a random encounter dataframe
+        Args:
+            exclude_codes (pd.Series): Exclude these codes when randomly sampling negatives
+            with respect to other encounters
+            past_time_delta (str): Filter out encounters beyond this point in time
+            future_time_delta (str): Filter out encounters beyond this point in time
+            k_shot (int): The number of k-shot examples to use
+            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
+            (e.g. 30 normalizes it to months)
+
+        Returns:
+            encounter_history (pd.DataFrame): The original encounter dataframe or a random dataframe if the
+            original contained 0 entries
+        """
+
+        # Create a random dataframe - will only be used
+        # as negatives
+
+        position_range = np.arange(
+            -(math.floor(pd.to_timedelta(past_time_delta).days / time_difference_normalize)),
+            (math.ceil(pd.to_timedelta(future_time_delta).days / time_difference_normalize))
+        )
+
+        encounter_history = self.get_random_encounters(
+            size=k_shot + 1,
+            position_range=position_range,
+            exclude_codes=exclude_codes
+        )
+
+        return encounter_history
+
+    def filter_encounter_history_for_task(
+            self,
+            encounter_history: pd.DataFrame,
+            past_time_delta: str,
+            future_time_delta: str,
     ):
         """
         Build the instruction training data based on encounter history, relative times and negative sampling
         Extract the data and pass the relevant to data to the sampled instruction task. Return a tuple
         that contains the input and label ids for the given instruction task
         Args:
-            patient_id (Union[str, int]): The unique id of the patient we need to process
-            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
-            with respect to other encounters
+            encounter_history (pd.DataFrame): The dataframe containing all encounters
             past_time_delta (str): Filter out encounters beyond this point in time
             future_time_delta (str): Filter out encounters beyond this point in time
-            use_log_position (bool): Whether to keep time deltas in days or as log value of days
+
+        Returns:
+
+        """
+
+        encounter_history = self.filter_encounter_codes(
+            encounter_history=self.map_encounter_codes(
+                encounter_history=encounter_history
+            )
+        )
+
+        all_positives = encounter_history[self._icd_10_column]
+
+        encounter_history = self.filter_encounter_history_time_delta(
+            encounter_history=encounter_history,
+            past_time_delta=past_time_delta,
+            future_time_delta=future_time_delta
+        )
+
+        return encounter_history, all_positives
+
+    def process_encounter_history_for_task(
+            self,
+            encounter_history: pd.DataFrame,
+            past_time_delta: str,
+            future_time_delta: str,
+            k_shot: int,
+            time_difference_normalize: int,
+    ):
+        """
+        Build the instruction training data based on encounter history, relative times and negative sampling
+        Extract the data and pass the relevant to data to the sampled instruction task. Return a tuple
+        that contains the input and label ids for the given instruction task
+        Args:
+            encounter_history (pd.DataFrame): The dataframe containing all encounters
+            past_time_delta (str): Filter out encounters beyond this point in time
+            future_time_delta (str): Filter out encounters beyond this point in time
             k_shot (int): The number of k-shot examples to use
-            random_negative_probability (float, defaults to 0.5): Probability of sampling negatives randomly
             time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
             (e.g. 30 normalizes it to months)
 
@@ -110,35 +234,50 @@ class ICDStatusClassificationTask(object):
             and sampling
         """
 
-        # Get encounter history of patient
-        encounter_history = self._encounter_dataframe_process.get_patient_sequence(
-            patient_id=patient_id,
-            current_time=current_time,
+        encounter_history, all_positives = self.filter_encounter_history_for_task(
+            encounter_history=encounter_history,
             past_time_delta=past_time_delta,
             future_time_delta=future_time_delta,
-            use_log_position=use_log_position,
-            time_difference_normalize=time_difference_normalize
         )
 
-        encounter_history = self.filter_encounter_codes(
-            encounter_history=self.map_encounter_codes(encounter_history=encounter_history)
-        )
-
-        # Check if dataframe contains any data
-        # If not, create a random dataframe - will only be used
-        # as negatives
         number_of_encounters = encounter_history.shape[0]
 
-        position_range = np.arange(
-            -(math.floor(pd.to_timedelta(past_time_delta).days / time_difference_normalize)),
-            (math.ceil(pd.to_timedelta(future_time_delta).days / time_difference_normalize))
-        )
-
         if number_of_encounters == 0:
-            encounter_history = self.get_random_encounters(
-                size=k_shot + 1,
-                position_range=position_range
+            encounter_history = self.fix_empty_encounter_history(
+                past_time_delta=past_time_delta,
+                future_time_delta=future_time_delta,
+                k_shot=k_shot,
+                time_difference_normalize=time_difference_normalize,
+                exclude_codes=all_positives
             )
+
+        return encounter_history, all_positives, number_of_encounters
+
+    def get_positive_negative_samples(
+            self,
+            encounter_history: pd.DataFrame,
+            exclude_codes: pd.Series,
+            k_shot: int,
+            random_negative_probability: float,
+            number_of_encounters: int
+    ):
+        """
+        Build the instruction training data based on encounter history, relative times and negative sampling
+        Extract the data and pass the relevant to data to the sampled instruction task. Return a tuple
+        that contains the input and label ids for the given instruction task
+        Args:
+            encounter_history (pd.Dataframe): The encounter history of the patient
+            exclude_codes (pd.Series): Exclude these codes when randomly sampling negatives
+            with respect to other encounters
+            k_shot (int): The number of k-shot examples to use
+            random_negative_probability (float, defaults to 0.5): Probability of sampling negatives randomly
+            number_of_encounters (int): The number of encounters in original encounter dataframe
+
+        Returns:
+
+            training_data (str): The train data after applying various functions, transformations
+            and sampling
+        """
 
         # Compute how many samples to extract from code history dataframe
         # For a given k_shot we can extract only positives, only negatives
@@ -157,10 +296,58 @@ class ICDStatusClassificationTask(object):
         sampled_negatives = self.get_negative_samples(
             encounter_history=encounter_history,
             size=number_of_negatives,
-            random_negative_probability=0 if number_of_encounters == 0 else random_negative_probability
+            random_negative_probability=random_negative_probability,
+            exclude_codes=exclude_codes
         )
 
         # Get the instructions - this should contain the instruction inputs and instruction targets
+        return sampled_positives, sampled_negatives
+
+    def process_samples_for_task(
+            self,
+            encounter_history: pd.DataFrame,
+            past_time_delta: str,
+            future_time_delta: str,
+            k_shot: int,
+            random_negative_probability: float,
+            time_difference_normalize: int,
+    ):
+        """
+        Build the instruction training data based on encounter history, relative times and negative sampling
+        Extract the data and pass the relevant to data to the sampled instruction task. Return a tuple
+        that contains the input and label ids for the given instruction task
+        Args:
+            encounter_history (pd.Dataframe): The encounter history of the patient
+            with respect to other encounters
+            past_time_delta (str): Filter out encounters beyond this point in time
+            future_time_delta (str): Filter out encounters beyond this point in time
+            k_shot (int): The number of k-shot examples to use
+            random_negative_probability (float, defaults to 0.5): Probability of sampling negatives randomly
+            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
+            (e.g. 30 normalizes it to months)
+
+        Returns:
+
+            training_data (str): The train data after applying various functions, transformations
+            and sampling
+        """
+
+        encounter_history, all_positives, number_of_encounters = self.process_encounter_history_for_task(
+            encounter_history=encounter_history,
+            past_time_delta=past_time_delta,
+            future_time_delta=future_time_delta,
+            k_shot=k_shot,
+            time_difference_normalize=time_difference_normalize,
+        )
+
+        sampled_positives, sampled_negatives = self.get_positive_negative_samples(
+            encounter_history=encounter_history,
+            k_shot=k_shot,
+            random_negative_probability=random_negative_probability,
+            number_of_encounters=number_of_encounters,
+            exclude_codes=all_positives
+        )
+
         return sampled_positives, sampled_negatives
 
     def process_sample(
@@ -200,12 +387,17 @@ class ICDStatusClassificationTask(object):
 
         k_shot = np.random.choice(k_shot)
 
-        sampled_positives, sampled_negatives = self.get_instruction_samples(
+        full_encounter_history = self._encounter_dataframe_process.get_patient_sequence(
             patient_id=patient_id,
             current_time=current_time,
+            use_log_position=use_log_position,
+            time_difference_normalize=time_difference_normalize
+        )
+
+        sampled_positives, sampled_negatives = self.process_samples_for_task(
+            encounter_history=full_encounter_history,
             past_time_delta=past_time_delta,
             future_time_delta=future_time_delta,
-            use_log_position=use_log_position,
             k_shot=k_shot,
             random_negative_probability=random_negative_probability,
             time_difference_normalize=time_difference_normalize
@@ -240,7 +432,8 @@ class ICDStatusClassificationTask(object):
             self,
             encounter_history: pd.DataFrame,
             size: int,
-            random_negative_probability
+            random_negative_probability: float,
+            exclude_codes: pd.Series
     ) -> pd.DataFrame:
         """
         Returns the positive samples
@@ -248,6 +441,7 @@ class ICDStatusClassificationTask(object):
             encounter_history (pd.DataFrame): The dataframe containing patient encounters
             size (int): How many samples to return
             random_negative_probability (float, defaults to 0.5): Probability of sampling negatives randomly
+            exclude_codes (pd.Series): Exclude these codes when randomly sampling negatives
 
         Returns:
             (pd.DataFrame): A subset of the encounters that will be used as negative
@@ -265,7 +459,7 @@ class ICDStatusClassificationTask(object):
         # Get negative instruction inputs and target
         if np.random.rand() < random_negative_probability:
             codes = self._negative_icd_sampling.get_negatives(
-                positives=encounter_history[self._icd_10_column],
+                positives=exclude_codes,
                 k=size
             )
             sampled_negatives[self._icd_10_column] = codes
@@ -273,19 +467,25 @@ class ICDStatusClassificationTask(object):
         return sampled_negatives
 
 
-    def get_random_encounters(self, size: int, position_range: np.array) -> pd.DataFrame:
+    def get_random_encounters(
+            self,
+            size: int,
+            position_range: np.array,
+            exclude_codes: pd.Series
+    ) -> pd.DataFrame:
         """
         Use this function to create a random dataframe populated
         with codes and positions
         Args:
             size (int): The size of the dataframe
             position_range (np.array): Position values are assigned based on this range
+            exclude_codes (pd.Series): Exclude these codes when randomly sampling negatives
 
         Returns:
             (pd.DataFrame): A random dataframe
         """
         codes = self._negative_icd_sampling.get_negatives(
-            positives=pd.Series([]),
+            positives=exclude_codes,
             k=size
         )
         positions = np.random.choice(position_range, size)
@@ -437,15 +637,22 @@ class ICDStatusRangeClassificationTask(ICDStatusClassificationTask):
 
         k_shot = np.random.choice(k_shot)
 
-        sampled_positives, sampled_negatives = self.get_instruction_samples(
+        full_encounter_history = self._encounter_dataframe_process.get_patient_sequence(
             patient_id=patient_id,
             current_time=current_time,
+            use_log_position=use_log_position,
+            time_difference_normalize=time_difference_normalize
+        )
+
+        print(full_encounter_history)
+
+        sampled_positives, sampled_negatives = self.process_samples_for_task(
+            encounter_history=full_encounter_history,
             past_time_delta=past_time_delta,
             future_time_delta=future_time_delta,
-            use_log_position=use_log_position,
             k_shot=k_shot,
             random_negative_probability=random_negative_probability,
-            time_difference_normalize=time_difference_normalize,
+            time_difference_normalize=time_difference_normalize
         )
 
         past_start_range_limit = 0
@@ -650,8 +857,6 @@ class ICDStatusRangeClassificationTaskEval(ICDStatusRangeClassificationTask):
         encounter_history = self._encounter_dataframe_process.get_patient_sequence(
             patient_id=patient_id,
             current_time=current_time,
-            past_time_delta=past_time_delta,
-            future_time_delta=future_time_delta,
             use_log_position=use_log_position,
             time_difference_normalize=time_difference_normalize
         )
@@ -659,13 +864,11 @@ class ICDStatusRangeClassificationTaskEval(ICDStatusRangeClassificationTask):
         if self._example_attributes is None and k_shot == 0:
             example_attributes = [self._evaluate_attribute]
         elif self._example_attributes is None:
-            sampled_positives, sampled_negatives = self.get_instruction_samples(
-                patient_id=patient_id,
-                current_time=current_time,
+            sampled_positives, sampled_negatives = self.process_samples_for_task(
+                encounter_history=encounter_history,
                 past_time_delta=past_time_delta,
                 future_time_delta=future_time_delta,
-                use_log_position=use_log_position,
-                k_shot=k_shot - 1,
+                k_shot=k_shot,
                 random_negative_probability=random_negative_probability,
                 time_difference_normalize=time_difference_normalize
             )
@@ -763,12 +966,17 @@ class ICDT2EPredictionTask(ICDStatusClassificationTask):
 
         k_shot = np.random.choice(k_shot)
 
-        sampled_positives, sampled_negatives = self.get_instruction_samples(
+        full_encounter_history = self._encounter_dataframe_process.get_patient_sequence(
             patient_id=patient_id,
             current_time=current_time,
+            use_log_position=use_log_position,
+            time_difference_normalize=time_difference_normalize
+        )
+
+        sampled_positives, sampled_negatives = self.process_samples_for_task(
+            encounter_history=full_encounter_history,
             past_time_delta=past_time_delta,
             future_time_delta=future_time_delta,
-            use_log_position=use_log_position,
             k_shot=k_shot,
             random_negative_probability=random_negative_probability,
             time_difference_normalize=time_difference_normalize
@@ -780,44 +988,3 @@ class ICDT2EPredictionTask(ICDStatusClassificationTask):
             sampled_negatives=sampled_negatives,
             shuffle=shuffle,
         )
-
-    def process_task_instructions(
-            self,
-            sampled_positives: pd.DataFrame,
-            sampled_negatives: pd.DataFrame,
-            shuffle,
-    ):
-        """
-        Return the instruction input and targets
-        for the sampled instruction icd status classification task
-        Args:
-            sampled_positives (pd.DataFrame): The dataframe that is used for positive diagnosis
-            sampled_negatives (pd.DataFrame): The dataframe that will be used for negative diagnosis
-            shuffle (bool, defaults to `True`): Whether to shuffle the list of instructions.
-
-        Returns:
-            (List[Tuple[str, str]]): A list that contains tuples which have the instruction input and target.
-            The list will contain only 1 element for zero shot training
-        """
-        # Get the task definition string
-        task_definition = self._icd_instructions.get_task_definition()
-
-        # Get positive instruction inputs and target
-        positive_instructions = self._icd_instructions.get_positive_instructions(
-            diagnosis_list=sampled_positives[self._icd_10_column].apply(self._icd_convert.transform_code),
-            positions_list=sampled_positives[self._position_column]
-        )
-
-        negative_instructions = self._icd_instructions.get_negative_instructions(
-            diagnosis_list=sampled_negatives[self._icd_10_column].apply(self._icd_convert.transform_code),
-            positions_list=sampled_negatives[self._position_column]
-        )
-
-        # Concatenate list of positive and negative instructions and shuffle the list
-        instructions = positive_instructions + negative_instructions
-        if shuffle:
-            random.shuffle(instructions)
-
-        # Add the task definition to the list
-        return [task_definition] + instructions
-
