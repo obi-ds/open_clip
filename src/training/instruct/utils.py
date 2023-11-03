@@ -1,17 +1,17 @@
 """Util functions"""
 import numpy as np
-from .icd.templates import (
-    ICDStatusInstructionTemplate,
-    ICDStatusRangeInstructionTemplate,
-    ICDStatusClassificationInstructions,
-    ICDStatusRangeClassificationInstructions,
-    ICDT2EInstructionTemplate,
-    ICDT2EPredictionInstructions
+from .codes.templates import (
+    CodeStatusInstructionTemplate,
+    CodeStatusRangeInstructionTemplate,
+    CodeStatusClassificationInstructions,
+    CodeStatusRangeClassificationInstructions,
+    CodeT2EInstructionTemplate,
+    CodeT2EPredictionInstructions
 )
 
 # ICD utils
 
-def get_icd_status_classification_instructions(
+def get_code_status_classification_instructions(
         task_definition: str,
         future_input: str,
         future_target: str,
@@ -20,17 +20,17 @@ def get_icd_status_classification_instructions(
         positive_answer_target: str,
         negative_answer_target: str
 ):
-    instruction_template_future = ICDStatusInstructionTemplate(
+    instruction_template_future = CodeStatusInstructionTemplate(
         inputs=future_input,
         targets=future_target
     )
 
-    instruction_template_past = ICDStatusInstructionTemplate(
+    instruction_template_past = CodeStatusInstructionTemplate(
         inputs=past_input,
         targets=past_target
     )
 
-    return ICDStatusClassificationInstructions(
+    return CodeStatusClassificationInstructions(
         task_definition=task_definition,
         instruction_template_future=instruction_template_future,
         instruction_template_past=instruction_template_past,
@@ -38,7 +38,7 @@ def get_icd_status_classification_instructions(
         negative_answer_target=negative_answer_target
     )
 
-def get_icd_status_range_classification_instructions(
+def get_code_status_range_classification_instructions(
         task_definition: str,
         future_input: str,
         future_target: str,
@@ -48,17 +48,17 @@ def get_icd_status_range_classification_instructions(
         negative_answer_target: str,
         lock_range: bool
 ):
-    instruction_template_future = ICDStatusRangeInstructionTemplate(
+    instruction_template_future = CodeStatusRangeInstructionTemplate(
         inputs=future_input,
         targets=future_target
     )
 
-    instruction_template_past = ICDStatusRangeInstructionTemplate(
+    instruction_template_past = CodeStatusRangeInstructionTemplate(
         inputs=past_input,
         targets=past_target
     )
 
-    return ICDStatusRangeClassificationInstructions(
+    return CodeStatusRangeClassificationInstructions(
         task_definition=task_definition,
         instruction_template_future=instruction_template_future,
         instruction_template_past=instruction_template_past,
@@ -67,18 +67,18 @@ def get_icd_status_range_classification_instructions(
         lock_range=lock_range
     )
 
-def get_icd_t2e_prediction_instructions(
+def get_code_t2e_prediction_instructions(
         task_definition: str,
         inputs: str,
         targets: str,
         negative_answer_target: float = np.inf,
 ):
-    instruction_template = ICDT2EInstructionTemplate(
+    instruction_template = CodeT2EInstructionTemplate(
         inputs=inputs,
         targets=targets
     )
 
-    return ICDT2EPredictionInstructions(
+    return CodeT2EPredictionInstructions(
         task_definition=task_definition,
         instruction_template=instruction_template,
         negative_answer_target=negative_answer_target,

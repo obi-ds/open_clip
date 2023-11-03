@@ -1,9 +1,9 @@
 """Interface for defining instruction templates"""
 
 
-class ICDInstructionTemplateInterface(object):
+class CodeInstructionTemplateInterface(object):
     """
-    Define the instruction template interface for tasks involving ICD codes.
+    Define the instruction template interface for tasks involving diagnostic codes.
     """
 
     def __init__(

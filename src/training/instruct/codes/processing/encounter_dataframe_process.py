@@ -16,11 +16,11 @@ class EncounterDataframeProcess(object):
             patient_id_column: str = 'PatientID',
             contact_date_column: str = 'ContactDTS',
             time_difference_column: str = 'time_difference',
-            icd_10_column: str = 'ICD10CD',
+            code_column: str = 'ICD10CD',
             position_column: str = 'position',
     ):
         """
-        Processing icd codes, positions and other attributes of the dataframe
+        Processing diagnostic codes, positions and other attributes of the dataframe
         for a given patient and their history.
         Args:
             encounter_dataframe (pd.DataFrame): The dataframe that contains encounter history for all patients
@@ -28,7 +28,7 @@ class EncounterDataframeProcess(object):
             contact_date_column (str, defaults to `ResultDTS`): The column name that contains the time of encounter
             time_difference_column (str, defaults to `time_difference`): The column that will store the time difference
             between a given encounter and all other encounters
-            icd_10_column (str, defaults to `ICD10CD`): The column that contains the icd codes
+            code_column (str, defaults to `ICD10CD`): The column that contains the codes
             position_column (str, defaults to `position`): The column where position values
             (e.g. time difference in days or log days) will be stored
         """
@@ -36,7 +36,7 @@ class EncounterDataframeProcess(object):
         self._patient_id_column = patient_id_column
         self._contact_date_column = contact_date_column
         self.time_difference_column = time_difference_column
-        self._icd_10_column = icd_10_column
+        self._code_column = code_column
         self._position_column = position_column
 
     def get_patient_encounter_history(self, patient_id: str) -> pd.DataFrame:
@@ -49,7 +49,7 @@ class EncounterDataframeProcess(object):
             (pd.DataFrame): Dataframe containing information about codes in the patient history
         """
         # Extract the patient info from this dataframe - this contains
-        # a collection of all icd codes the patient ever had and the timestamp
+        # a collection of all codes the patient ever had and the timestamp
         # of their earliest encounters
         return self._encounter_dataframe.loc[[patient_id]]
 
@@ -58,7 +58,7 @@ class EncounterDataframeProcess(object):
         """
         Get the time difference between the code encounter and a given time
         Args:
-            code_timestamps (pd.Series): Contains the encounter dates of icd codes
+            code_timestamps (pd.Series): Contains the encounter dates of codes
             current_time (str): The time with respect to which we calculate time deltas
 
         Returns:
@@ -106,48 +106,8 @@ class EncounterDataframeProcess(object):
         """
         return dataframe[filter_mask]
 
-    # @staticmethod
-    # def __get_time_difference(
-    #         time_difference: pd.Series,
-    #         use_log_position: bool
-    # ) -> pd.Series:
-    #     """
-    #     Convert the timedelta series into a series that contains the time difference
-    #     in terms of days
-    #     Args:
-    #         time_difference (pd.Series): Series containing time deltas
-    #         use_log_position (bool): Whether to represent the days as raw or log values
-    #
-    #     Returns:
-    #         time_difference (pd.Series): Input series represented as difference in terms of days
-    #     """
-    #     if use_log_position:
-    #         time_difference = time_difference.astype(float)
-    #         time_difference = time_difference.apply(get_log_value)
-    #     time_difference = time_difference.astype(int)
-    #     return time_difference
-    #
-    # def get_time_difference_days(
-    #         self,
-    #         time_difference: pd.Series,
-    #         use_log_position: bool
-    # ) -> pd.Series:
-    #     """
-    #     Convert the timedelta series into a series that contains the time difference
-    #     in terms of days
-    #     Args:
-    #         time_difference (pd.Series): Series containing time deltas
-    #         use_log_position (bool): Whether to represent the days as raw or log values
-    #
-    #     Returns:
-    #         days_difference (pd.Series): Input series represented as difference in terms of days
-    #     """
-    #     return self.__get_time_difference(
-    #         time_difference=time_difference.dt.days, use_log_position=use_log_position
-    #     )
-
+    @staticmethod
     def get_time_difference_normalized(
-            self,
             time_difference: pd.Series,
             use_log_position: bool,
             time_difference_normalize: int
@@ -164,12 +124,9 @@ class EncounterDataframeProcess(object):
         Returns:
             months_difference (pd.Series): Input series represented as difference in terms of days
         """
-        # number_of_days = time_difference.dt.days
-        # time_difference = (np.abs(number_of_days) // 30) * np.sign(number_of_days)
-        # time_difference = np.round((np.abs(number_of_days) / 30)) * np.sign(number_of_days)
-        # return self.__get_time_difference(
-        #     time_difference=time_difference, use_log_position=use_log_position
-        # )
+        if use_log_position:
+            time_difference = time_difference.astype(float)
+            time_difference = time_difference.apply(get_log_value)
         return time_difference.dt.days / time_difference_normalize
 
     def get_patient_sequence(

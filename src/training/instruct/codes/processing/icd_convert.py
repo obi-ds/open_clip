@@ -13,7 +13,7 @@ class ICDConvert(object):
 
     def __init__(
             self,
-            icd_descriptions,
+            descriptions,
             billable_probability: float,
             top_non_probability: float,
             mixed_non_probability: float,
@@ -23,7 +23,7 @@ class ICDConvert(object):
         Initialize parameters that will be used for converting icd codes
         to codes in the hierarchy and their textual form.
         Args:
-            icd_descriptions (): The object to get descriptions of raw codes
+            descriptions (): The object to get descriptions of raw codes
             billable_probability (float): The probability of mapping the sequence into only a billable sequence. This
             would mean keeping the sequence as is
             top_non_probability (float): The probability of mapping the sequence into the top most level non-billable
@@ -32,7 +32,7 @@ class ICDConvert(object):
             and billable sequence of codes.
             lowercase (bool): Whether to lowercase the output
         """
-        self._icd_descriptions = icd_descriptions
+        self._descriptions = descriptions
         self._billable_probability = billable_probability
         self._top_non_probability = top_non_probability
         self._mixed_non_probability = mixed_non_probability
@@ -43,14 +43,6 @@ class ICDConvert(object):
         )
         self._lowercase = lowercase
 
-    def get_icd_description(self):
-        """
-
-        Returns:
-
-        """
-        return self._icd_descriptions
-
     @staticmethod
     def __check_probability(billable_probability, top_non_probability, mixed_non_probability):
         """
@@ -60,20 +52,20 @@ class ICDConvert(object):
         return billable_probability + top_non_probability + mixed_non_probability != 1
 
     @staticmethod
-    def get_billable_code(icd_code: str) -> str:
+    def get_billable_code(code: str) -> str:
         """
         The input sequence is a sequence of billable codes, so return the code as is
         Args:
-            icd_code (str): An icd code
+            code (str): An icd code
 
         Returns:
             icd_code (str): The same code
         """
-        return icd_code
+        return code
 
     @staticmethod
     def get_non_billable_code(
-            icd_code: str,
+            code: str,
             topmost_level: bool = False,
             allow_billable: bool = False
     ) -> str:
@@ -82,7 +74,7 @@ class ICDConvert(object):
         Get the top level codes from the hierarchy
 
         Args:
-            icd_code (str): A given code
+            code (str): A given code
             topmost_level (bool, defaults to `False`): Flag to get the topmost code in the hierarchy
             allow_billable (bool, defaults to `False): Whether it can return the same code as is (billable)
 
@@ -91,7 +83,7 @@ class ICDConvert(object):
         """
 
         # Split on period
-        code_split = icd_code.split('.')
+        code_split = code.split('.')
 
         # If we want only the top most level of the code
         # return of he first part of the split.
@@ -130,36 +122,36 @@ class ICDConvert(object):
             p=[billable_probability, top_non_probability, mixed_non_probability]
         )
 
-    def transform_code(self, icd_code: str) -> str:
+    def transform_code(self, code: str) -> str:
         """
         Return raw codes or the textual code descriptions
 
         Args:
-            icd_code (str): A given icd code
+            code (str): A given code
 
         Returns:
-            icd_code (str): String that contains the raw codes or text descriptions
+            code (str): String that contains the raw codes or text descriptions
         """
 
         # If the icd description object is None, return the raw codes
         # else return the description of codes
-        if self._icd_descriptions is None:
-            return icd_code
+        if self._descriptions is None:
+            return code
         else:
             return (
-                self._icd_descriptions.get_description(icd_code).lower()
-                if self._lowercase else self._icd_descriptions.get_description(icd_code)
+                self._descriptions.get_description(code).lower()
+                if self._lowercase else self._descriptions.get_description(code)
             )
 
     def get_converted_codes(
             self,
-            icd_codes: Union[Sequence[str], pd.Series, Iterable[str]]
+            codes: Union[Sequence[str], pd.Series, Iterable[str]]
     ) -> List[str]:
         """
         Given a set of codes, leave them as is, or convert to relevant codes in their hierarchy.
         Post which the codes can be returned as is or mapped to their textual descriptions.
         Args:
-            icd_codes (Sequence[str]): List of input icd codes
+            codes (Sequence[str]): List of input icd codes
 
         Returns:
             icd_codes (List[str]): Converted icd codes
@@ -173,5 +165,5 @@ class ICDConvert(object):
         )
 
         # Map codes
-        return [mapping_function(code) for code in icd_codes]
+        return [mapping_function(code) for code in codes]
 

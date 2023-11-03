@@ -22,23 +22,23 @@ from torch.utils.data.distributed import DistributedSampler
 from webdataset.filters import _shuffle
 from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander, valid_sample
 
-from .instruct.icd import (
-    ICDStatusClassificationTask,
-    ICDStatusRangeClassificationTask,
+from .instruct.codes import (
+    CodeStatusClassificationTask,
+    CodeStatusRangeClassificationTask,
     ICDT2EPredictionTask,
-    ICDStatusRangeClassificationTaskEval
+    CodeStatusRangeClassificationTaskEval
 )
-from .instruct.icd.descriptions import ICDDescription
-from .instruct.icd.processing import (
+from .instruct.codes.descriptions import ICDDescription
+from .instruct.codes.processing import (
     EncounterDataframeProcess,
     DataFrameSampling,
     ICDConvert,
     NegativeICDSampling
 )
 from .instruct.utils import (
-    get_icd_status_classification_instructions,
-    get_icd_status_range_classification_instructions,
-    get_icd_t2e_prediction_instructions
+    get_code_status_classification_instructions,
+    get_code_status_range_classification_instructions,
+    get_code_t2e_prediction_instructions
 )
 from .instruct import ICDInstruct
 
@@ -485,26 +485,26 @@ def get_wds_dataset_icd_instruct(
         patient_id_column=args.patient_id_column,
         contact_date_column=args.contact_date_column,
         time_difference_column=args.time_difference_column,
-        icd_10_column=args.icd_10_column,
+        code_column=args.icd_10_column,
         position_column=args.position_column,
     )
 
     dataframe_sampling = DataFrameSampling()
 
-    icd_convert = ICDConvert(
-        icd_descriptions=ICDDescription(),
+    code_convert = ICDConvert(
+        descriptions=ICDDescription(),
         billable_probability=args.billable_probability,
         top_non_probability=args.top_non_probability,
         mixed_non_probability=args.mixed_non_probability,
         lowercase=False
     )
 
-    negative_icd_sampling = NegativeICDSampling(icd_convert=icd_convert)
+    negative_code_sampling = NegativeICDSampling(code_convert=code_convert)
 
     if args.lock_range:
         assert args.random_negative_probability == 1, "If range is locked/fixed, random negative probability needs to be 1"
 
-    icd_status_range_classification_instructions = get_icd_status_range_classification_instructions(
+    code_status_range_classification_instructions = get_code_status_range_classification_instructions(
         task_definition='Patient is diagnosed with: \n\n',
         future_input='- {diagnosis} between months {start_time} and {end_time}:',
         future_target='{answer}',
@@ -515,7 +515,7 @@ def get_wds_dataset_icd_instruct(
         lock_range=args.lock_range
     )
 
-    icd_t2e_prediction_instructions = get_icd_t2e_prediction_instructions(
+    code_t2e_prediction_instructions = get_code_t2e_prediction_instructions(
         task_definition='Predict the time to event: \n\n',
         inputs='- {diagnosis}:',
         targets='{sign}{answer}',
@@ -523,44 +523,44 @@ def get_wds_dataset_icd_instruct(
     )
 
     if not custom_prompt:
-        icd_status_range_classification_task = ICDStatusRangeClassificationTask(
+        code_status_range_classification_task = CodeStatusRangeClassificationTask(
             encounter_dataframe_process=encounter_dataframe_process,
             dataframe_sampling=dataframe_sampling,
-            negative_icd_sampling=negative_icd_sampling,
-            icd_instructions=icd_status_range_classification_instructions,
-            icd_convert=icd_convert,
+            negative_code_sampling=negative_code_sampling,
+            code_instructions=code_status_range_classification_instructions,
+            code_convert=code_convert,
             patient_id_column=args.patient_id_column,
-            icd_10_column=args.icd_10_column,
+            code_column=args.icd_10_column,
             position_column=args.position_column,
         )
 
-        icd_t2e_prediction_task = ICDT2EPredictionTask(
+        code_t2e_prediction_task = ICDT2EPredictionTask(
             encounter_dataframe_process=encounter_dataframe_process,
             dataframe_sampling=dataframe_sampling,
-            negative_icd_sampling=negative_icd_sampling,
-            icd_instructions=icd_t2e_prediction_instructions,
-            icd_convert=icd_convert,
+            negative_code_sampling=negative_code_sampling,
+            code_instructions=code_t2e_prediction_instructions,
+            code_convert=code_convert,
             patient_id_column=args.patient_id_column,
-            icd_10_column=args.icd_10_column,
+            code_column=args.icd_10_column,
             position_column=args.position_column,
         )
     else:
-        icd_status_range_classification_task = ICDStatusRangeClassificationTaskEval(
+        code_status_range_classification_task = CodeStatusRangeClassificationTaskEval(
             encounter_dataframe_process=encounter_dataframe_process,
             dataframe_sampling=dataframe_sampling,
-            negative_icd_sampling=negative_icd_sampling,
-            icd_instructions=icd_status_range_classification_instructions,
-            icd_convert=icd_convert,
+            negative_code_sampling=negative_code_sampling,
+            code_instructions=code_status_range_classification_instructions,
+            code_convert=code_convert,
             patient_id_column=args.patient_id_column,
-            icd_10_column=args.icd_10_column,
+            code_column=args.icd_10_column,
             position_column=args.position_column,
             example_attributes=example_attributes,
             evaluate_attribute=evaluate_attribute
         )
 
-        icd_t2e_prediction_task = None
+        code_t2e_prediction_task = None
 
-    instruction_tasks = [icd_status_range_classification_task, icd_t2e_prediction_task]
+    instruction_tasks = [code_status_range_classification_task, code_t2e_prediction_task]
 
 
     if task_probabilities is None:

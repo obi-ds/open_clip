@@ -20,7 +20,7 @@ class DataFrameSampling(object):
             single_sequence_probability: float
     ) -> int:
         """
-        Calculate the number of samples/icd codes we are going to extract
+        Calculate the number of samples/codes we are going to extract
         for a given patient from their history
         Args:
             dataframe_size (int): The number of codes in the patient history

@@ -1,12 +1,12 @@
-"""Define instruction templates for icd classification"""
+"""Define instruction templates for code classification"""
 from typing import Union
 
-from .icd_instruction_template_interface import ICDInstructionTemplateInterface
+from .code_instruction_template_interface import CodeInstructionTemplateInterface
 
 
-class ICDStatusInstructionTemplate(ICDInstructionTemplateInterface):
+class CodeStatusInstructionTemplate(CodeInstructionTemplateInterface):
     """
-    Define the instruction template for tasks involving ICD status classification.
+    Define the instruction template for tasks involving code status classification.
     """
 
     def __init__(
@@ -71,9 +71,9 @@ class ICDStatusInstructionTemplate(ICDInstructionTemplateInterface):
         """
         return self._targets_prefix + self._targets.format(answer=answer) + self._example_separator
 
-class ICDStatusRangeInstructionTemplate(ICDInstructionTemplateInterface):
+class CodeStatusRangeInstructionTemplate(CodeInstructionTemplateInterface):
     """
-    Define the instruction template for tasks involving ICD status classification.
+    Define the instruction template for tasks involving code status classification.
     """
 
     def __init__(
@@ -118,7 +118,6 @@ class ICDStatusRangeInstructionTemplate(ICDInstructionTemplateInterface):
         # If the time is 1, replace months with month.
         # We're assuming the "inputs" argument contains months - we need to make this
         # more flexible
-        # TODO: Make flexible - remove hard coded month
         return self._inputs_prefix + self._inputs.format(
             diagnosis=diagnosis,
             start_time=start_time,
@@ -137,9 +136,9 @@ class ICDStatusRangeInstructionTemplate(ICDInstructionTemplateInterface):
         return self._targets_prefix + self._targets.format(answer=answer) + self._example_separator
 
 
-class ICDT2EInstructionTemplate(ICDInstructionTemplateInterface):
+class CodeT2EInstructionTemplate(CodeInstructionTemplateInterface):
     """
-    Define the instruction template for tasks involving ICD time to event prediction.
+    Define the instruction template for tasks involving diagnostic time to event prediction.
     """
 
     def __init__(
