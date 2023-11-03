@@ -491,8 +491,6 @@ def get_wds_dataset_icd_instruct(
 
     dataframe_sampling = DataFrameSampling()
 
-    negative_icd_sampling = NegativeICDSampling()
-
     icd_convert = ICDConvert(
         icd_descriptions=ICDDescription(),
         billable_probability=args.billable_probability,
@@ -500,6 +498,8 @@ def get_wds_dataset_icd_instruct(
         mixed_non_probability=args.mixed_non_probability,
         lowercase=False
     )
+
+    negative_icd_sampling = NegativeICDSampling(icd_convert=icd_convert)
 
     if args.lock_range:
         assert args.random_negative_probability == 1, "If range is locked/fixed, random negative probability needs to be 1"
