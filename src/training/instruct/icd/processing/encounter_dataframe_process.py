@@ -35,7 +35,7 @@ class EncounterDataframeProcess(object):
         self._encounter_dataframe = encounter_dataframe
         self._patient_id_column = patient_id_column
         self._contact_date_column = contact_date_column
-        self._time_difference_column = time_difference_column
+        self.time_difference_column = time_difference_column
         self._icd_10_column = icd_10_column
         self._position_column = position_column
 
@@ -176,8 +176,6 @@ class EncounterDataframeProcess(object):
             self,
             patient_id: Union[str, int],
             current_time: str,
-            past_time_delta: str,
-            future_time_delta: str,
             use_log_position: bool,
             time_difference_normalize: int
     ) -> pd.DataFrame:
@@ -189,8 +187,6 @@ class EncounterDataframeProcess(object):
             patient_id (Union[str, int]): The unique id of the patient we need to process
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
             with respect to other encounters
-            past_time_delta (str): Filter out encounters beyond this point in time
-            future_time_delta (str): Filter out encounters beyond this point in time
             use_log_position (bool): Whether to keep time deltas in days or as log value of days
             time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
             (e.g. 30 normalizes it to months)
@@ -203,24 +199,14 @@ class EncounterDataframeProcess(object):
         encounter_history = self.get_patient_encounter_history(patient_id=patient_id)
 
         # Get time difference with respect to given time
-        encounter_history[self._time_difference_column] = self.get_time_difference(
+        encounter_history[self.time_difference_column] = self.get_time_difference(
             code_timestamps=encounter_history[self._contact_date_column],
             current_time=current_time
         )
 
-        if past_time_delta is not None or future_time_delta is not None:
-            # Filter based on time range
-            # Keep only the rows within this range
-            time_filter = self.get_time_filter(
-                time_difference=encounter_history[self._time_difference_column],
-                past_time_delta=past_time_delta,
-                future_time_delta=future_time_delta
-            )
-            encounter_history = self.filter_dataframe(dataframe=encounter_history, filter_mask=time_filter)
-
         # Convert time deltas into differences in terms of months
         encounter_history[self._position_column] = self.get_time_difference_normalized(
-            time_difference=encounter_history[self._time_difference_column],
+            time_difference=encounter_history[self.time_difference_column],
             use_log_position=use_log_position,
             time_difference_normalize=time_difference_normalize
         )
