@@ -1,10 +1,9 @@
 """Convert icd codes into the desired label format for training models"""
 import random
-import pandas as pd
-from typing import Callable, List, Sequence, Union
-
 import numpy as np
+import pandas as pd
 from functools import partial
+from typing import Callable, List, Sequence, Union, Iterable
 
 
 class ICDConvert(object):
@@ -154,7 +153,7 @@ class ICDConvert(object):
 
     def get_converted_codes(
             self,
-            icd_codes: Union[Sequence[str], pd.Series]
+            icd_codes: Union[Sequence[str], pd.Series, Iterable[str]]
     ) -> List[str]:
         """
         Given a set of codes, leave them as is, or convert to relevant codes in their hierarchy.
