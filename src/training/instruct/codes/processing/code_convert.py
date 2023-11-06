@@ -167,3 +167,63 @@ class ICDConvert(object):
         # Map codes
         return [mapping_function(code) for code in codes]
 
+
+class PHEConvert(object):
+    """
+    Class to convert phe codes into the desired label format for training models
+    """
+    def __init__(
+            self,
+            descriptions,
+            lowercase: bool
+    ):
+        """
+        Initialize parameters that will be used for converting icd codes
+        to codes in the hierarchy and their textual form.
+        Args:
+            descriptions (): The object to get descriptions of raw codes
+            lowercase (bool): Whether to lowercase the output
+        """
+        self._descriptions = descriptions
+        self._lowercase = lowercase
+
+
+    def transform_code(self, code: str) -> str:
+        """
+        Return raw codes or the textual code descriptions
+
+        Args:
+            code (str): A given code
+
+        Returns:
+            code (str): String that contains the raw codes or text descriptions
+        """
+
+        # If the icd description object is None, return the raw codes
+        # else return the description of codes
+        if self._descriptions is None:
+            return code
+        else:
+            return (
+                self._descriptions.get_description(code).lower()
+                if self._lowercase else self._descriptions.get_description(code)
+            )
+
+    def get_converted_codes(
+            self,
+            codes: Union[Sequence[str], pd.Series, Iterable[str]]
+    ) -> List[str]:
+        """
+        Given a set of codes, leave them as is, or convert to relevant codes in their hierarchy.
+        Post which the codes can be returned as is or mapped to their textual descriptions.
+        Args:
+            codes (Sequence[str]): List of input icd codes
+
+        Returns:
+            icd_codes (List[str]): Converted icd codes
+        """
+
+        # Map codes
+        return [code for code in codes]
+
+
