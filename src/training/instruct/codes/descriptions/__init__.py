@@ -1,3 +1,3 @@
 """init file"""
-from .icd_descriptions import ICDDescription
-__all__ = ["ICDDescription"]
+from .code_descriptions import ICDDescription, PHEDescription
+__all__ = ["ICDDescription", "PHEDescription"]
