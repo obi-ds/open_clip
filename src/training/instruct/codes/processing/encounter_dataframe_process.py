@@ -1,8 +1,8 @@
 """Process patient information"""
-import numpy as np
 import pandas as pd
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
 
+from .code_convert import ICDConvert, PHEConvert
 from .utils import get_log_value
 
 
@@ -13,6 +13,7 @@ class EncounterDataframeProcess(object):
     def __init__(
             self,
             encounter_dataframe: pd.DataFrame,
+            code_convert: Union[ICDConvert, PHEConvert],
             patient_id_column: str = 'PatientID',
             contact_date_column: str = 'ContactDTS',
             time_difference_column: str = 'time_difference',
@@ -33,6 +34,7 @@ class EncounterDataframeProcess(object):
             (e.g. time difference in days or log days) will be stored
         """
         self._encounter_dataframe = encounter_dataframe
+        self._code_convert = code_convert
         self._patient_id_column = patient_id_column
         self._contact_date_column = contact_date_column
         self.time_difference_column = time_difference_column
@@ -129,6 +131,82 @@ class EncounterDataframeProcess(object):
             time_difference = time_difference.apply(get_log_value)
         return time_difference.dt.days / time_difference_normalize
 
+    def map_encounter_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
+        """
+        Map codes from one format to another and return the dataframe
+        with the mapped codes
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+
+        Returns:
+            encounter_history (pd.DataFrame): The dataframe with codes mapped
+        """
+        # Codes can be mapped from leaf to top level - e.g. I48.1 to I48
+        encounter_history[self._code_column] = self._code_convert.get_converted_codes(
+            codes=encounter_history[self._code_column]
+        )
+        encounter_history[self._code_column] = encounter_history[self._code_column].astype(str)
+        return encounter_history
+
+    def filter_na_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
+        """
+        If the code column has NA values, replace them accordingly or drop them
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+
+        Returns:
+            encounter_history (pd.DataFrame): The dataframe with NA values handled
+        """
+        encounter_history.dropna(subset=self._code_column, inplace=True)
+        return encounter_history
+
+    def filter_encounter_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
+        """
+        Drop duplicate entries - entries that repeat codes
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+
+        Returns:
+            encounter_history (pd.DataFrame): The dataframe with duplicate codes dropped
+        """
+        # Remove any duplicate entries. When removing duplicates - keep the earliest
+        # entry (hence sorted by position)
+        encounter_history.sort_values(by=self._position_column, inplace=True)
+        encounter_history.drop_duplicates(subset=self._code_column, inplace=True)
+
+        return encounter_history
+
+    def filter_encounter_history_time_delta(
+            self,
+            encounter_history: pd.DataFrame,
+            past_time_delta: str,
+            future_time_delta:str
+    ) -> pd.DataFrame:
+        """
+        Filter encounter history based on the given time range. Keep only those entries
+        that occur within the time range
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+            past_time_delta (str): Filter out encounters beyond this point in time
+            future_time_delta (str): Filter out encounters beyond this point in time
+
+        Returns:
+            encounter_history (pd.DataFrame): Dataframe that contains only those entries within the time frame
+        """
+        if past_time_delta is not None or future_time_delta is not None:
+            # Filter based on time range
+            # Keep only the rows within this range
+            time_filter = self.get_time_filter(
+                time_difference=encounter_history[self.time_difference_column],
+                past_time_delta=past_time_delta,
+                future_time_delta=future_time_delta
+            )
+            encounter_history = self.filter_dataframe(
+                dataframe=encounter_history,
+                filter_mask=time_filter
+            )
+        return encounter_history
+
     def get_patient_sequence(
             self,
             patient_id: Union[str, int],
@@ -169,3 +247,42 @@ class EncounterDataframeProcess(object):
         )
 
         return encounter_history
+
+    def filter_encounter_history_for_task(
+            self,
+            encounter_history: pd.DataFrame,
+            past_time_delta: str,
+            future_time_delta: str,
+    ) -> Tuple[pd.DataFrame, pd.Series]:
+        """
+        Given the encounter history, map codes, filter out duplicate codes and filter
+        the history based on time range. Keep only those entries
+        that occur within the time range
+        Args:
+            encounter_history (pd.DataFrame): The dataframe containing all encounters
+            past_time_delta (str): Filter out encounters beyond this point in time
+            future_time_delta (str): Filter out encounters beyond this point in time
+
+        Returns:
+            encounter_history (pd.DataFrame): The encounter history after mapping codes, dropping duplicates and
+            filtering by time range
+            all_positives (pd.Series): The codes present in the entire encounter history of the patient
+        """
+
+        encounter_history = self.filter_encounter_codes(
+            encounter_history=self.map_encounter_codes(
+                encounter_history=self.filter_na_codes(
+                    encounter_history=encounter_history
+                )
+            )
+        )
+
+        all_positives = encounter_history[self._code_column]
+
+        encounter_history = self.filter_encounter_history_time_delta(
+            encounter_history=encounter_history,
+            past_time_delta=past_time_delta,
+            future_time_delta=future_time_delta
+        )
+
+        return encounter_history, all_positives

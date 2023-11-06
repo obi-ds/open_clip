@@ -483,15 +483,6 @@ def get_wds_dataset_icd_instruct(
         args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
     )
 
-    encounter_dataframe_process = EncounterDataframeProcess(
-        encounter_dataframe=encounter_dataframe,
-        patient_id_column=args.patient_id_column,
-        contact_date_column=args.contact_date_column,
-        time_difference_column=args.time_difference_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
-    )
-
     dataframe_sampling = DataFrameSampling()
 
     if use_phe_codes or 'phe' in args.code_column:
@@ -510,6 +501,16 @@ def get_wds_dataset_icd_instruct(
         )
         negative_code_sampling = NegativeICDSampling(code_convert=code_convert)
 
+
+    encounter_dataframe_process = EncounterDataframeProcess(
+        encounter_dataframe=encounter_dataframe,
+        code_convert=code_convert,
+        patient_id_column=args.patient_id_column,
+        contact_date_column=args.contact_date_column,
+        time_difference_column=args.time_difference_column,
+        code_column=args.code_column,
+        position_column=args.position_column,
+    )
 
     if args.lock_range:
         assert args.random_negative_probability == 1, "If range is locked/fixed, random negative probability needs to be 1"
