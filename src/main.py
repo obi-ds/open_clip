@@ -472,7 +472,7 @@ def main(args):
                     is_train=False,
                     tokenizer=tokenizer,
                     task_probabilities=[1.0, 0.0],
-                    evaluate_attribute=['I48', (0, 6), None],
+                    evaluate_attribute=['CV_416.2', (0, 6), None],
                     custom_prompt=True,
                     lock_range=True
                 )

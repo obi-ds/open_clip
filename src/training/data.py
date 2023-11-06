@@ -25,14 +25,16 @@ from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander
 from .instruct.codes import (
     CodeStatusClassificationTask,
     CodeStatusRangeClassificationTask,
-    ICDT2EPredictionTask,
+    CodeT2EPredictionTask,
     CodeStatusRangeClassificationTaskEval
 )
-from .instruct.codes.descriptions import ICDDescription
+from .instruct.codes.descriptions import ICDDescription, PHEDescription
 from .instruct.codes.processing import (
     EncounterDataframeProcess,
     DataFrameSampling,
     ICDConvert,
+    PHEConvert,
+    NegativePHESampling,
     NegativeICDSampling
 )
 from .instruct.utils import (
@@ -461,6 +463,7 @@ def get_wds_dataset_icd_instruct(
         future_time_delta=None,
         lock_range=None,
         time_difference_normalize=30,
+        use_phe_codes=False,
         shuffle=True
 ):
     max_seq_length = 76
@@ -477,7 +480,7 @@ def get_wds_dataset_icd_instruct(
     args.shuffle = shuffle
 
     encounter_dataframe = pd.read_parquet(
-        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD']
+        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
     )
 
     encounter_dataframe_process = EncounterDataframeProcess(
@@ -485,21 +488,28 @@ def get_wds_dataset_icd_instruct(
         patient_id_column=args.patient_id_column,
         contact_date_column=args.contact_date_column,
         time_difference_column=args.time_difference_column,
-        code_column=args.icd_10_column,
+        code_column=args.code_column,
         position_column=args.position_column,
     )
 
     dataframe_sampling = DataFrameSampling()
 
-    code_convert = ICDConvert(
-        descriptions=ICDDescription(),
-        billable_probability=args.billable_probability,
-        top_non_probability=args.top_non_probability,
-        mixed_non_probability=args.mixed_non_probability,
-        lowercase=False
-    )
+    if use_phe_codes or 'phe' in args.code_column:
+        code_convert = PHEConvert(
+            descriptions=PHEDescription(),
+            lowercase=False
+        )
+        negative_code_sampling = NegativePHESampling(code_convert=code_convert)
+    else:
+        code_convert = ICDConvert(
+            descriptions=ICDDescription(),
+            billable_probability=args.billable_probability,
+            top_non_probability=args.top_non_probability,
+            mixed_non_probability=args.mixed_non_probability,
+            lowercase=False
+        )
+        negative_code_sampling = NegativeICDSampling(code_convert=code_convert)
 
-    negative_code_sampling = NegativeICDSampling(code_convert=code_convert)
 
     if args.lock_range:
         assert args.random_negative_probability == 1, "If range is locked/fixed, random negative probability needs to be 1"
@@ -530,18 +540,18 @@ def get_wds_dataset_icd_instruct(
             code_instructions=code_status_range_classification_instructions,
             code_convert=code_convert,
             patient_id_column=args.patient_id_column,
-            code_column=args.icd_10_column,
+            code_column=args.code_column,
             position_column=args.position_column,
         )
 
-        code_t2e_prediction_task = ICDT2EPredictionTask(
+        code_t2e_prediction_task = CodeT2EPredictionTask(
             encounter_dataframe_process=encounter_dataframe_process,
             dataframe_sampling=dataframe_sampling,
             negative_code_sampling=negative_code_sampling,
             code_instructions=code_t2e_prediction_instructions,
             code_convert=code_convert,
             patient_id_column=args.patient_id_column,
-            code_column=args.icd_10_column,
+            code_column=args.code_column,
             position_column=args.position_column,
         )
     else:
@@ -552,7 +562,7 @@ def get_wds_dataset_icd_instruct(
             code_instructions=code_status_range_classification_instructions,
             code_convert=code_convert,
             patient_id_column=args.patient_id_column,
-            code_column=args.icd_10_column,
+            code_column=args.code_column,
             position_column=args.position_column,
             example_attributes=example_attributes,
             evaluate_attribute=evaluate_attribute
@@ -561,7 +571,6 @@ def get_wds_dataset_icd_instruct(
         code_t2e_prediction_task = None
 
     instruction_tasks = [code_status_range_classification_task, code_t2e_prediction_task]
-
 
     if task_probabilities is None:
         # task_probabilities = np.ones(len(instruction_tasks)) / len(instruction_tasks)
