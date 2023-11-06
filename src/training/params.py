@@ -3,8 +3,8 @@ import ast
 
 import argparse
 
-from .parameters.instruct.icd_instruct import (
-    get_icd_instruct_arguments,
+from .parameters.instruct.code_instruct import (
+    get_code_instruct_arguments,
     get_encounter_file_arguments,
 )
 from .parameters.instruct import get_instruct_arguments
@@ -32,14 +32,14 @@ class ParseKwargs(argparse.Action):
 
 def parse_args(args):
 
-    icd_prompt_arguments = get_icd_instruct_arguments()
+    code_prompt_arguments = get_code_instruct_arguments()
     encounter_file_arguments = get_encounter_file_arguments()
     open_clip_arguments = get_open_clip_arguments()
     prompt_arguments = get_instruct_arguments()
 
     parser = argparse.ArgumentParser(
         parents=[
-            icd_prompt_arguments,
+            code_prompt_arguments,
             encounter_file_arguments,
             open_clip_arguments,
             prompt_arguments
