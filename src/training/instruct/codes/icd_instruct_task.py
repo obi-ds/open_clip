@@ -5,10 +5,10 @@ import numpy as np
 import pandas as pd
 from typing import Union, Tuple, List, Any, Optional
 
-from .processing.icd_convert import ICDConvert
+from .processing.code_convert import ICDConvert
 from .processing.encounter_dataframe_process import EncounterDataframeProcess
 from .processing.dataframe_sampling import DataFrameSampling
-from .processing.negative_icd_sampling import NegativeICDSampling
+from .processing.negative_code_sampling import NegativeICDSampling
 
 np.random.seed(42)
 
@@ -90,6 +90,20 @@ class CodeStatusClassificationTask(object):
         encounter_history[self._code_column] = self._code_convert.get_converted_codes(
             codes=encounter_history[self._code_column]
         )
+        encounter_history[self._code_column] = encounter_history[self._code_column].astype(str)
+        return encounter_history
+
+    def filter_na_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
+        """
+        If the code column has NA values, replace them accordingly or drop them
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+
+        Returns:
+            encounter_history (pd.DataFrame): The dataframe with NA values handled
+        """
+        encounter_history.dropna(subset=self._code_column, inplace=True)
+        # encounter_history[self._code_column] = encounter_history[self._code_column].astype(str)
         return encounter_history
 
     def filter_encounter_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
@@ -105,6 +119,7 @@ class CodeStatusClassificationTask(object):
         # entry (hence sorted by position)
         encounter_history.sort_values(by=self._position_column, inplace=True)
         encounter_history.drop_duplicates(subset=self._code_column, inplace=True)
+
         return encounter_history
 
     def filter_encounter_history_time_delta(
@@ -201,7 +216,9 @@ class CodeStatusClassificationTask(object):
 
         encounter_history = self.filter_encounter_codes(
             encounter_history=self.map_encounter_codes(
-                encounter_history=encounter_history
+                encounter_history=self.filter_na_codes(
+                    encounter_history=encounter_history
+                )
             )
         )
 
@@ -473,7 +490,7 @@ class CodeStatusClassificationTask(object):
         # Sample negatives uniformly from a given set of codes
         # Exclude codes if desired
         if np.random.rand() < random_negative_probability:
-            codes = self._negative_code_sampling.get_negatives(
+            codes = self._negative_code_sampling.get_codes(
                 positives=exclude_codes,
                 k=size
             )
@@ -500,7 +517,7 @@ class CodeStatusClassificationTask(object):
         """
 
         # Sample negative codes
-        codes = self._negative_code_sampling.get_negatives(
+        codes = self._negative_code_sampling.get_codes(
             positives=exclude_codes,
             k=size
         )
@@ -836,12 +853,12 @@ class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTask):
         else:
             raise ValueError('Invalid time period')
 
-    def __get_answer(
+    def get_prompt_code_and_answer(
             self,
             encounter_history: pd.DataFrame,
             code: str,
             regex: bool
-    ) -> int:
+    ) -> Tuple[str, bool]:
         """
         Check if a given code exists in a given encounter history
         Args:
@@ -850,9 +867,28 @@ class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTask):
             regex (bool): Whether to perform regex match or not
 
         Returns:
-            (int): Count of the number of matches
+            (str): The input code or sub code
+            (bool): Whether the code or it's sub code is in the encounter history
         """
-        return sum(encounter_history[self._code_column].str.contains(code, regex=regex))
+        matched_codes = encounter_history[
+            encounter_history[self._code_column].str.contains(code, regex=regex)
+        ][self._code_column]
+        if len(matched_codes) == 0:
+            return np.random.choice(self.sample_codes(code=code)), False
+        else:
+            return matched_codes.sample(1).iloc[0], True
+
+    def sample_codes(self, code: str) -> List[str]:
+        """
+        Given a code - return all sub codes of this. This would
+        be all codes that contain this string.
+        Args:
+            code (str): A given diagnostic code
+
+        Returns:
+            (List[str]): All sub codes of the given code
+        """
+        return [sub_code for sub_code in self._negative_code_sampling.codes if code in sub_code]
 
     def get_answer(
             self,
@@ -862,7 +898,7 @@ class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTask):
             end_time: int,
             answer: Optional[bool],
             regex: bool
-    ):
+    ) -> Tuple[str, bool]:
         """
         Check if a given code exists in a given encounter history
         Args:
@@ -874,22 +910,27 @@ class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTask):
             regex (bool): Whether to use regex matching when checking presence of code
 
         Returns:
-            (bool): A boolean indicating whether a given code in present in the encounter history
+            (str): The input code or sub code - that will be part of prompt
+            (bool): Whether the code or it's sub code is in the encounter history
         """
 
-        if answer is None:
-            # Select the dataframe values within the time range
-            encounter_subset = self.get_encounter_range(
-                encounter_history=encounter_history,
-                start_time=start_time,
-                end_time=end_time,
-                time_period=-1 if end_time < 0 else 1
-            )
+        if answer is not None:
+            raise NotImplementedError()
 
-            # Find the answer
-            answer = self.__get_answer(encounter_history=encounter_subset, code=code, regex=regex)
+        # Select the dataframe values within the time range
+        encounter_subset = self.get_encounter_range(
+            encounter_history=encounter_history,
+            start_time=start_time,
+            end_time=end_time,
+            time_period=-1 if end_time < 0 else 1
+        )
 
-        return answer
+        # Find the answer
+        prompt_code, answer = self.get_prompt_code_and_answer(
+            encounter_history=encounter_subset, code=code, regex=regex
+        )
+
+        return prompt_code, answer
 
     def process_example_attributes(
             self,
@@ -921,7 +962,7 @@ class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTask):
             icd_code = example_attribute[0]
             start_time, end_time = example_attribute[1]
             # Check if the code is present in the time range defined by start and end time
-            answer = self.get_answer(
+            prompt_code, answer = self.get_answer(
                 encounter_history=encounter_history,
                 code=icd_code,
                 start_time=start_time,
@@ -933,7 +974,7 @@ class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTask):
             # If the code is present - generate a positive instruction prompt
             if answer:
                 instruction = self._code_instructions.get_positive_instruction(
-                    diagnosis=self._code_convert.transform_code(icd_code),
+                    diagnosis=self._code_convert.transform_code(prompt_code),
                     position=-1 if end_time < 0 else 1,
                     start_range_limit=start_time,
                     end_range_limit=end_time
@@ -941,7 +982,7 @@ class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTask):
             # If the code is not present - generate a negative instruction prompt
             else:
                 instruction = self._code_instructions.get_negative_instruction(
-                    diagnosis=self._code_convert.transform_code(icd_code),
+                    diagnosis=self._code_convert.transform_code(prompt_code),
                     position=-1 if end_time < 0 else 1,
                     start_range_limit=start_time,
                     end_range_limit=end_time
@@ -1025,7 +1066,7 @@ class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTask):
         )
 
 
-class ICDT2EPredictionTask(CodeStatusClassificationTask):
+class CodeT2EPredictionTask(CodeStatusClassificationTask):
     """
     Make training data from icd codes
     """
@@ -1048,7 +1089,7 @@ class ICDT2EPredictionTask(CodeStatusClassificationTask):
             dataframe_sampling (DataFrameSampling): Dataframe sampling object
             negative_code_sampling (NegativeICDSampling, defaults to `None`): Object to sample negatives from a
             pre-defined list
-            code_instructions (Any): A list of icd instruction tasks. At any point one of these
+            code_instructions (Any): A list of code instruction tasks. At any point one of these
             tasks is randomly chosen and trained on
             code_convert (ICDConvert): The object to map codes to their textual descriptions'
             patient_id_column (str, defaults to `PatientID`): The column name for the patient id

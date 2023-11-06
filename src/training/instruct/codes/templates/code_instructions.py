@@ -537,7 +537,8 @@ class CodeStatusRangeClassificationInstructions(CodeStatusInstructionsInterface)
             self,
             position: float,
             start_range_limit: Union[int, float],
-            end_range_limit: Union[int, float]
+            end_range_limit: Union[int, float],
+            negative_delta: int = 2
     ) -> Tuple[int, int]:
         """
         Return a time range (random or fixed) for a negative instruction for events
@@ -546,6 +547,7 @@ class CodeStatusRangeClassificationInstructions(CodeStatusInstructionsInterface)
             position (float): The relative time/position of diagnosis
             start_range_limit (Union[int, float]): The start limit of the range
             end_range_limit (Union[int, float]): The end limit of the range
+            negative_delta (int): The negative range can start only after this delta
 
         Returns:
             (Tuple[int, int]): Tuple that contains a start time and end time
@@ -557,9 +559,10 @@ class CodeStatusRangeClassificationInstructions(CodeStatusInstructionsInterface)
             # the occurrence of the event to the end range - basically
             # check if this was diagnosed earlier
             position = np.abs(int(position))
-            start_position = position if position == 0 else position + 1
-            if start_position == end_range_limit:
-                end_range_limit += 1
+            # start_position = position if position == 0 else position + 1
+            start_position = position + negative_delta
+            if start_position >= end_range_limit:
+                end_range_limit = start_position + 1
 
             negative_position = np.random.choice(range(start_position, end_range_limit))
             return self.get_position_range(
