@@ -428,6 +428,55 @@ def main(args):
 
     loss = create_loss(args)
 
+    binary_status = {
+        'val': get_wds_dataset_icd_instruct(
+            args=args,
+            preprocess_img=preprocess_val,
+            is_train=False,
+            tokenizer=tokenizer,
+            task_probabilities=[1.0, 0.0]
+        )
+    }
+
+    # Future status
+    # afib_status = {
+    #     'val': get_wds_dataset_icd_instruct(
+    #         args=args,
+    #         preprocess_img=preprocess_val,
+    #         is_train=False,
+    #         tokenizer=tokenizer,
+    #         task_probabilities=[1.0, 0.0],
+    #         evaluate_attribute=['CV_416.2', (0, 1), None],
+    #         custom_prompt=True,
+    #         lock_range=True
+    #     )
+    # }
+
+    evaluations = {
+        'afib+1_': ('CV_416.2', 0, 1),
+        'hf+1_': ('CV_424', 0, 1),
+        't2d+1_': ('EM_202.2', 0, 1),
+        'afib-1_': ('CV_416.2', 0, -1),
+        'hf-1_': ('CV_424', 0, -1),
+        't2d-1_': ('EM_202.2', 0, -1),
+        'afib+6_': ('CV_416.2', 0, 6),
+        'hf+6_': ('CV_424', 0, 6),
+        't2d+6_': ('EM_202.2', 0, 6),
+    }
+
+    evaluations_data = {
+        eval_prefix: get_icd_evaluation(
+            code=eval_params[0],
+            start_time=eval_params[1],
+            end_time=eval_params[2],
+            args=args,
+            preprocess_val=preprocess_val,
+            tokenizer=tokenizer
+        )
+        for eval_prefix, eval_params in evaluations.items()
+    }
+
+
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
@@ -442,15 +491,7 @@ def main(args):
             # TODO: We changed from coca eval to only gen eval
             # TODO - Other evaluations
             # 1. Evaluate General
-            binary_status = {
-                'val': get_wds_dataset_icd_instruct(
-                    args=args,
-                    preprocess_img=preprocess_val,
-                    is_train=False,
-                    tokenizer=tokenizer,
-                    task_probabilities=[1.0, 0.0]
-                )
-            }
+
             evaluate_icd_binary_instruct(
                 model,
                 binary_status,
@@ -465,28 +506,28 @@ def main(args):
             # Evaluate A-Fib
             # TODO: This assumes top level code - if using leaf level - we need to change the ICD code
             #  accordingly
-            afib_status = {
-                'val': get_wds_dataset_icd_instruct(
-                    args=args,
-                    preprocess_img=preprocess_val,
-                    is_train=False,
+            # evaluate_icd_binary_instruct(
+            #     model,
+            #     afib_status,
+            #     completed_epoch,
+            #     args,
+            #     prefix='afib_status_',
+            #     tokenizer=tokenizer,
+            #     tb_writer=writer,
+            #     step=log_step
+            # )
+
+            for eval_prefix, eval_data in evaluations_data.items():
+                evaluate_icd_binary_instruct(
+                    model,
+                    eval_data,
+                    completed_epoch,
+                    args,
+                    prefix=eval_prefix,
                     tokenizer=tokenizer,
-                    task_probabilities=[1.0, 0.0],
-                    evaluate_attribute=['CV_416.2', (0, 6), None],
-                    custom_prompt=True,
-                    lock_range=True
+                    tb_writer=writer,
+                    step=log_step
                 )
-            }
-            evaluate_icd_binary_instruct(
-                model,
-                afib_status,
-                completed_epoch,
-                args,
-                prefix='afib_status_',
-                tokenizer=tokenizer,
-                tb_writer=writer,
-                step=log_step
-            )
 
             # eval_metrics = {**binary_status_metrics, **afib_status_metrics}
 
@@ -556,6 +597,60 @@ def copy_codebase(args):
     copytree(current_code_path, new_code_path, ignore=ignore_patterns('log', 'logs', 'wandb'))
     print("Done copying code.")
     return 1
+
+def get_icd_evaluation(code, start_time, end_time, args, preprocess_val, tokenizer):
+    return {
+        'val': get_wds_dataset_icd_instruct(
+            args=args,
+            preprocess_img=preprocess_val,
+            is_train=False,
+            tokenizer=tokenizer,
+            task_probabilities=[1.0, 0.0],
+            evaluate_attribute=[code, (start_time, end_time), None],
+            custom_prompt=True,
+            lock_range=True
+        )
+    }
+
+def get_future_evaluation():
+    afib_30_future_status = {
+        'val': get_wds_dataset_icd_instruct(
+            args=args,
+            preprocess_img=preprocess_val,
+            is_train=False,
+            tokenizer=tokenizer,
+            task_probabilities=[1.0, 0.0],
+            evaluate_attribute=['CV_416.2', (0, 1), None],
+            custom_prompt=True,
+            lock_range=True
+        )
+    }
+
+    hf_30_future_status = {
+        'val': get_wds_dataset_icd_instruct(
+            args=args,
+            preprocess_img=preprocess_val,
+            is_train=False,
+            tokenizer=tokenizer,
+            task_probabilities=[1.0, 0.0],
+            evaluate_attribute=['CV_424', (0, 1), None],
+            custom_prompt=True,
+            lock_range=True
+        )
+    }
+
+    t2d_30_future_status = {
+        'val': get_wds_dataset_icd_instruct(
+            args=args,
+            preprocess_img=preprocess_val,
+            is_train=False,
+            tokenizer=tokenizer,
+            task_probabilities=[1.0, 0.0],
+            evaluate_attribute=['EM_202.2', (0, 1), None],
+            custom_prompt=True,
+            lock_range=True
+        )
+    }
 
 
 if __name__ == "__main__":
