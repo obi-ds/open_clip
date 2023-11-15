@@ -26,6 +26,7 @@ from .instruct.codes import (
     CodeStatusClassificationTask,
     CodeStatusRangeClassificationTask,
     CodeT2EPredictionTask,
+    CodeStatusRangeClassificationTaskStrictEval,
     CodeStatusRangeClassificationTaskEval
 )
 from .instruct.codes.descriptions import ICDDescription, PHEDescription
@@ -447,6 +448,42 @@ def get_synthetic_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None
 
     return DataInfo(dataloader, sampler)
 
+def get_patient_encounter_history_object(
+        args,
+        use_phe_codes=True
+):
+    encounter_dataframe = pd.read_parquet(
+        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
+    )
+
+
+    if use_phe_codes or 'phe' in args.code_column:
+        code_convert = PHEConvert(
+            descriptions=PHEDescription(),
+            lowercase=False
+        )
+    else:
+        code_convert = ICDConvert(
+            descriptions=ICDDescription(),
+            billable_probability=args.billable_probability,
+            top_non_probability=args.top_non_probability,
+            mixed_non_probability=args.mixed_non_probability,
+            lowercase=False
+        )
+
+    encounter_dataframe_process = EncounterDataframeProcess(
+        encounter_dataframe=encounter_dataframe,
+        code_convert=code_convert,
+        patient_id_column=args.patient_id_column,
+        contact_date_column=args.contact_date_column,
+        time_difference_column=args.time_difference_column,
+        code_column=args.code_column,
+        position_column=args.position_column,
+    )
+
+
+
+    return encounter_dataframe_process
 
 def get_wds_dataset_icd_instruct(
         args,
@@ -459,24 +496,15 @@ def get_wds_dataset_icd_instruct(
         example_attributes=None,
         custom_prompt=False,
         task_probabilities=None,
-        past_time_delta=None,
-        future_time_delta=None,
         lock_range=None,
-        time_difference_normalize=30,
         use_phe_codes=False,
-        shuffle=True
+        shuffle=True,
+        strict_eval=False,
+        return_sample=False
 ):
     max_seq_length = 76
     pad_id = 0
 
-    if past_time_delta is not None:
-        args.past_time_delta = past_time_delta
-    if future_time_delta is not None:
-        args.future_time_delta = future_time_delta
-    if lock_range is not None:
-        args.lock_range = lock_range
-
-    args.time_difference_normalize = time_difference_normalize
     args.shuffle = shuffle
 
     encounter_dataframe = pd.read_parquet(
@@ -523,7 +551,7 @@ def get_wds_dataset_icd_instruct(
         past_target='{answer}',
         positive_answer_target='yes',
         negative_answer_target='no',
-        lock_range=args.lock_range
+        lock_range=lock_range if lock_range is not None else args.lock_range
     )
 
     code_t2e_prediction_instructions = get_code_t2e_prediction_instructions(
@@ -556,18 +584,32 @@ def get_wds_dataset_icd_instruct(
             position_column=args.position_column,
         )
     else:
-        code_status_range_classification_task = CodeStatusRangeClassificationTaskEval(
-            encounter_dataframe_process=encounter_dataframe_process,
-            dataframe_sampling=dataframe_sampling,
-            negative_code_sampling=negative_code_sampling,
-            code_instructions=code_status_range_classification_instructions,
-            code_convert=code_convert,
-            patient_id_column=args.patient_id_column,
-            code_column=args.code_column,
-            position_column=args.position_column,
-            example_attributes=example_attributes,
-            evaluate_attribute=evaluate_attribute
-        )
+        if strict_eval:
+            code_status_range_classification_task = CodeStatusRangeClassificationTaskStrictEval(
+                encounter_dataframe_process=encounter_dataframe_process,
+                dataframe_sampling=dataframe_sampling,
+                negative_code_sampling=negative_code_sampling,
+                code_instructions=code_status_range_classification_instructions,
+                code_convert=code_convert,
+                patient_id_column=args.patient_id_column,
+                code_column=args.code_column,
+                position_column=args.position_column,
+                example_attributes=example_attributes,
+                evaluate_attribute=evaluate_attribute
+            )
+        else:
+            code_status_range_classification_task = CodeStatusRangeClassificationTaskEval(
+                encounter_dataframe_process=encounter_dataframe_process,
+                dataframe_sampling=dataframe_sampling,
+                negative_code_sampling=negative_code_sampling,
+                code_instructions=code_status_range_classification_instructions,
+                code_convert=code_convert,
+                patient_id_column=args.patient_id_column,
+                code_column=args.code_column,
+                position_column=args.position_column,
+                example_attributes=example_attributes,
+                evaluate_attribute=evaluate_attribute
+            )
 
         code_t2e_prediction_task = None
 
@@ -590,15 +632,35 @@ def get_wds_dataset_icd_instruct(
     )
 
     # Build pipeline extension
+    # pipeline_extension = [
+    #     wds.decode(
+    #         wds.handle_extension("blosc", blosc.unpack_array),
+    #     ),
+    #     wds.rename(image="dict.x.blosc", text="dict.meta.pyd"),
+    #     wds.map_dict(text=instruct_function),
+    #     wds.map_dict(image=wds_ecg_to_torch),
+    #     wds.map_dict(image=preprocess_img),
+    #     wds.to_tuple("image", "text"),
+    #     wds.batched(args.batch_size, partial=not is_train),
+    # ]
+
+    if return_sample:
+        rename = wds.rename(image="dict.x.blosc", text="dict.meta.pyd", labels="dict.meta.pyd")
+        return_tuple = wds.to_tuple("image", "text", "labels")
+    else:
+        rename = wds.rename(image="dict.x.blosc", text="dict.meta.pyd")
+        return_tuple = wds.to_tuple("image", "text")
+
+    # Build pipeline extension
     pipeline_extension = [
         wds.decode(
             wds.handle_extension("blosc", blosc.unpack_array),
         ),
-        wds.rename(image="dict.x.blosc", text="dict.meta.pyd"),
+        rename,
         wds.map_dict(text=instruct_function),
         wds.map_dict(image=wds_ecg_to_torch),
         wds.map_dict(image=preprocess_img),
-        wds.to_tuple("image", "text"),
+        return_tuple,
         wds.batched(args.batch_size, partial=not is_train),
     ]
 
