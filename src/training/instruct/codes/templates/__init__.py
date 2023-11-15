@@ -1,6 +1,6 @@
 from .code_instructions import (
     CodeStatusClassificationInstructions,
-    CodeStatusRangeClassificationInstructions,
+    CodeStatusFixedRangeClassificationInstructions,
     CodeT2EPredictionInstructions
 )
 from .code_status_instruction_template import (
@@ -13,6 +13,6 @@ __all__ = [
     "CodeStatusClassificationInstructions",
     "CodeStatusRangeInstructionTemplate",
     "CodeT2EInstructionTemplate",
-    "CodeStatusRangeClassificationInstructions",
+    "CodeStatusFixedRangeClassificationInstructions",
     "CodeT2EPredictionInstructions"
 ]

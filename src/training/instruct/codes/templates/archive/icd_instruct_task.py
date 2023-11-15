@@ -81,6 +81,8 @@ class CodeStatusClassificationTask(object):
             encounter_history: pd.DataFrame,
             past_time_delta: str,
             future_time_delta: str,
+            k_shot: int,
+            time_difference_normalize: int,
     ) -> Tuple[pd.DataFrame, pd.Series]:
         """
         Given the encounter history, map codes, filter out duplicate codes and filter
@@ -92,6 +94,9 @@ class CodeStatusClassificationTask(object):
             encounter_history (pd.DataFrame): The dataframe containing all encounters
             past_time_delta (str): Filter out encounters beyond this point in time
             future_time_delta (str): Filter out encounters beyond this point in time
+            k_shot (int): The number of k-shot examples to use
+            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
+            (e.g. 30 normalizes it to months)
 
         Returns:
             encounter_history (pd.DataFrame): The encounter history after mapping codes, dropping duplicates and
@@ -171,13 +176,43 @@ class CodeStatusClassificationTask(object):
             size=number_of_positives
         )
 
-        sampled_negatives = self.get_negative_samples(
+        sampled_negatives = self.sample_negatives(
             past_time_delta=past_time_delta,
             future_time_delta=future_time_delta,
-            size=number_of_negatives,
+            k_shot=number_of_negatives - 1,
             time_difference_normalize=time_difference_normalize,
             exclude_codes=exclude_codes
         )
+
+        # For sampling negatives - check if dataframe is empty - if it is, create a random
+        # dataframe. Sometimes we may want to sample negatives from the encounter dataframe
+        # but in the case it's empty we can still sample negatives but not positives
+        # random_history = None
+        # if encounter_history.shape[0] == 0:
+        #     random_history = self.fix_empty_encounter_history(
+        #         past_time_delta=past_time_delta,
+        #         future_time_delta=future_time_delta,
+        #         k_shot=k_shot,
+        #         time_difference_normalize=time_difference_normalize,
+        #         exclude_codes=exclude_codes
+        #     )
+        #     sampled_negatives = random_history
+        # else:
+        #     random_history = self.fix_empty_encounter_history(
+        #         past_time_delta=past_time_delta,
+        #         future_time_delta=future_time_delta,
+        #         k_shot=number_of_negatives,
+        #         time_difference_normalize=time_difference_normalize,
+        #         exclude_codes=exclude_codes
+        #     )
+        #     sampled_negatives = random_history
+
+        # sampled_negatives = self.get_negative_samples(
+        #     encounter_history=encounter_history if random_history is None else random_history,
+        #     size=number_of_negatives,
+        #     random_negative_probability=random_negative_probability,
+        #     exclude_codes=exclude_codes
+        # )
 
         # Get the instructions - this should contain the instruction inputs and instruction targets
         return sampled_positives, sampled_negatives
@@ -217,6 +252,8 @@ class CodeStatusClassificationTask(object):
             encounter_history=encounter_history,
             past_time_delta=past_time_delta,
             future_time_delta=future_time_delta,
+            k_shot=k_shot,
+            time_difference_normalize=time_difference_normalize,
         )
 
         sampled_positives, sampled_negatives = self.get_positive_negative_samples(
@@ -338,8 +375,7 @@ class CodeStatusClassificationTask(object):
         # Assign random position values (within the given range) to the randomly sampled codes
         position_range = np.arange(
             -(math.floor(pd.to_timedelta(past_time_delta).days / time_difference_normalize)),
-            (math.ceil(pd.to_timedelta(future_time_delta).days / time_difference_normalize)),
-            step=0.5
+            (math.ceil(pd.to_timedelta(future_time_delta).days / time_difference_normalize))
         )
 
         # Sample codes and create a random encounter dataframe
@@ -350,6 +386,56 @@ class CodeStatusClassificationTask(object):
         )
 
         return encounter_history
+
+    def get_negative_samples(
+            self,
+            encounter_history: pd.DataFrame,
+            size: int,
+            random_negative_probability: float,
+            exclude_codes: pd.Series
+    ) -> pd.DataFrame:
+        """
+        Returns the negative samples - sampled from the encounter history or randomly sampled
+        Exclude any codes to be sampled as negatives when sampling by passing exclude codes
+        argument
+        Args:
+            encounter_history (pd.DataFrame): The dataframe containing patient encounters
+            size (int): How many samples to return
+            random_negative_probability (float, defaults to 0.5): Probability of sampling negatives randomly
+            exclude_codes (pd.Series): Exclude these codes when randomly sampling negatives
+
+        Returns:
+            (pd.DataFrame): A subset of the encounters that will be used as negative
+            samples. It could also be a dataset with negatives sampled randomly from an
+            external source
+        """
+
+        # TODO - Code should work fine if random_negative is set to 1, but if not, we need to change sampling.
+        # For example - if there is an event X at 3 months and 6 months (full encounter history)
+        # when we do negative sampling (in fixed range) - we need to ensure that
+        # a sampled code will not be in the negative range - something like keeping
+        # only the earliest event X when sampling for future or past negative ranges
+        # For variable range - we would keep earliest event for future negative range
+        # and latest event X when sampling for past negative ranges. Check code before
+        # implementing these.
+
+        # Sample a subset of negatives from dataframe
+        # sampled_negatives = self._dataframe_sampling.sample_dataframe(
+        #     dataframe=encounter_history,
+        #     sample_size=size,
+        #     weights=None
+        # )
+
+        # # Sample negatives uniformly from a given set of codes
+        # # Exclude codes if desired
+        # if np.random.rand() < random_negative_probability:
+        #     codes = self._negative_code_sampling.get_codes(
+        #         positives=exclude_codes,
+        #         k=size
+        #     )
+        #     sampled_negatives[self._code_column] = codes
+
+        raise NotImplementedError()
 
     def get_random_encounters(
             self,
@@ -620,7 +706,7 @@ class CodeStatusRangeClassificationTask(CodeStatusClassificationTask):
         return [task_definition] + instructions
 
 
-class CodeStatusRangeClassificationTaskStrictEval(CodeStatusRangeClassificationTask):
+class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTask):
     """
     Make instruction tuning evaluation data from diagnostic codes. This constructs data
     for a given code. The instruction asks the model to predict whether a patient is
@@ -841,7 +927,7 @@ class CodeStatusRangeClassificationTaskStrictEval(CodeStatusRangeClassificationT
             instructions.append(instruction)
         return instructions
 
-    def process_sample_for_evaluation(
+    def process_sample(
             self,
             patient_id: Union[str, int],
             current_time: str,
@@ -849,7 +935,9 @@ class CodeStatusRangeClassificationTaskStrictEval(CodeStatusRangeClassificationT
             future_time_delta: str,
             use_log_position: bool,
             k_shot: int,
+            random_negative_probability: float,
             time_difference_normalize: int,
+            shuffle: bool
     ):
         """
         Given the encounter history, map codes, filter out duplicate codes and filter
@@ -865,8 +953,10 @@ class CodeStatusRangeClassificationTaskStrictEval(CodeStatusRangeClassificationT
             future_time_delta (str): Filter out encounters beyond this point in time
             use_log_position (bool): Whether to keep time deltas in days or as log value of days
             k_shot (int): The number of k-shot examples to use
+            random_negative_probability (float, defaults to 0.5): Probability of sampling negatives randomly
             time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
             (e.g. 30 normalizes it to months)
+            shuffle (bool): Whether to shuffle the list of instructions.
 
         Returns:
             (List[Tuple[str, str]]): The instructions that will be used for evaluation
@@ -883,7 +973,7 @@ class CodeStatusRangeClassificationTaskStrictEval(CodeStatusRangeClassificationT
         )
 
         # Map and filter encounter dataframe
-        encounter_history, positive_codes = self._encounter_dataframe_process.filter_encounter_history_for_task(
+        encounter_history, _ = self._encounter_dataframe_process.filter_encounter_history_for_task(
             encounter_history=encounter_history,
             past_time_delta=past_time_delta,
             future_time_delta=future_time_delta,
@@ -905,246 +995,12 @@ class CodeStatusRangeClassificationTaskStrictEval(CodeStatusRangeClassificationT
             # The evaluate attribute will be at the end of the prompt
             example_attributes = self._example_attributes + [self._evaluate_attribute]
 
-        return encounter_history, positive_codes, example_attributes
-
-    def process_sample(
-            self,
-            patient_id: Union[str, int],
-            current_time: str,
-            past_time_delta: str,
-            future_time_delta: str,
-            use_log_position: bool,
-            k_shot: int,
-            random_negative_probability: float,
-            time_difference_normalize: int,
-            shuffle: bool
-    ):
-        """
-        Given the encounter history, map codes, filter out duplicate codes and filter
-        the history based on time range. Keep only those entries
-        that occur within the time range. Then check if the code specified in evaluate
-        attribute and optionally the example attributes is present in the encounter history.
-        Build the positive and negative instructions/prompt accordingly
-        Args:
-            patient_id (Union[str, int]): The unique id of the patient we need to process
-            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
-            with respect to other encounters
-            past_time_delta (str): Filter out encounters beyond this point in time
-            future_time_delta (str): Filter out encounters beyond this point in time
-            use_log_position (bool): Whether to keep time deltas in days or as log value of days
-            k_shot (int): The number of k-shot examples to use
-            random_negative_probability (float, defaults to 0.5): Probability of sampling negatives randomly
-            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
-            (e.g. 30 normalizes it to months)
-            shuffle (bool): Whether to shuffle the list of instructions.
-
-        Returns:
-            (List[Tuple[str, str]]): The instructions that will be used for evaluation
-        """
-
-        encounter_history, _, example_attributes = self.process_sample_for_evaluation(
-            patient_id=patient_id,
-            current_time=current_time,
-            past_time_delta=past_time_delta,
-            future_time_delta=future_time_delta,
-            use_log_position=use_log_position,
-            k_shot=k_shot,
-            time_difference_normalize=time_difference_normalize,
-        )
-
         # Get the instructions - this should contain the instruction inputs and instruction targets
         return self.process_example_attributes(
             example_attributes=example_attributes,
             encounter_history=encounter_history,
             regex=False
         )
-
-
-class CodeStatusRangeClassificationTaskEval(CodeStatusRangeClassificationTaskStrictEval):
-    """
-    Make instruction tuning evaluation data from diagnostic codes. This constructs data
-    for a given code. The instruction asks the model to predict whether a patient is
-    diagnosed with that condition within a given time range.
-    """
-
-    def __init__(
-            self,
-            evaluate_attribute: Tuple[str, Tuple[int, int], Optional[bool]],
-            encounter_dataframe_process: EncounterDataframeProcess,
-            dataframe_sampling: DataFrameSampling,
-            code_instructions: Any,
-            code_convert: ICDConvert,
-            negative_code_sampling: Optional[NegativeICDSampling] = None,
-            patient_id_column: str = 'PatientID',
-            code_column: str = 'ICD10CD',
-            position_column: str = 'position',
-            example_attributes: Optional[List[Tuple[str, Tuple[int, int], Optional[bool]]]] = None,
-    ):
-        """
-        Initialize variables
-        Args:
-            evaluate_attribute(Tuple[str, Tuple[int, int], Optional[bool]]): The code that we want to evaluate -
-            it will contain the code and the time range we want to check the presence or absence of that code
-            encounter_dataframe_process (EncounterDataframeProcess): Dataframe processing object
-            dataframe_sampling (DataFrameSampling): Dataframe sampling object
-            negative_code_sampling (NegativeICDSampling, defaults to `None`): Object to sample negatives from a
-            pre-defined list
-            code_instructions (Any): A list of code instruction tasks. At any point one of these
-            tasks is randomly chosen and trained on
-            code_convert (ICDConvert): The object to map codes to their textual descriptions'
-            patient_id_column (str, defaults to `PatientID`): The column name for the patient id
-            code_column (str, defaults to `ICD10CD`): The column that contains the codes
-            position_column (str, defaults to `positions`): The column where position values
-            (e.g. time difference in days or log days) will be stored
-            example_attributes(): Any few shot prompts to add while evaluating. If we want to add any
-            additional descriptions to the prompt we add it through this
-        """
-        super().__init__(
-            encounter_dataframe_process=encounter_dataframe_process,
-            code_instructions=code_instructions,
-            dataframe_sampling=dataframe_sampling,
-            negative_code_sampling=negative_code_sampling,
-            code_convert=code_convert,
-            patient_id_column=patient_id_column,
-            code_column=code_column,
-            position_column=position_column,
-            evaluate_attribute=evaluate_attribute,
-            example_attributes=example_attributes
-        )
-
-    def process_encounter_positives(
-            self,
-            encounter_history: pd.DataFrame,
-            positives: pd.Series
-    ) -> Union[List[str], pd.Series]:
-        """
-        Scan the list of positives and check if there are any that are
-        chronic or transient - and modify the list accordingly
-        Args:
-            encounter_history (pd.DataFrame): The encounter history of patient
-            positives (pd.DataFrame): The list of all positives
-
-        Returns:
-            (): A modified list of positives
-        """
-        return positives
-
-    def process_example_attributes(
-            self,
-            example_attributes: List[Tuple[str, Tuple[int, int], Optional[bool]]],
-            encounter_history: pd.DataFrame,
-            regex: bool,
-            positive_codes: pd.Series = None
-    ):
-        """
-        Given the encounter history and a set of prompt codes and evaluation codes.
-        First check if we need to find the presence or absence of the prompt codes
-        in the user specified time ranges, if the user has not specified it.
-        Then check if the evaluation code is present or absent in the time range.
-        Once we have positives and negatives - build the prompt instruction
-        Args:
-            example_attributes (List[Tuple[str, Tuple[int, int], Optional[bool]]]): List containing the prompt codes
-            along with their time ranges and optionally a flag indicating their presence or absence in the encounter
-            history.
-            encounter_history (pd.DataFrame): The encounter dataframe
-            regex (bool): Whether to use regex matching when checking presence of code
-            positive_codes (pd.Series, defaults to None): The list of all positive codes in patients history.
-
-        Returns:
-            (List[Tuple[str, str]]): The instruction prompt that will be used for evaluation
-        """
-        # Initialize instructions with task definition
-        instructions = list()
-        instructions.append(self._code_instructions.get_task_definition())
-
-        for example_attribute in example_attributes:
-            icd_code = example_attribute[0]
-            start_time, end_time = example_attribute[1]
-            # Check if the code is present in the time range defined by start and end time
-            prompt_code, answer = self.get_answer(
-                encounter_history=encounter_history,
-                code=icd_code,
-                start_time=start_time,
-                end_time=end_time,
-                answer=example_attribute[2],
-                regex=regex
-            )
-
-            # If the code is present - generate a positive instruction prompt
-            if answer:
-                instruction = self._code_instructions.get_positive_instruction(
-                    diagnosis=self._code_convert.transform_code(prompt_code),
-                    position=-1 if end_time < 0 else 1,
-                    start_range_limit=start_time,
-                    end_range_limit=end_time
-                )
-            # If the code is not present - generate a negative instruction prompt
-            else:
-                instruction = self._code_instructions.get_negative_instruction(
-                    diagnosis=self._code_convert.transform_code(prompt_code),
-                    position=-1 if end_time < 0 else 1,
-                    start_range_limit=start_time,
-                    end_range_limit=end_time
-                )
-                if positive_codes is not None and sum(positive_codes.str.contains(icd_code, regex=regex)):
-                    instruction = instruction[0], ''
-            instructions.append(instruction)
-        return instructions
-
-    def process_sample(
-            self,
-            patient_id: Union[str, int],
-            current_time: str,
-            past_time_delta: str,
-            future_time_delta: str,
-            use_log_position: bool,
-            k_shot: int,
-            random_negative_probability: float,
-            time_difference_normalize: int,
-            shuffle: bool
-    ):
-        """
-        Given the encounter history, map codes, filter out duplicate codes and filter
-        the history based on time range. Keep only those entries
-        that occur within the time range. Then check if the code specified in evaluate
-        attribute and optionally the example attributes is present in the encounter history.
-        Build the positive and negative instructions/prompt accordingly
-        Args:
-            patient_id (Union[str, int]): The unique id of the patient we need to process
-            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
-            with respect to other encounters
-            past_time_delta (str): Filter out encounters beyond this point in time
-            future_time_delta (str): Filter out encounters beyond this point in time
-            use_log_position (bool): Whether to keep time deltas in days or as log value of days
-            k_shot (int): The number of k-shot examples to use
-            random_negative_probability (float, defaults to 0.5): Probability of sampling negatives randomly
-            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
-            (e.g. 30 normalizes it to months)
-            shuffle (bool): Whether to shuffle the list of instructions.
-
-        Returns:
-            (List[Tuple[str, str]]): The instructions that will be used for evaluation
-        """
-
-        encounter_history, positive_codes, example_attributes = self.process_sample_for_evaluation(
-            patient_id=patient_id,
-            current_time=current_time,
-            past_time_delta=past_time_delta,
-            future_time_delta=future_time_delta,
-            use_log_position=use_log_position,
-            k_shot=k_shot,
-            time_difference_normalize=time_difference_normalize,
-        )
-
-        # Get the instructions - this should contain the instruction inputs and instruction targets
-        return self.process_example_attributes(
-            example_attributes=example_attributes,
-            encounter_history=encounter_history,
-            regex=False,
-            positive_codes=positive_codes
-        )
-
-
 
 
 class CodeT2EPredictionTask(CodeStatusClassificationTask):

@@ -1,7 +1,6 @@
 """Define the diagnostic code status classification task - The task uses templates, inputs and targets"""
 import numpy as np
 import pandas as pd
-from scipy.special import softmax
 from typing import Tuple, List, Union
 
 from .code_status_instruction_template import (
@@ -51,21 +50,6 @@ class CodeStatusInstructionsInterface(object):
             (str): String containing the definition of the task
         """
         return self._task_definition
-
-    def get_instruction(self, diagnosis: str, position: int, target: str) -> Tuple[str, str]:
-        """
-        Given a positive diagnosis and the relative time of diagnosis
-        return the instruction input and instruction target containing
-        these attributes
-        Args:
-            diagnosis (str): A medical/billing diagnosis
-            position (int): The relative time of diagnosis
-            target (str): The answer for the prompt
-
-        Returns:
-            (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
-        """
-        raise NotImplementedError('Implement in subclass')
 
     def get_positive_instruction(self, diagnosis: str, position: int) -> Tuple[str, str]:
         """
@@ -235,27 +219,6 @@ class CodeStatusClassificationInstructions(CodeStatusInstructionsInterface):
             task_name
         )
 
-    def get_instruction(self, diagnosis: str, position: int, target: str) -> Tuple[str, str]:
-        """
-        Given a positive diagnosis and the relative time of diagnosis
-        return the instruction input and instruction target containing
-        these attributes
-        Args:
-            diagnosis (str): A medical/billing diagnosis
-            position (int): The relative time of diagnosis
-            target (str): The answer for the prompt
-
-        Returns:
-            (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
-        """
-        if position >= 0:
-            instruction_input = self.get_future_input(diagnosis=diagnosis, time=int(position))
-            instruction_target = self.get_future_output(target=target)
-        else:
-            instruction_input = self.get_past_input(diagnosis=diagnosis, time=np.abs(int(position)))
-            instruction_target = self.get_past_output(target=target)
-        return instruction_input, instruction_target
-
     def get_positive_instruction(self, diagnosis: str, position: int) -> Tuple[str, str]:
         """
         Given a positive diagnosis and the relative time of diagnosis
@@ -269,7 +232,14 @@ class CodeStatusClassificationInstructions(CodeStatusInstructionsInterface):
             (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
         """
         # Positive diagnosis that occur in the future
-        return self.get_instruction(diagnosis=diagnosis, position=position, target=self._positive_answer_target)
+        if position >= 0:
+            instruction_input = self.get_future_input(diagnosis=diagnosis, time=int(position))
+            instruction_target = self.get_future_output(target=self._positive_answer_target)
+        # Positive diagnosis that occurred in the past
+        else:
+            instruction_input = self.get_past_input(diagnosis=diagnosis, time=np.abs(int(position)))
+            instruction_target = self.get_past_output(target=self._positive_answer_target)
+        return instruction_input, instruction_target
 
     def get_negative_instruction(
             self,
@@ -291,7 +261,13 @@ class CodeStatusClassificationInstructions(CodeStatusInstructionsInterface):
         # Get a time period to represent the negative diagnosis
         # Essentially the diagnosis was not diagnosed during this period
         # If the value is positive use future instruction template
-        return self.get_instruction(diagnosis=diagnosis, position=position, target=self._negative_answer_target)
+        if position >= 0:
+            instruction_input = self.get_future_input(diagnosis=diagnosis, time=int(position))
+            instruction_target = self.get_future_output(target=self._negative_answer_target)
+        else:
+            instruction_input = self.get_past_input(diagnosis=diagnosis, time=np.abs(int(position)))
+            instruction_target = self.get_past_output(target=self._negative_answer_target)
+        return instruction_input, instruction_target
 
     def get_positive_instructions(
             self,
@@ -337,6 +313,34 @@ class CodeStatusClassificationInstructions(CodeStatusInstructionsInterface):
             self.get_negative_instruction(diagnosis=diagnosis, position=position)
             for diagnosis, position in zip(diagnosis_list, positions_list)
         ]
+    #
+    #
+    # @staticmethod
+    # def get_negative_position(
+    #         position: int,
+    #         encounter_positions: pd.Series
+    # ) -> int:
+    #     """
+    #
+    #     Args:
+    #         position (int): The current position of the encounter/diagnosis
+    #         encounter_positions (pd.Series): The positions of all other encounters/diagnoses
+    #
+    #     Returns:
+    #         (int): The position value that will be used to represent negative diagnosis
+    #     """
+    #     # Get all the positions prior the current "position"
+    #     # Then randomly pick one to use as the negative position
+    #     # This means that the diagnosis was not made at time
+    #     # "negative_position", but it was made at a later time "position"
+    #     # hence why we get all positions lesser than current "position"
+    #     negative_positions = encounter_positions[encounter_positions < position]
+    #     # If there is no position lower, subtract 6 from position and return
+    #     if len(negative_positions) == 0:
+    #         # Pick random number
+    #         return position - 1
+    #     else:
+    #         return np.random.choice(negative_positions)
 
 
 class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsInterface):
@@ -380,11 +384,10 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
         )
         self._lock_range = lock_range
 
-    def get_instruction(
+    def get_positive_instruction(
             self,
             diagnosis: str,
             position: float,
-            target: str,
             start_range_limit: int = None,
             end_range_limit: int = None
     ) -> Tuple[str, str]:
@@ -395,7 +398,6 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
         Args:
             diagnosis (str): A medical/billing diagnosis
             position (float): The relative time of diagnosis
-            target (str): The answer for the prompt
             start_range_limit (int): The start limit for the position/time range
             end_range_limit (int): The end limit for the position/time range
 
@@ -420,40 +422,12 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
         # Prepare the instruction for an event occurring in the future
         if position >= 0:
             instruction_input = self.get_future_input(diagnosis=diagnosis, start_time=start_time, end_time=end_time)
-            instruction_target = self.get_future_output(target=target)
+            instruction_target = self.get_future_output(target=self._positive_answer_target)
         # Prepare the instruction for an event that occurred in the past
         else:
             instruction_input = self.get_past_input(diagnosis=diagnosis, start_time=start_time, end_time=end_time)
-            instruction_target = self.get_past_output(target=target)
+            instruction_target = self.get_past_output(target=self._positive_answer_target)
         return instruction_input, instruction_target
-
-    def get_positive_instruction(
-            self,
-            diagnosis: str,
-            position: float,
-            start_range_limit: int = None,
-            end_range_limit: int = None
-    ) -> Tuple[str, str]:
-        """
-        Given a positive diagnosis and the relative time of diagnosis
-        return the instruction input and instruction target containing
-        these attributes, and a time range for this diagnosis
-        Args:
-            diagnosis (str): A medical/billing diagnosis
-            position (float): The relative time of diagnosis
-            start_range_limit (int): The start limit for the position/time range
-            end_range_limit (int): The end limit for the position/time range
-
-        Returns:
-            (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
-        """
-        return self.get_instruction(
-            diagnosis=diagnosis,
-            position=position,
-            target=self._positive_answer_target,
-            start_range_limit=start_range_limit,
-            end_range_limit=end_range_limit
-        )
 
     def get_negative_instruction(
             self,
@@ -490,13 +464,99 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
         # we could set diagnosis of I48 between months 0-1 as negative
         # However is lock range is True, we assume all negatives are sampled randomly
         # and don't have this constraint
-        return self.get_instruction(
-            diagnosis=diagnosis,
-            position=position,
-            target=self._negative_answer_target,
-            start_range_limit=start_range_limit,
-            end_range_limit=end_range_limit
-        )
+        if position >= 1 or (position == 0 and self._lock_range):
+            start_time, end_time = self.get_future_negative_range(
+                position=position,
+                start_range_limit=start_range_limit,
+                end_range_limit=end_range_limit
+            )
+            instruction_input = self.get_future_input(diagnosis=diagnosis, start_time=start_time, end_time=end_time)
+            instruction_target = self.get_future_output(target=self._negative_answer_target)
+        # For events that occurred in the past, our range in from
+        # the occurrence of the event to the end range - basically
+        # check if this was diagnosed earlier. If I48 was diagnosed between
+        # 2-3 months ago, we can ask was I48 diagnosed between 6-7 months ago
+        else:
+            start_time, end_time = self.get_past_negative_range(
+                position=position,
+                start_range_limit=start_range_limit,
+                end_range_limit=end_range_limit
+            )
+            instruction_input = self.get_past_input(diagnosis=diagnosis, start_time=start_time, end_time=end_time)
+            instruction_target = self.get_past_output(target=self._negative_answer_target)
+        if start_time >= end_time:
+            print('Position', position)
+            print('Start time', start_time)
+            print('End time', end_time)
+            raise ValueError('Start time needs to be less than end time')
+        return instruction_input, instruction_target
+
+    def get_future_negative_range(
+            self,
+            position: float,
+            start_range_limit: Union[int, float],
+            end_range_limit: Union[int, float]
+    ) -> Tuple[int, int]:
+        """
+        Return a time range (random or fixed) for a negative instruction for events
+        that occur in the future
+        Args:
+            position (float): The relative time/position of diagnosis
+            start_range_limit (Union[int, float]): The start limit of the range
+            end_range_limit (Union[int, float]): The end limit of the range
+
+        Returns:
+            (Tuple[int, int]): Tuple that contains a start time and end time
+        """
+        if self._lock_range:
+            return np.abs(int(start_range_limit)), np.abs(int(end_range_limit))
+        else:
+            # Fore vents in the future, we consider negative ranges only up until the point the
+            # occurred
+            negative_position = np.random.choice(range(start_range_limit, int(position)))
+            return self.get_position_range(
+                position=negative_position,
+                start_range_limit=start_range_limit,
+                end_range_limit=int(position)
+            )
+
+    def get_past_negative_range(
+            self,
+            position: float,
+            start_range_limit: Union[int, float],
+            end_range_limit: Union[int, float],
+            negative_delta: int = 2
+    ) -> Tuple[int, int]:
+        """
+        Return a time range (random or fixed) for a negative instruction for events
+        that occurred in the past
+        Args:
+            position (float): The relative time/position of diagnosis
+            start_range_limit (Union[int, float]): The start limit of the range
+            end_range_limit (Union[int, float]): The end limit of the range
+            negative_delta (int): The negative range can start only after this delta
+
+        Returns:
+            (Tuple[int, int]): Tuple that contains a start time and end time
+        """
+        if self._lock_range:
+            return np.abs(int(start_range_limit)), np.abs(int(end_range_limit))
+        else:
+            # For events that occurred in the past, our range in from
+            # the occurrence of the event to the end range - basically
+            # check if this was diagnosed earlier
+            position = np.abs(int(position))
+            # start_position = position if position == 0 else position + 1
+            start_position = position + negative_delta
+            if start_position >= end_range_limit:
+                end_range_limit = start_position + 1
+
+            negative_position = np.random.choice(range(start_position, end_range_limit))
+            return self.get_position_range(
+                position=negative_position,
+                start_range_limit=start_position,
+                end_range_limit=end_range_limit
+            )
 
     def get_positive_instructions(
             self,
@@ -573,7 +633,7 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
                 start_range_limit=past_start_range_limit,
                 end_range_limit=past_end_range_limit
             )
-            if position < 0
+            if position <= 0
             else self.get_negative_instruction(
                 diagnosis=diagnosis,
                 position=position,
@@ -676,6 +736,53 @@ class CodeStatusFixedRangeClassificationInstructions(CodeStatusVariableRangeClas
             lock_range=lock_range
         )
 
+    def get_past_negative_range(
+            self,
+            position: float,
+            start_range_limit: Union[int, float],
+            end_range_limit: Union[int, float],
+            negative_delta: int = 2
+    ) -> Tuple[int, int]:
+        """
+        Return a time range (random or fixed) for a negative instruction for events
+        that occurred in the past
+        Args:
+            position (float): The relative time/position of diagnosis
+            start_range_limit (Union[int, float]): The start limit of the range
+            end_range_limit (Union[int, float]): The end limit of the range
+            negative_delta (int): The negative range can start only after this delta
+
+        Returns:
+            (Tuple[int, int]): Tuple that contains a start time and end time
+        """
+        if self._lock_range:
+            return np.abs(int(start_range_limit)), np.abs(int(end_range_limit))
+        else:
+            # For events that occurred in the past, our range in from
+            # the occurrence of the event to the end range - basically
+            # check if this was diagnosed earlier
+            position = np.abs(int(position))
+
+            position = np.abs(int(position))
+            # start_position = position if position == 0 else position + 1
+            start_position = position + negative_delta
+            if start_position >= end_range_limit:
+                end_range_limit = start_position + 1
+
+
+            # For events in the future, we consider negative ranges only up until the point the
+            # occurred
+            if position == 0:
+                raise NotImplementedError('Not yet handled')
+            else:
+                negative_position = np.random.choice(range(start_range_limit, int(position)))
+                end_limit = int(position)
+            return self.get_position_range(
+                position=negative_position,
+                start_range_limit=start_range_limit,
+                end_range_limit=end_limit
+            )
+
     def get_position_range(self, position: int, start_range_limit: int, end_range_limit):
         """
         Returns a range object such that "position" is contained within the range
@@ -689,10 +796,10 @@ class CodeStatusFixedRangeClassificationInstructions(CodeStatusVariableRangeClas
             end_time (int): The end time for a time range
         """
         start_time = start_range_limit
-        # end_time_choices = np.arange(position + 1, end_range_limit + 1)
-        # end_time = np.random.choice(end_time_choices, p=np.flip(softmax(end_time_choices)))
-        end_time = position + 1
+        end_time = np.random.choice(range(position + 1, end_range_limit + 1))
         return start_time, end_time
+
+
 
 
 class CodeT2EPredictionInstructions(object):

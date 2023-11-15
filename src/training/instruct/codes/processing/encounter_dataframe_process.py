@@ -171,8 +171,10 @@ class EncounterDataframeProcess(object):
         """
         # Remove any duplicate entries. When removing duplicates - keep the earliest
         # entry (hence sorted by position)
+        encounter_history['temp_int_position'] = encounter_history[self._position_column].astype(int)
         encounter_history.sort_values(by=self._position_column, inplace=True)
-        encounter_history.drop_duplicates(subset=self._code_column, inplace=True)
+        encounter_history.drop_duplicates(subset=[self._code_column, 'temp_int_position'], inplace=True)
+        encounter_history.drop(columns=['temp_int_position'], inplace=True)
 
         return encounter_history
 
