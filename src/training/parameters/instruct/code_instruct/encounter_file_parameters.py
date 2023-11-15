@@ -76,6 +76,12 @@ def get_encounter_file_arguments():
         help="Future time difference of encounter and sample.",
     )
     parser.add_argument(
+        "--time-difference-normalize",
+        type=int,
+        default=30,
+        help="Normalize the time differences by this number - to represent in terms of moths - this would be set to 30",
+    )
+    parser.add_argument(
         "--use_log_position",
         default=False,
         action="store_true",

@@ -4,7 +4,7 @@ from .codes.templates import (
     CodeStatusInstructionTemplate,
     CodeStatusRangeInstructionTemplate,
     CodeStatusClassificationInstructions,
-    CodeStatusRangeClassificationInstructions,
+    CodeStatusFixedRangeClassificationInstructions,
     CodeT2EInstructionTemplate,
     CodeT2EPredictionInstructions
 )
@@ -58,7 +58,7 @@ def get_code_status_range_classification_instructions(
         targets=past_target
     )
 
-    return CodeStatusRangeClassificationInstructions(
+    return CodeStatusFixedRangeClassificationInstructions(
         task_definition=task_definition,
         instruction_template_future=instruction_template_future,
         instruction_template_past=instruction_template_past,
