@@ -269,7 +269,7 @@ class CodeStatusClassificationTask(object):
 
         k_shot = np.random.choice(k_shot)
 
-        full_encounter_history = self._encounter_dataframe_process.get_patient_sequence(
+        full_encounter_history = self.get_full_encounter_history(
             patient_id=patient_id,
             current_time=current_time,
             use_log_position=use_log_position,
@@ -291,6 +291,43 @@ class CodeStatusClassificationTask(object):
             sampled_negatives=sampled_negatives,
             shuffle=shuffle,
         )
+
+    def get_full_encounter_history(
+            self,
+            patient_id: Union[str, int],
+            current_time: str,
+            use_log_position: bool,
+            time_difference_normalize: int,
+    ) -> pd.DataFrame:
+        """
+        Return the encounter history of a patient - if the patient does not have an encounter history
+        return an empty encounter history
+        Args:
+            patient_id (Union[str, int]): The unique id of the patient we need to process
+            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
+            with respect to other encounters
+            use_log_position (bool): Whether to keep time deltas in days or as log value of days
+            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
+            (e.g. 30 normalizes it to months)
+
+        Returns:
+            (pd.DataFrame): The encounter history
+        """
+        try:
+            return self._encounter_dataframe_process.get_patient_sequence(
+                patient_id=patient_id,
+                current_time=current_time,
+                use_log_position=use_log_position,
+                time_difference_normalize=time_difference_normalize
+            )
+        except KeyError:
+            return pd.DataFrame(
+                {
+                    self._code_column: [],
+                    self._position_column: [],
+                    self._encounter_dataframe_process.time_difference_column: None
+                }
+            )
 
     def get_positive_samples(self, encounter_history: pd.DataFrame, size: int) -> pd.DataFrame:
         """
@@ -526,7 +563,7 @@ class CodeStatusRangeClassificationTask(CodeStatusClassificationTask):
 
         k_shot = np.random.choice(k_shot)
 
-        full_encounter_history = self._encounter_dataframe_process.get_patient_sequence(
+        full_encounter_history = self.get_full_encounter_history(
             patient_id=patient_id,
             current_time=current_time,
             use_log_position=use_log_position,
@@ -875,7 +912,7 @@ class CodeStatusRangeClassificationTaskStrictEval(CodeStatusRangeClassificationT
         k_shot = np.random.choice(k_shot)
 
         # Get encounter history of patient
-        encounter_history = self._encounter_dataframe_process.get_patient_sequence(
+        encounter_history = self.get_full_encounter_history(
             patient_id=patient_id,
             current_time=current_time,
             use_log_position=use_log_position,
@@ -1249,5 +1286,138 @@ class CodeT2EPredictionTask(CodeStatusClassificationTask):
         return self.process_task_instructions(
             sampled_positives=sampled_positives,
             sampled_negatives=sampled_negatives,
+            shuffle=shuffle,
+        )
+
+
+# FIXME: Multi task ICD code
+class MultiTask(CodeStatusClassificationTask):
+    """
+    Make training data from icd codes
+    """
+
+    def __init__(
+            self,
+            encounter_dataframe_process: EncounterDataframeProcess,
+            dataframe_sampling: DataFrameSampling,
+            code_instructions: Any,
+            code_convert: ICDConvert,
+            negative_code_sampling: Optional[NegativeICDSampling] = None,
+            patient_id_column: str = 'PatientID',
+            code_column: str = 'ICD10CD',
+            position_column: str = 'position'
+    ):
+        """
+        Initialize variables
+        Args:
+            encounter_dataframe_process (EncounterDataframeProcess): Dataframe processing object
+            dataframe_sampling (DataFrameSampling): Dataframe sampling object
+            negative_code_sampling (NegativeICDSampling, defaults to `None`): Object to sample negatives from a
+            pre-defined list
+            code_instructions (Any): A list of code instruction tasks. At any point one of these
+            tasks is randomly chosen and trained on
+            code_convert (ICDConvert): The object to map codes to their textual descriptions'
+            patient_id_column (str, defaults to `PatientID`): The column name for the patient id
+            code_column (str, defaults to `ICD10CD`): The column that contains the icd codes
+            position_column (str, defaults to `positions`): The column where position values
+            (e.g. time difference in days or log days) will be stored
+        """
+        super().__init__(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_instructions,
+            code_convert=code_convert,
+            negative_code_sampling=negative_code_sampling,
+            patient_id_column=patient_id_column,
+            code_column=code_column,
+            position_column=position_column
+        )
+
+    def process_sample_from_args(self, sample, args):
+        """
+
+        Args:
+            sample:
+            args:
+
+        Returns:
+
+        """
+        # TODO: Pass all parameters that we want
+        return self.process_sample(
+            sample=sample,
+            past_time_delta=args.past_time_delta,
+            future_time_delta=args.future_time_delta,
+            use_log_position=args.use_log_position,
+            k_shot=args.k_shot,
+            random_negative_probability=args.random_negative_probability,
+            time_difference_normalize=args.time_difference_normalize,
+            shuffle=args.shuffle
+        )
+
+    # TODO: Pass all parameters that we want
+    def process_sample(
+            self,
+            sample: Union[str, int],
+            past_time_delta: str,
+            future_time_delta: str,
+            use_log_position: bool,
+            k_shot: int,
+            random_negative_probability: float,
+            time_difference_normalize: int,
+            shuffle: bool,
+    ):
+        """
+        Given the encounter history, map codes, filter out duplicate codes and filter
+        the history based on time range. Keep only those entries
+        that occur within the time range. If encounter history - create a history
+        by randomly generating codes and positions. This will only be used to sample
+        negatives. Then sample the dataframe for encounters to use as positive and
+        negative samples. Use these samples to generate instructions
+        Args:
+            patient_id (Union[str, int]): The unique id of the patient we need to process
+            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
+            with respect to other encounters
+            past_time_delta (str): Filter out encounters beyond this point in time
+            future_time_delta (str): Filter out encounters beyond this point in time
+            use_log_position (bool): Whether to keep time deltas in days or as log value of days
+            k_shot (int): The number of k-shot examples to use
+            random_negative_probability (float, defaults to 0.5): Probability of sampling negatives randomly
+            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
+            (e.g. 30 normalizes it to months)
+            shuffle (bool): Whether to shuffle the list of instructions.
+
+        Returns:
+            (List[Tuple[str, str]]): The instructions that will be used for training
+        """
+
+        assert random_negative_probability == 1.0, "random negative probability needs to be 1"
+
+        k_shot = np.random.choice(k_shot)
+
+        # TODO: Read full encounter history
+        full_encounter_history = self._encounter_dataframe_process.get_patient_sequence(
+            patient_id=sample['patient_id'],
+            current_time='current_time',
+            use_log_position=use_log_position,
+            time_difference_normalize=time_difference_normalize
+        )
+
+        # sampled_positives, sampled_negatives = self.process_samples_for_task(
+        #     encounter_history=full_encounter_history,
+        #     past_time_delta=past_time_delta,
+        #     future_time_delta=future_time_delta,
+        #     k_shot=k_shot,
+        #     random_negative_probability=random_negative_probability,
+        #     time_difference_normalize=time_difference_normalize
+        # )
+
+        # Get the instructions - this should contain the instruction inputs and instruction targets
+        # This should give tuples of instructions
+        # E.g - [(Age, 32), (Sex, F), (Past - Heart failure, Yes)] - Predicting each sub-task
+        # [(Age: 32 Sex: F Past - Heart failure, Yes)] - Predicting last sub-task
+        return self.process_task_instructions(
+            sampled_positives=None,
+            sampled_negatives=None,
             shuffle=shuffle,
         )
