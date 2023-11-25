@@ -350,6 +350,7 @@ class VisionTransformer(nn.Module):
             act_layer: Callable = nn.GELU,
             norm_layer: Callable = LayerNorm,
             output_tokens: bool = False,
+            in_channels: int = 3
     ):
         super().__init__()
         assert pool_type in ('tok', 'avg', 'none')
@@ -360,7 +361,9 @@ class VisionTransformer(nn.Module):
         self.final_ln_after_pool = final_ln_after_pool  # currently ignored w/ attn pool enabled
         self.output_dim = output_dim
 
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=width, kernel_size=patch_size, stride=patch_size, bias=False)
+        self.conv1 = nn.Conv2d(
+            in_channels=in_channels, out_channels=width, kernel_size=patch_size, stride=patch_size, bias=False
+        )
 
         # class embeddings and positional embeddings
         scale = width ** -0.5
