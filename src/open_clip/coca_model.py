@@ -540,3 +540,58 @@ class ScatterCoCa(CoCa):
             "labels": labels,
             "logit_scale": self.logit_scale.exp()
         }
+
+class CytoCoCa(CoCa):
+    def __init__(
+            self,
+            embed_dim,
+            multimodal_cfg: MultimodalCfg,
+            text_cfg: CLIPTextCfg,
+            vision_cfg: Optional[CLIPVisionCfg] = None,
+            quick_gelu: bool = False,
+            init_logit_scale: float = np.log(1 / 0.07),
+            init_logit_bias: Optional[float] = None,
+            cast_dtype: Optional[torch.dtype] = None,
+            pad_id: int = 0,
+    ):
+
+        super().__init__(
+            embed_dim=embed_dim,
+            multimodal_cfg=multimodal_cfg,
+            text_cfg=text_cfg,
+            vision_cfg=vision_cfg,
+            quick_gelu=quick_gelu,
+            init_logit_scale=init_logit_scale,
+            init_logit_bias=init_logit_bias,
+            cast_dtype=cast_dtype,
+            pad_id=pad_id
+        )
+
+    def forward(
+            self,
+            image,
+            text: Optional[torch.Tensor] = None,
+            image_latent: Optional[torch.Tensor] = None,
+            image_embs: Optional[torch.Tensor] = None,
+    ):
+        labels = None
+        if text.dim() == 3:
+            labels = text[:, 1, :]
+            text = text[:, 0, :]
+
+        text_latent, token_embs = self._encode_text(text)
+        if image_latent is None or image_embs is None:
+            image_latent, image_embs = self._encode_image(image)
+
+        if labels is None:
+            labels = text[:, -token_embs.shape[1]:]
+
+        logits = self.text_decoder(image_embs, token_embs)
+
+        return {
+            "image_features": image_latent,
+            "text_features": text_latent,
+            "logits": logits,
+            "labels": labels,
+            "logit_scale": self.logit_scale.exp()
+        }

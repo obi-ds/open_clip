@@ -46,7 +46,7 @@ torchrun \
     --train-num-samples 1062400 \
     --val-num-samples 38400 \
     --dataset-type icddataset \
-    --name="icd_test_run_31" \
+    --name="icd_test_run_57" \
     --workers 4 \
     --batch-size 256 \
     --epochs 32 \
@@ -62,6 +62,7 @@ torchrun \
     --coca-contrastive-loss-weight 0.0 \
     --precision amp \
     --save-frequency 1 \
+    --val-frequency 1 \
     --zeroshot-frequency 0 \
     --local-loss \
     --gather-with-grad \
@@ -70,10 +71,10 @@ torchrun \
     --billable-probability 0.0 \
     --top-non-probability 1.0 \
     --random-negative-probability 1.0 \
-    --lock-range \
+    --code-column phecode \
     --past-time-delta="179d" \
     --future-time-delta="179d" \
     --wandb-project-name="open-clip-icd-test-runs" \
-    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/earliest_encounters_2308_with_score.parquet" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet" \
     --k-shot 0 \
     --seed 0
