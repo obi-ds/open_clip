@@ -1,0 +1,42 @@
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2126 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/sysmex_datasets/processed_23-06-02/mgh_train_enc180d_v1/shard_{000..082}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/sysmex_datasets/processed_23-06-02/mgh_val_enc180d_v1/shard_{000..002}.tar"  \
+    --train-num-samples 1062400 \
+    --val-num-samples 38400 \
+    --dataset-type icddataset \
+    --name="cytometry_icd_test_run_24" \
+    --workers 4 \
+    --batch-size 256 \
+    --epochs 32 \
+    --lr 5e-4 \
+    --beta1 0.9 \
+    --beta1 0.98 \
+    --eps 1e-6 \
+    --wd 0.01 \
+    --warmup 4000 \
+    --lr-scheduler="cosine" \
+    --lr-cooldown-end 5e-5 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 1 \
+    --val-frequency 1 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --model coca_cyto_base \
+    --report-to wandb \
+    --billable-probability 0.0 \
+    --top-non-probability 1.0 \
+    --random-negative-probability 1.0 \
+    --code-column phecode \
+    --sample-result-date-column "ResultDTS" \
+    --past-time-delta="179d" \
+    --future-time-delta="179d" \
+    --wandb-project-name="open-clip-icd-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet" \
+    --k-shot 0 \
+    --seed 0

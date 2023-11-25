@@ -7,7 +7,7 @@
 #    --train-num-samples 1062400 \
 #    --val-num-samples 38400 \
 #    --dataset-type icddataset \
-#    --name="ecg_test_run_v97" \
+#    --name="ecg_icd_test_run_v97" \
 #    --workers 4 \
 #    --batch-size 256 \
 #    --epochs 32 \
@@ -46,7 +46,7 @@ torchrun \
     --train-num-samples 1062400 \
     --val-num-samples 38400 \
     --dataset-type icddataset \
-    --name="icd_test_run_57" \
+    --name="ecg_icd_test_run_57" \
     --workers 4 \
     --batch-size 256 \
     --epochs 32 \
