@@ -481,8 +481,6 @@ def get_patient_encounter_history_object(
         position_column=args.position_column,
     )
 
-
-
     return encounter_dataframe_process
 
 def get_wds_dataset_icd_instruct(
@@ -528,7 +526,6 @@ def get_wds_dataset_icd_instruct(
             lowercase=False
         )
         negative_code_sampling = NegativeICDSampling(code_convert=code_convert)
-
 
     encounter_dataframe_process = EncounterDataframeProcess(
         encounter_dataframe=encounter_dataframe,
@@ -643,13 +640,15 @@ def get_wds_dataset_icd_instruct(
     #     wds.to_tuple("image", "text"),
     #     wds.batched(args.batch_size, partial=not is_train),
     # ]
-
+    image_key, text_key = get_sample_keys(args)
     if return_sample:
-        rename = wds.rename(image="dict.x.blosc", text="dict.meta.pyd", labels="dict.meta.pyd")
+        rename = wds.rename(image=image_key, text=text_key, labels=text_key)
         return_tuple = wds.to_tuple("image", "text", "labels")
     else:
-        rename = wds.rename(image="dict.x.blosc", text="dict.meta.pyd")
+        rename = wds.rename(image=image_key, text=text_key)
         return_tuple = wds.to_tuple("image", "text")
+
+    torch_blosc_convert = get_torch_blosc_convert(args)
 
     # Build pipeline extension
     pipeline_extension = [
@@ -658,7 +657,7 @@ def get_wds_dataset_icd_instruct(
         ),
         rename,
         wds.map_dict(text=instruct_function),
-        wds.map_dict(image=wds_ecg_to_torch),
+        wds.map_dict(image=torch_blosc_convert),
         wds.map_dict(image=preprocess_img),
         return_tuple,
         wds.batched(args.batch_size, partial=not is_train),
@@ -685,6 +684,20 @@ def get_wds_dataset_icd_instruct(
         floor=floor
     )
 
+def get_sample_keys(args):
+    if 'scatter' in args.model.lower():
+        return 'dict.x.blosc', 'dict.meta.pyd'
+    elif 'cyto' in args.model.lower():
+        return 'x.blosc', 'meta.pyd'
+    else:
+        raise ValueError('args.model should contain either ecg or cyto')
+def get_torch_blosc_convert(args):
+    if 'scatter' in args.model.lower():
+        return wds_ecg_to_torch
+    elif 'cyto' in args.model.lower():
+        return wds_cytometry_to_torch
+    else:
+        raise ValueError('args.name should contain either ecg or cyto')
 
 def get_dataset_fn(data_path, dataset_type):
     if dataset_type == "webdataset":
@@ -747,6 +760,12 @@ def get_data(args, preprocess_fns, epoch=0, tokenizer=None):
 def wds_ecg_to_torch(x):
     # time in last dimension, shape (12, 2500)
     return torch.from_numpy(x.transpose(1, 0))
+
+def wds_cytometry_to_torch(x):
+    # this uses only the first three dimensions:
+    # return torch.from_numpy(x[:3, ].astype(np.float32))
+    # this uses all dimensions in the data
+    return torch.from_numpy(x.astype(np.float32))
 
 
 def get_number_of_shards_samples(input_shards, is_train, train_num_samples, val_num_samples):
