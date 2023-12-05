@@ -7,7 +7,7 @@ torchrun \
     --train-num-samples 1062400 \
     --val-num-samples 38400 \
     --dataset-type icddataset \
-    --name="cytometry_icd_test_run_24" \
+    --name="cytometry_icd_test_run_25" \
     --workers 4 \
     --batch-size 256 \
     --epochs 32 \
