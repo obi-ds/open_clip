@@ -1,12 +1,10 @@
 """Define the diagnostic code status classification task - The task uses templates, inputs and targets"""
 import numpy as np
 import pandas as pd
-from scipy.special import softmax
 from typing import Tuple, List, Union
 
 from .code_status_instruction_template import (
     CodeStatusInstructionTemplate,
-    CodeStatusRangeInstructionTemplate,
     CodeT2EInstructionTemplate
 )
 
@@ -19,8 +17,8 @@ class CodeStatusInstructionsInterface(object):
 
     def __init__(
             self,
-            instruction_template_future: Union[CodeStatusInstructionTemplate, CodeStatusRangeInstructionTemplate],
-            instruction_template_past: Union[CodeStatusInstructionTemplate, CodeStatusRangeInstructionTemplate],
+            instruction_template_future: CodeStatusInstructionTemplate,
+            instruction_template_past: CodeStatusInstructionTemplate,
             positive_answer_target: str,
             negative_answer_target: str,
             task_definition: str = '',
@@ -213,148 +211,6 @@ class CodeStatusClassificationInstructions(CodeStatusInstructionsInterface):
             positive_answer_target: str,
             negative_answer_target: str,
             task_definition: str = '',
-            task_name: str = 'status_classification'
-    ):
-        """
-        Initialize the variables
-        Args:
-            instruction_template_future (CodeStatusInstructionTemplate): The template for code status for future events.
-            instruction_template_past (CodeStatusInstructionTemplate): The template for code status for past events.
-            positive_answer_target (str): The string used to represent a positive diagnosis
-            negative_answer_target (str): The string used to represent a negative diagnosis
-            task_definition (str, defaults to): Add the task definition to the instruction
-            task_name (str, defaults to `status_classification`): A name to define this task.
-            Used to distinguish from other tasks
-        """
-        super().__init__(
-            instruction_template_future,
-            instruction_template_past,
-            positive_answer_target,
-            negative_answer_target,
-            task_definition,
-            task_name
-        )
-
-    def get_instruction(self, diagnosis: str, position: int, target: str) -> Tuple[str, str]:
-        """
-        Given a positive diagnosis and the relative time of diagnosis
-        return the instruction input and instruction target containing
-        these attributes
-        Args:
-            diagnosis (str): A medical/billing diagnosis
-            position (int): The relative time of diagnosis
-            target (str): The answer for the prompt
-
-        Returns:
-            (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
-        """
-        if position >= 0:
-            instruction_input = self.get_future_input(diagnosis=diagnosis, time=int(position))
-            instruction_target = self.get_future_output(target=target)
-        else:
-            instruction_input = self.get_past_input(diagnosis=diagnosis, time=np.abs(int(position)))
-            instruction_target = self.get_past_output(target=target)
-        return instruction_input, instruction_target
-
-    def get_positive_instruction(self, diagnosis: str, position: int) -> Tuple[str, str]:
-        """
-        Given a positive diagnosis and the relative time of diagnosis
-        return the instruction input and instruction target containing
-        these attributes
-        Args:
-            diagnosis (str): A medical/billing diagnosis
-            position (int): The relative time of diagnosis
-
-        Returns:
-            (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
-        """
-        # Positive diagnosis that occur in the future
-        return self.get_instruction(diagnosis=diagnosis, position=position, target=self._positive_answer_target)
-
-    def get_negative_instruction(
-            self,
-            diagnosis: str,
-            position: int,
-    ) -> Tuple[str, str]:
-        """
-        Given a diagnosis and the relative time of diagnosis
-        return the instruction input and instruction target such that
-        the position/time is replaced such that the patient should
-        not have been diagnosed with the diagnosis at that time
-        Args:
-            diagnosis (str): A medical/billing diagnosis
-            position (int): The relative time of diagnosis
-
-        Returns:
-            (Tuple[str, str]): Tuple that contains the negative instruction input and instruction target
-        """
-        # Get a time period to represent the negative diagnosis
-        # Essentially the diagnosis was not diagnosed during this period
-        # If the value is positive use future instruction template
-        return self.get_instruction(diagnosis=diagnosis, position=position, target=self._negative_answer_target)
-
-    def get_positive_instructions(
-            self,
-            diagnosis_list: pd.Series,
-            positions_list: pd.Series
-    ) -> List[Tuple[str, str]]:
-        """
-        Given a list of positive diagnoses and the relative time of diagnosis
-        return a list that contains the instruction input and instruction target
-        containing these attributes for each element in the list
-        Args:
-            diagnosis_list (pd.Series): Series containing medical/billing diagnosis
-            positions_list (pd.Series): Series containing the relative time of diagnosis
-
-        Returns:
-            (List[Tuple[str, str]]): List that contains the instruction input and instruction target
-            for each input element
-        """
-        return [
-            self.get_positive_instruction(diagnosis=diagnosis, position=position)
-            for diagnosis, position in zip(diagnosis_list, positions_list)
-        ]
-
-    def get_negative_instructions(
-            self,
-            diagnosis_list: pd.Series,
-            positions_list: pd.Series
-    ) -> List[Tuple[str, str]]:
-        """
-        Given a list of diagnoses and the relative time of them
-        return a list that contains the instruction input and instruction target
-        such that the position/time is replaced such that the patient should
-        not have been diagnosed with the diagnosis at that time
-        Args:
-            diagnosis_list (pd.Series): Series containing medical/billing diagnosis
-            positions_list (pd.Series): Series containing the relative time of diagnosis
-
-        Returns:
-            (List[Tuple[str, str]]): List that contains the instruction input and instruction target
-            for each input element
-        """
-        return [
-            self.get_negative_instruction(diagnosis=diagnosis, position=position)
-            for diagnosis, position in zip(diagnosis_list, positions_list)
-        ]
-
-
-class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsInterface):
-    """
-    Define the code status range classification task. Encapsulate the templates
-    inputs, outputs to build the final instruction. The instruction is built based
-    on whether events occurred in the past/future and are positive/negative. The
-    instruction is used to define whether a diagnosis occurred within a time range
-    """
-
-    def __init__(
-            self,
-            instruction_template_future: CodeStatusRangeInstructionTemplate,
-            instruction_template_past: CodeStatusRangeInstructionTemplate,
-            positive_answer_target: str,
-            negative_answer_target: str,
-            lock_range: bool = False,
-            task_definition: str = '',
             task_name: str = 'status_range_classification'
     ):
         """
@@ -364,7 +220,6 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
             instruction_template_past (CodeStatusInstructionTemplate): The template for code status for past events.
             positive_answer_target (str): The string used to represent a positive diagnosis
             negative_answer_target (str): The string used to represent a negative diagnosis
-            lock_range (bool, `defaults to False`): Whether to use pre-defined ranges or
             select a random range from a given start and end time
             task_definition (str, defaults to): Add the task definition to the instruction
             task_name (str, defaults to `status_range_classification`): A name to define this task.
@@ -378,15 +233,12 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
             task_definition,
             task_name
         )
-        self._lock_range = lock_range
 
     def get_instruction(
             self,
             diagnosis: str,
             position: float,
             target: str,
-            start_range_limit: int = None,
-            end_range_limit: int = None
     ) -> Tuple[str, str]:
         """
         Given a positive diagnosis and the relative time of diagnosis
@@ -396,34 +248,16 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
             diagnosis (str): A medical/billing diagnosis
             position (float): The relative time of diagnosis
             target (str): The answer for the prompt
-            start_range_limit (int): The start limit for the position/time range
-            end_range_limit (int): The end limit for the position/time range
 
         Returns:
             (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
         """
 
-        # The start time and end itme is used as if lock range is true
-        # Otherwise sample a range between start and end time
-        start_time, end_time = self.get_position_range(
-            position=np.abs(int(position)),
-            start_range_limit=start_range_limit,
-            end_range_limit=end_range_limit
-        ) if not self._lock_range else (np.abs(int(start_range_limit)), np.abs(int(end_range_limit)))
-
-        if start_time >= end_time:
-            print('Position', position)
-            print('Start time', start_time)
-            print('End time', end_time)
-            raise ValueError('Start time needs to be less than end time')
-
-        # Prepare the instruction for an event occurring in the future
         if position >= 0:
-            instruction_input = self.get_future_input(diagnosis=diagnosis, start_time=start_time, end_time=end_time)
+            instruction_input = self.get_future_input(diagnosis=diagnosis, time=int(position))
             instruction_target = self.get_future_output(target=target)
-        # Prepare the instruction for an event that occurred in the past
         else:
-            instruction_input = self.get_past_input(diagnosis=diagnosis, start_time=start_time, end_time=end_time)
+            instruction_input = self.get_past_input(diagnosis=diagnosis, time=np.abs(int(position)))
             instruction_target = self.get_past_output(target=target)
         return instruction_input, instruction_target
 
@@ -431,8 +265,6 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
             self,
             diagnosis: str,
             position: float,
-            start_range_limit: int = None,
-            end_range_limit: int = None
     ) -> Tuple[str, str]:
         """
         Given a positive diagnosis and the relative time of diagnosis
@@ -441,8 +273,6 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
         Args:
             diagnosis (str): A medical/billing diagnosis
             position (float): The relative time of diagnosis
-            start_range_limit (int): The start limit for the position/time range
-            end_range_limit (int): The end limit for the position/time range
 
         Returns:
             (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
@@ -451,16 +281,12 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
             diagnosis=diagnosis,
             position=position,
             target=self._positive_answer_target,
-            start_range_limit=start_range_limit,
-            end_range_limit=end_range_limit
         )
 
     def get_negative_instruction(
             self,
             diagnosis: str,
             position: float,
-            start_range_limit: int = None,
-            end_range_limit: int = None
     ) -> Tuple[str, str]:
         """
         Given a diagnosis and the relative time of diagnosis
@@ -471,8 +297,6 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
         Args:
             diagnosis (str): A medical/billing diagnosis
             position (float): The relative time of diagnosis
-            start_range_limit: The start limit for the position range
-            end_range_limit: The end limit for the position range
 
         Returns:
             (Tuple[str, str]): Tuple that contains the negative instruction input and instruction target
@@ -494,18 +318,12 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
             diagnosis=diagnosis,
             position=position,
             target=self._negative_answer_target,
-            start_range_limit=start_range_limit,
-            end_range_limit=end_range_limit
         )
 
     def get_positive_instructions(
             self,
             diagnosis_list: pd.Series,
             positions_list: pd.Series,
-            past_start_range_limit: int = None,
-            past_end_range_limit: int = None,
-            future_start_range_limit: int = None,
-            future_end_range_limit: int = None
 
     ) -> List[Tuple[str, str]]:
         """
@@ -515,10 +333,6 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
         Args:
             diagnosis_list (pd.Series): Series containing medical/billing diagnosis
             positions_list (pd.Series): Series containing the relative time of diagnosis
-            past_start_range_limit: The start limit for the past position range
-            past_end_range_limit: The end limit for the past position range
-            future_start_range_limit: The start limit for the future position range
-            future_end_range_limit: The end limit for the future position range
 
         Returns:
             (List[Tuple[str, str]]): List that contains the instruction input and instruction target
@@ -528,15 +342,11 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
             self.get_positive_instruction(
                 diagnosis=diagnosis,
                 position=position,
-                start_range_limit=past_start_range_limit,
-                end_range_limit=past_end_range_limit
             )
             if position < 0 else
             self.get_positive_instruction(
                 diagnosis=diagnosis,
                 position=position,
-                start_range_limit=future_start_range_limit,
-                end_range_limit=future_end_range_limit
             )
             for diagnosis, position in zip(diagnosis_list, positions_list)
         ]
@@ -545,10 +355,6 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
             self,
             diagnosis_list: pd.Series,
             positions_list: pd.Series,
-            past_start_range_limit: int = None,
-            past_end_range_limit: int = None,
-            future_start_range_limit: int = None,
-            future_end_range_limit: int = None
     ) -> List[Tuple[str, str]]:
         """
         Given a list of positive diagnoses and the relative time of diagnosis
@@ -557,10 +363,6 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
         Args:
             diagnosis_list (pd.Series): Series containing medical/billing diagnosis
             positions_list (pd.Series): Series containing the relative time of diagnosis
-            past_start_range_limit: The start limit for the past position range
-            past_end_range_limit: The end limit for the past position range
-            future_start_range_limit: The start limit for the future position range
-            future_end_range_limit: The end limit for the future position range
 
         Returns:
             (List[Tuple[str, str]]): List that contains the instruction input and instruction target
@@ -570,130 +372,14 @@ class CodeStatusVariableRangeClassificationInstructions(CodeStatusInstructionsIn
             self.get_negative_instruction(
                 diagnosis=diagnosis,
                 position=position,
-                start_range_limit=past_start_range_limit,
-                end_range_limit=past_end_range_limit
             )
             if position < 0
             else self.get_negative_instruction(
                 diagnosis=diagnosis,
                 position=position,
-                start_range_limit=future_start_range_limit,
-                end_range_limit=future_end_range_limit
             )
             for diagnosis, position in zip(diagnosis_list, positions_list)
         ]
-
-    def get_future_input(self, diagnosis: str, start_time: int = None, end_time: int = None) -> str:
-        """
-        Return the instruction input, given a diagnosis and position occurring in the future
-        Args:
-            diagnosis (str): A medical/billing diagnosis
-            start_time (int): The start time for a time range
-            end_time (int): The end time for a time range
-
-        Returns:
-            (str): Instruction input for a future time period
-
-        """
-        return self._instruction_template_future.get_instruction_input(
-            diagnosis=diagnosis,
-            start_time=start_time,
-            end_time=end_time
-        )
-
-    def get_past_input(self, diagnosis: str, start_time: int = None, end_time: int = None) -> str:
-        """
-        Return the instruction input, given a diagnosis and position occurring in the future
-        Args:
-            diagnosis (str): A medical/billing diagnosis
-            start_time (int): The start time for a time range
-            end_time (int): The end time for a time range
-
-        Returns:
-            (str): Instruction input for a pastime period
-
-        """
-        return self._instruction_template_past.get_instruction_input(
-            diagnosis=diagnosis,
-            start_time=start_time,
-            end_time=end_time
-        )
-
-    def get_position_range(self, position: int, start_range_limit: int, end_range_limit):
-        """
-        Returns a range object such that "position" is contained within the range
-        Args:
-            position (int): A given position
-            start_range_limit: The start limit for the range
-            end_range_limit: The end limit for the range
-
-        Returns:
-            start_time (int): The start time for a time range
-            end_time (int): The end time for a time range
-        """
-        start_time = np.random.choice(range(start_range_limit, position + 1))
-        end_time = np.random.choice(range(position + 1, end_range_limit + 1))
-        return start_time, end_time
-
-
-class CodeStatusFixedRangeClassificationInstructions(CodeStatusVariableRangeClassificationInstructions):
-    """
-    Define the code status range classification task. Encapsulate the templates
-    inputs, outputs to build the final instruction. The instruction is built based
-    on whether events occurred in the past/future and are positive/negative. The
-    instruction is used to define whether a diagnosis occurred within a time range
-    """
-    def __init__(
-            self,
-            instruction_template_future: CodeStatusRangeInstructionTemplate,
-            instruction_template_past: CodeStatusRangeInstructionTemplate,
-            positive_answer_target: str,
-            negative_answer_target: str,
-            lock_range: bool = False,
-            task_definition: str = '',
-            task_name: str = 'status_fixed_range_classification'
-    ):
-        """
-        Initialize the variables
-        Args:
-            instruction_template_future (CodeStatusInstructionTemplate): The template for code status for future events.
-            instruction_template_past (CodeStatusInstructionTemplate): The template for code status for past events.
-            positive_answer_target (str): The string used to represent a positive diagnosis
-            negative_answer_target (str): The string used to represent a negative diagnosis
-            lock_range (bool, `defaults to False`): Whether to use pre-defined ranges or
-            select a random range from a given start and end time
-            task_definition (str, defaults to): Add the task definition to the instruction
-            task_name (str, defaults to `status_range_classification`): A name to define this task.
-            Used to distinguish from other tasks
-        """
-        super().__init__(
-            instruction_template_future=instruction_template_future,
-            instruction_template_past=instruction_template_past,
-            positive_answer_target=positive_answer_target,
-            negative_answer_target=negative_answer_target,
-            task_definition=task_definition,
-            task_name=task_name,
-            lock_range=lock_range
-        )
-
-    def get_position_range(self, position: int, start_range_limit: int, end_range_limit):
-        """
-        Returns a range object such that "position" is contained within the range
-        Args:
-            position (int): A given position
-            start_range_limit: The start limit for the range
-            end_range_limit: The end limit for the range
-
-        Returns:
-            start_time (int): The start time for a time range
-            end_time (int): The end time for a time range
-        """
-        start_time = start_range_limit
-        # end_time_choices = np.arange(position + 1, end_range_limit + 1)
-        # end_time = np.random.choice(end_time_choices, p=np.flip(softmax(end_time_choices)))
-        end_time = position + 1
-        return start_time, end_time
-
 
 class CodeT2EPredictionInstructions(object):
     """
