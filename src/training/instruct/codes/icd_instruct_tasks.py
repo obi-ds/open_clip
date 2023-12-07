@@ -1,5 +1,4 @@
 """Make training data"""
-import math
 import random
 import numpy as np
 import pandas as pd
@@ -229,9 +228,11 @@ class CodeStatusClassificationTask(object):
     def process_sample(
             self,
             encounter_history: pd.DataFrame,
+            all_positives: pd.Series,
+            positives: pd.Series,
             k_shot: int,
             sort_position: bool,
-    ) -> List[Tuple[str, str]]:
+    ) -> pd.DataFrame:
         """
         Given the encounter history, map codes, filter out duplicate codes and filter
         the history based on time range. Keep only those entries
@@ -241,11 +242,13 @@ class CodeStatusClassificationTask(object):
         negative samples. Use these samples to generate instructions
         Args:
             encounter_history (pd.DataFrame): The encounter history of the patient
+            all_positives (pd.Series): The codes present in the entire encounter history of the patient
+            positives (pd.Series): The codes present in the current encounter history
             k_shot (int): The number of k-shot examples to use
             sort_position (bool): Whether to sort instructions by position
 
         Returns:
-            (List[Tuple[str, str]]): The instructions that will be used for training
+            (pd.DataFrame): The instructions samples
         """
         instruction_samples = self.get_instruction_samples(encounter_history=encounter_history, k_shot=k_shot)
 
@@ -256,11 +259,7 @@ class CodeStatusClassificationTask(object):
                 position=instruction_samples[self._position_column][-1]
             )
 
-        # Get the instructions - this should contain the instruction inputs and instruction targets
-        return self.process_task_instructions(
-            instruction_samples=instruction_samples,
-            shuffle=not sort_position,
-        )
+        return instruction_samples
 
     def get_positive_samples(
             self,
@@ -426,6 +425,8 @@ class CodeT2EPredictionTask(CodeStatusClassificationTask):
     def process_sample(
             self,
             encounter_history: pd.DataFrame,
+            all_positives: pd.Series,
+            positives: pd.Series,
             k_shot: int,
             sort_position: bool,
     ) -> List[Tuple[str, str]]:
@@ -438,6 +439,8 @@ class CodeT2EPredictionTask(CodeStatusClassificationTask):
         negative samples. Use these samples to generate instructions
         Args:
             encounter_history (pd.DataFrame): The encounter history of the patient
+            all_positives (pd.Series): The codes present in the entire encounter history of the patient
+            positives (pd.Series): The codes present in the current encounter history
             k_shot (int): The number of k-shot examples to use
             sort_position (bool): Whether to sort instructions by position
 
