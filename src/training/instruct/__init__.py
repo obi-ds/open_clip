@@ -1,1 +1,1 @@
-from .icd_instruct import ICDInstruct
+from .multi_instruct import MultiInstruct
