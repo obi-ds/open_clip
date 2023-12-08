@@ -1,4 +1,4 @@
-from .icd_instruct_tasks import (
+from .code_instruct_tasks import (
     CodeStatusClassificationTask,
     CodeT2EPredictionTask,
 )
