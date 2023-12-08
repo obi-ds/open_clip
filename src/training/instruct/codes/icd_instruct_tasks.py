@@ -87,13 +87,16 @@ class CodeStatusClassificationTask(object):
                 time_difference_normalize=time_difference_normalize
             )
         except KeyError:
-            return pd.DataFrame(
-                {
-                    self._code_column: [],
-                    self._position_column: [],
-                    self._encounter_dataframe_process.time_difference_column: None
-                }
+            # TODO: A fix for now - because we have missing data - ideally we should not
+            #  use this code - or come up with a better fix
+            position_range = np.arange(6, 7, step=0.5)
+            # Sample codes and create a random encounter dataframe
+            encounter_history = self.get_random_encounters(
+                size=50,
+                position_range=position_range,
+                exclude_codes=pd.Series([])
             )
+            return encounter_history
 
     def load_encounter_history_for_task(
             self,
@@ -138,55 +141,7 @@ class CodeStatusClassificationTask(object):
         positions = encounter_history[self._position_column] * -1
         return softmax(positions)
 
-    def get_instruction_samples(
-            self,
-            encounter_history: pd.DataFrame,
-            k_shot: int
-    ) -> pd.DataFrame:
-        """
-        Given the encounter history dataframe, sample the dataframe for encounters to use as positive and
-        negative samples
-        Args:
-            encounter_history (pd.DataFrame): The encounter history of the patient
-            k_shot (int): The number of k_shot examples to use
-
-        Returns:
-            sampled_positives (pd.DataFrame): The samples that will be used to generate positive instruction examples
-            sampled_negatives (pd.DataFrame): The samples that will be used to generate negative instruction examples
-        """
-
-        # Compute how many samples to extract from code history dataframe
-        # For a given k_shot we can extract only positives, only negatives
-        # or a mix of both
-
-        number_of_positives, number_of_negatives = self.get_positive_negative_sizes(
-            max_size=k_shot + 1,
-            number_of_encounters=encounter_history.shape[0]
-        )
-
-        weights = self.get_sampling_weights(encounter_history=encounter_history)
-
-        # Sample a subset of positives from dataframe
-        sampled_positives = self.get_positive_samples(
-            encounter_history=encounter_history,
-            size=number_of_positives,
-            weights=weights
-        )
-        sampled_positives[self._instruction_label] = True
-
-        # Sample a subset of positives from dataframe
-        sampled_negatives = self.get_negative_samples(
-            encounter_history=encounter_history,
-            size=number_of_negatives,
-            weights=weights
-        )
-        sampled_negatives[self._instruction_label] = False
-
-        instruction_samples = pd.concat([sampled_positives, sampled_negatives])
-
-        return instruction_samples
-
-    def process_task_instructions(
+    def convert_samples_to_instructions(
             self,
             instruction_samples: pd.DataFrame,
             shuffle,
@@ -225,7 +180,7 @@ class CodeStatusClassificationTask(object):
         # TODO: Add the task definition to the list?
         return instructions
 
-    def process_sample(
+    def get_instruction_samples(
             self,
             encounter_history: pd.DataFrame,
             all_positives: pd.Series,
@@ -233,6 +188,63 @@ class CodeStatusClassificationTask(object):
             k_shot: int,
             sort_position: bool,
     ) -> pd.DataFrame:
+        """
+        Given the encounter history, map codes, filter out duplicate codes and filter
+        the history based on time range. Keep only those entries
+        that occur within the time range. If encounter history - create a history
+        by randomly generating codes and positions. This will only be used to sample
+        negatives. Then sample the dataframe for encounters to use as positive and
+        negative samples. Use these samples to generate instructions and
+        return the instruction input and targets for the sampled instruction code
+        status classification task with time range
+        Args:
+            encounter_history (pd.DataFrame): The encounter history of the patient
+            all_positives (pd.Series): The codes present in the entire encounter history of the patient
+            positives (pd.Series): The codes present in the current encounter history
+            k_shot (int): The number of k-shot examples to use
+            sort_position (bool): Whether to sort instructions by position
+
+        Returns:
+            (pd.DataFrame): The instructions samples
+        """
+        number_of_positives, number_of_negatives = self.get_positive_negative_sizes(
+            max_size=k_shot + 1,
+            number_of_encounters=encounter_history.shape[0]
+        )
+
+        weights = self.get_sampling_weights(encounter_history=encounter_history)
+
+        # Sample a subset of positives from dataframe
+        sampled_positives = self.get_positive_samples(
+            encounter_history=encounter_history,
+            size=number_of_positives,
+            weights=weights
+        )
+        sampled_positives[self._instruction_label] = True
+
+        # Sample a subset of positives from dataframe
+        sampled_negatives = self.get_negative_samples(
+            encounter_history=encounter_history,
+            size=number_of_negatives,
+            weights=weights
+        )
+        sampled_negatives[self._instruction_label] = False
+
+        instruction_samples = pd.concat([sampled_positives, sampled_negatives])
+
+        if sort_position:
+            instruction_samples.sort_values(by=self._position_column)
+
+        return instruction_samples
+
+    def get_task_instructions(
+            self,
+            encounter_history: pd.DataFrame,
+            all_positives: pd.Series,
+            positives: pd.Series,
+            k_shot: int,
+            sort_position: bool,
+    ) -> Tuple[pd.DataFrame, List[Tuple[str, str]]]:
         """
         Given the encounter history, map codes, filter out duplicate codes and filter
         the history based on time range. Keep only those entries
@@ -248,18 +260,23 @@ class CodeStatusClassificationTask(object):
             sort_position (bool): Whether to sort instructions by position
 
         Returns:
-            (pd.DataFrame): The instructions samples
+            instruction_samples (pd.DataFrame): The instructions samples
+            instructions (List[Tuple[str, str]]): A list that contains tuples which have the instruction
+            input and target. The list will contain only 1 element for zero shot training
         """
-        instruction_samples = self.get_instruction_samples(encounter_history=encounter_history, k_shot=k_shot)
+        instruction_samples = self.get_instruction_samples(
+            encounter_history=encounter_history,
+            all_positives=all_positives,
+            positives=positives,
+            k_shot=k_shot,
+            sort_position=sort_position,
+        )
 
-        if sort_position:
-            instruction_samples.sort_values(by=self._position_column)
-            self.filter_encounter_history_by_code_position(
-                encounter_history=encounter_history,
-                position=instruction_samples[self._position_column][-1]
-            )
-
-        return instruction_samples
+        instructions = self.convert_samples_to_instructions(
+            instruction_samples=instruction_samples,
+            shuffle=not sort_position
+        )
+        return instruction_samples, instructions
 
     def get_positive_samples(
             self,
@@ -353,6 +370,36 @@ class CodeStatusClassificationTask(object):
         """
         return encounter_history[self._code_column]
 
+    def get_random_encounters(
+            self,
+            size: int,
+            position_range: np.array,
+            exclude_codes: pd.Series
+    ) -> pd.DataFrame:
+        """
+        Use this function to create a random dataframe populated
+        with codes and positions
+        Args:
+            size (int): The size of the dataframe
+            position_range (np.array): Position values are assigned based on this range
+            exclude_codes (pd.Series): Exclude these codes when randomly sampling negatives
+
+        Returns:
+            (pd.DataFrame): A randomly generated encounter dataframe
+        """
+
+        # Sample negative codes
+        codes = self._negative_code_sampling.get_codes(
+            positives=exclude_codes,
+            k=size
+        )
+        # Sample position values
+        positions = np.random.choice(position_range, size)
+        # Use these to create and return a dataframe
+        return pd.DataFrame(
+            {self._code_column: codes, self._position_column: positions}
+        )
+
     @staticmethod
     def get_positive_negative_sizes(max_size: int, number_of_encounters: int) -> Tuple[int, int]:
         """
@@ -420,45 +467,4 @@ class CodeT2EPredictionTask(CodeStatusClassificationTask):
             code_column=code_column,
             position_column=position_column,
             instruction_label=instruction_label
-        )
-
-    def process_sample(
-            self,
-            encounter_history: pd.DataFrame,
-            all_positives: pd.Series,
-            positives: pd.Series,
-            k_shot: int,
-            sort_position: bool,
-    ) -> List[Tuple[str, str]]:
-        """
-        Given the encounter history, map codes, filter out duplicate codes and filter
-        the history based on time range. Keep only those entries
-        that occur within the time range. If encounter history - create a history
-        by randomly generating codes and positions. This will only be used to sample
-        negatives. Then sample the dataframe for encounters to use as positive and
-        negative samples. Use these samples to generate instructions
-        Args:
-            encounter_history (pd.DataFrame): The encounter history of the patient
-            all_positives (pd.Series): The codes present in the entire encounter history of the patient
-            positives (pd.Series): The codes present in the current encounter history
-            k_shot (int): The number of k-shot examples to use
-            sort_position (bool): Whether to sort instructions by position
-
-        Returns:
-            (List[Tuple[str, str]]): The instructions that will be used for training
-        """
-
-        instruction_samples = self.get_instruction_samples(encounter_history=encounter_history, k_shot=k_shot)
-
-        if sort_position:
-            instruction_samples.sort_values(by=self._position_column)
-            self.filter_encounter_history_by_code_position(
-                encounter_history=encounter_history,
-                position=instruction_samples[self._position_column][-1]
-            )
-
-        # Get the instructions - this should contain the instruction inputs and instruction targets
-        return self.process_task_instructions(
-            instruction_samples=instruction_samples,
-            shuffle=not sort_position,
         )
