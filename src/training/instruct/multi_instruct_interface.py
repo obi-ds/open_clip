@@ -4,7 +4,7 @@ from typing import Tuple, List, Union
 import torch
 
 
-class InstructInterface(object):
+class MultiInstructInterface(object):
     """
     An interface for instruction tasks. Define functions that are used
     to build, tokenize and return instructions. The input, output and padding
@@ -20,15 +20,15 @@ class InstructInterface(object):
     def __init__(
             self,
             tokenizer,
-            max_seq_length: int = 77,
-            pad_id: int = 0,
+            max_seq_length,
+            pad_id,
     ):
         """
         Initialize variables
         Args:
             tokenizer (): The tokenizer used for training
-            max_seq_length (int, defaults to `77`): The maximum sequence length allowed by model/tokenizer
-            pad_id (int, defaults to `0`): The id used for padding tokens
+            max_seq_length (int): The maximum sequence length allowed by model/tokenizer
+            pad_id (int): The id used for padding tokens
         """
         self._tokenizer = tokenizer
         self._max_seq_length = max_seq_length
@@ -109,7 +109,7 @@ class InstructInterface(object):
         ).unsqueeze(axis=0)
         return torch.cat([input_ids, labels])
 
-    def get_input_tokens(self, input_text: str) -> torch.Tensor:
+    def get_input_tokens(self, input_text: str) -> List[int]:
         """
         Tokenize the input instruction and return the tokens
         Returns all tokens but the eos token - since we eventually
@@ -120,12 +120,9 @@ class InstructInterface(object):
         Returns:
             (torch.Tensor): Return tokenized input
         """
-        input_tokens = self._tokenizer(input_text)[0]
-        # Remove eos and padding tokens
-        # They will be added later - after adding instruction target tokens
-        return input_tokens[input_tokens != self._pad_id][:-1]
+        return self._tokenizer.encode(input_text)
 
-    def get_output_tokens(self, output_text: str) -> torch.Tensor:
+    def get_output_tokens(self, output_text: str) -> List[int]:
         """
         Tokenize the input instruction and return the tokens
         Returns all tokens but the bos token - since we eventually
@@ -134,73 +131,68 @@ class InstructInterface(object):
             output_text (str): Any input text
 
         Returns:
-            (torch.Tensor): Return tokenized input
+            (List[int]): Return tokenized input
         """
-        output_tokens = self._tokenizer(output_text)[0]
-        # Remove bos token and padding tokens
-        # Will be added after appending input tokens to this
-        return output_tokens[output_tokens != self._pad_id][1:]
-
-    def get_padding_tokens(self, padding_length: int) -> torch.Tensor:
-        """
-        Return a tensor that contains the padding id. This will be used
-        to pad the final instruction (that contains instruction input and target)
-        Args:
-            padding_length (int): The number of padding tokens required
-
-        Returns:
-            (torch.Tensor): Tensor containing the padding tokens
-        """
-        if self._pad_id == 0:
-            return torch.zeros(padding_length, dtype=torch.long)
-        else:
-            raise NotImplementedError()
+        return self._tokenizer.encode(output_text)
 
     def get_input_ids(
             self,
-            input_tokens: torch.Tensor,
-            output_tokens: torch.Tensor,
-            padding_tokens: torch.Tensor
-    ) -> torch.Tensor:
+            input_tokens: List[int],
+            output_tokens: List[int],
+    ) -> List[int]:
         """
         Given the instruction input tokens, instruction target tokens and padding tokens,
         concatenate them and return one tensor that will be passed to the model
         Args:
-            input_tokens (torch.Tensor): The instruction input tokens
-            output_tokens (torch.Tensor): The instruction output tokens
-            padding_tokens (torch.Tensor): The padding tokens
+            input_tokens (List[int]): The instruction input tokens
+            output_tokens (List[int]): The instruction output tokens
 
         Returns:
-            (torch.Tensor): The tokens that are inputs to the model
+            (List[int]): The tokens that are inputs to the model
         """
-        return torch.cat([input_tokens, output_tokens, padding_tokens])
+        return input_tokens + output_tokens
 
     def get_labels(
             self,
-            input_tokens: torch.Tensor,
-            output_tokens: torch.Tensor,
-            padding_tokens: torch.Tensor
-    ) -> torch.Tensor:
+            input_tokens: List[int],
+            output_tokens: List[int],
+    ) -> List[int]:
         """
         Given the instruction input tokens, instruction target tokens and padding tokens,
         return a tensor that contains 0 (ignore_index) values in positions that correspond
         to input and padding tokens, and output token values are left as is. We are creating
         a label mask essentially.
         Args:
-            input_tokens (torch.Tensor): The instruction input tokens
-            output_tokens (torch.Tensor): The instruction output tokens
-            padding_tokens (torch.Tensor): The padding tokens
+            input_tokens (List[int]): The instruction input tokens
+            output_tokens (List[int]): The instruction output tokens
 
         Returns:
-            (torch.Tensor): The label ids the model will be trained on
+            (List[int]): The label ids the model will be trained on
         """
         if self._pad_id == 0:
-            return torch.cat(
-                [
-                    torch.zeros(len(input_tokens), dtype=torch.long),
-                    output_tokens,
-                    padding_tokens
-                ]
-            )
+            return [0] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.eot_token_id]
         else:
             raise NotImplementedError()
+
+    def add_input_ids_boundaries(self, input_ids):
+        return [self._tokenizer.sot_token_id] + input_ids + [self._tokenizer.eot_token_id]
+
+    def add_labels_boundaries(self, labels):
+        return [self._pad_id] + labels + [self._pad_id]
+
+    def pad_tokens(self, tokens) -> List[int]:
+        """
+        Return a tensor that contains the padding id. This will be used
+        to pad the final instruction (that contains instruction input and target)
+        Args:
+
+        Returns:
+            (List[int]): Tensor containing the padding tokens
+        """
+        return tokens + [self._pad_id] * (self._max_seq_length - len(tokens))
+
+    def truncate_tokens(self, tokens) -> List[int]:
+        # We use minus 2 because we add the bos and eos tokens after truncating
+        if len(tokens) > self._max_seq_length - 2:
+            tokens = tokens[:self._max_seq_length]
+        return tokens
