@@ -53,10 +53,10 @@ class CodeStatusClassificationTask(object):
         self._negative_code_sampling = negative_code_sampling
         self._code_instructions = code_instructions
         self._code_convert = code_convert
-        self._patient_id_column = patient_id_column
-        self._code_column = code_column
-        self._position_column = position_column
-        self._instruction_label = instruction_label
+        self.patient_id_column = patient_id_column
+        self.code_column = code_column
+        self.position_column = position_column
+        self.instruction_label = instruction_label
 
     def get_full_encounter_history(
             self,
@@ -138,7 +138,7 @@ class CodeStatusClassificationTask(object):
             (Sequence[float]): Sequence of weights
         """
         # Increase sample probability of past over future
-        positions = encounter_history[self._position_column] * -1
+        positions = encounter_history[self.position_column] * -1
         return softmax(positions)
 
     def convert_samples_to_instructions(
@@ -159,7 +159,7 @@ class CodeStatusClassificationTask(object):
         """
         instructions = list()
         for row in instruction_samples[
-            [self._code_column, self._position_column, self._instruction_label]
+            [self.code_column, self.position_column, self.instruction_label]
         ].itertuples(index=False):
             code, position, instruction_label = row[0], row[1], row[2]
             if instruction_label:
@@ -223,7 +223,7 @@ class CodeStatusClassificationTask(object):
             size=number_of_positives,
             weights=positive_weights
         )
-        sampled_positives[self._instruction_label] = True
+        sampled_positives[self.instruction_label] = True
 
         sampled_negatives = self.get_negative_samples(
             encounter_history=encounter_history,
@@ -232,12 +232,12 @@ class CodeStatusClassificationTask(object):
             size=number_of_negatives,
             weights=negative_weights
         )
-        sampled_negatives[self._instruction_label] = False
+        sampled_negatives[self.instruction_label] = False
 
         instruction_samples = pd.concat([sampled_positives, sampled_negatives])
 
         if sort_position:
-            instruction_samples.sort_values(by=self._position_column)
+            instruction_samples.sort_values(by=self.position_column)
 
         return instruction_samples
 
@@ -270,8 +270,6 @@ class CodeStatusClassificationTask(object):
             instructions (List[Tuple[str, str]]): A list that contains tuples which have the instruction
             input and target. The list will contain only 1 element for zero shot training
         """
-        # TODO: Keep track of sampled positives - and make sure we don't re-sample them
-        #  as positives - we cna re-sample as negatives - instead of filtering the dataframe
 
         exclude_codes_from_negatives = self.get_exclude_codes_from_negatives(
             all_positives=all_positives,
@@ -346,8 +344,8 @@ class CodeStatusClassificationTask(object):
                 weights=weights
             )
             position_range = np.arange(
-                encounter_history[self._position_column].min(),
-                encounter_history[self._position_column].max(),
+                encounter_history[self.position_column].min(),
+                encounter_history[self.position_column].max() + 1,
                 step=0.5
             )
         else:
@@ -359,8 +357,8 @@ class CodeStatusClassificationTask(object):
                 weights=weights
             )
             position_range = np.arange(
-                encounter_history[self._position_column].min(),
-                encounter_history[self._position_column].max(),
+                encounter_history[self.position_column].min(),
+                encounter_history[self.position_column].max() + 1,
                 step=0.5
             )
         if len(sampled_negatives) != size:
@@ -370,7 +368,7 @@ class CodeStatusClassificationTask(object):
                 exclude_codes=exclude_codes
             )
             sampled_negatives = pd.concat(
-                [sampled_negatives[self._code_column, self._position_column], random_encounters]
+                [sampled_negatives[self.code_column, self.position_column], random_encounters]
             )
         return sampled_negatives
 
@@ -395,7 +393,7 @@ class CodeStatusClassificationTask(object):
         """
 
         return self._dataframe_sampling.sample_dataframe(
-            dataframe=encounter_negatives[~encounter_negatives[self._code_column].isin(exclude_codes)],
+            dataframe=encounter_negatives[~encounter_negatives[self.code_column].isin(exclude_codes)],
             sample_size=size,
             weights=weights
         )
@@ -422,37 +420,10 @@ class CodeStatusClassificationTask(object):
         # Sample a subset of positives from dataframe
         # TODO: Need to fix this code
         return self._dataframe_sampling.sample_dataframe(
-            dataframe=encounter_history[~encounter_history[self._code_column].isin(exclude_codes)],
+            dataframe=encounter_history[~encounter_history[self.code_column].isin(exclude_codes)],
             sample_size=size,
             weights=weights
         )
-
-    def filter_encounter_history_by_selected_sampled(
-            self,
-            encounter_history: pd.DataFrame,
-            position: Union[int, float],
-    ) -> NoReturn:
-        """
-        Once we sample an encounter, and we have a condition that we want
-        to sample encounters in a sorted order - we need to ignore all
-        previous encounters.
-        Args:
-            encounter_history (pd.DataFrame): The encounter history of the patient
-            position (Union[int, float]): Ignore all encounters prior to this
-
-        """
-        # TODO: This will get rid of any codes that are in "position" but haven't been
-        #  sampled - easier to implement - but ideally we would check if there are any
-        #  codes at "position" that haven't been sampled and keep those codes.
-        position_filter = encounter_history[self._position_column] > position
-        # if code is None:
-        #     code_filter = False
-        # else:
-        #     code_filter = (
-        #             (self._encounter_history[self._code_column] == code)
-        #             & (self._encounter_history[self._position_column] == position)
-        #     )
-        return encounter_history[position_filter]
 
     def process_encounter_positives(
             self,
@@ -469,7 +440,7 @@ class CodeStatusClassificationTask(object):
         Returns:
             (): A modified list of positives
         """
-        return encounter_history[self._code_column]
+        return encounter_history[self.code_column]
 
     @staticmethod
     def get_exclude_codes_from_negatives(
@@ -514,7 +485,7 @@ class CodeStatusClassificationTask(object):
         positions = np.random.choice(position_range, size)
         # Use these to create and return a dataframe
         return pd.DataFrame(
-            {self._code_column: codes, self._position_column: positions}
+            {self.code_column: codes, self.position_column: positions}
         )
 
     @staticmethod
