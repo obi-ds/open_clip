@@ -6,7 +6,7 @@ class NegativeCodeCacheSampling(object):
 
     def __init__(
             self,
-            icd_task_negative_cache_size: int = 5,
+            icd_task_negative_cache_size: int,
     ):
         self._icd_task_negative_cache = {}
         self._icd_task_negative_cache_size = icd_task_negative_cache_size
