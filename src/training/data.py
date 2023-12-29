@@ -24,10 +24,7 @@ from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander
 
 from .instruct.codes import (
     CodeStatusClassificationTask,
-    CodeStatusRangeClassificationTask,
     CodeT2EPredictionTask,
-    CodeStatusRangeClassificationTaskStrictEval,
-    CodeStatusRangeClassificationTaskEval
 )
 from .instruct.codes.descriptions import ICDDescription, PHEDescription
 from .instruct.codes.processing import (
@@ -36,14 +33,14 @@ from .instruct.codes.processing import (
     ICDConvert,
     PHEConvert,
     NegativePHESampling,
-    NegativeICDSampling
+    NegativeICDSampling,
+    NegativeCodeCacheSampling
 )
 from .instruct.utils import (
     get_code_status_classification_instructions,
-    get_code_status_range_classification_instructions,
     get_code_t2e_prediction_instructions
 )
-from .instruct import ICDInstruct
+from .instruct import MultiInstruct
 
 try:
     import horovod.torch as hvd
@@ -537,109 +534,60 @@ def get_wds_dataset_icd_instruct(
         position_column=args.position_column,
     )
 
+    negative_code_cache_sampling = NegativeCodeCacheSampling(code_task_negative_cache_size=5)
+
     if args.lock_range:
         assert args.random_negative_probability == 1, "If range is locked/fixed, random negative probability needs to be 1"
 
-    code_status_range_classification_instructions = get_code_status_range_classification_instructions(
-        task_definition='Patient is diagnosed with: \n\n',
-        future_input='- {diagnosis} between months {start_time} and {end_time}:',
+    code_status_range_classification_instructions = get_code_status_classification_instructions(
+        task_definition='',
+        future_input='- {diagnosis} in {time} months',
         future_target='{answer}',
-        past_input='- {diagnosis} between {start_time} and {end_time} months ago:',
+        past_input='- {diagnosis} {time} months ago:',
         past_target='{answer}',
         positive_answer_target='yes',
         negative_answer_target='no',
-        lock_range=lock_range if lock_range is not None else args.lock_range
     )
 
     code_t2e_prediction_instructions = get_code_t2e_prediction_instructions(
-        task_definition='Predict the time to event: \n\n',
+        task_definition='',
         inputs='- {diagnosis}:',
         targets='{sign}{answer}',
         negative_answer_target=np.inf,
     )
 
-    if not custom_prompt:
-        code_status_range_classification_task = CodeStatusRangeClassificationTask(
-            encounter_dataframe_process=encounter_dataframe_process,
-            dataframe_sampling=dataframe_sampling,
-            negative_code_sampling=negative_code_sampling,
-            code_instructions=code_status_range_classification_instructions,
-            code_convert=code_convert,
-            patient_id_column=args.patient_id_column,
-            code_column=args.code_column,
-            position_column=args.position_column,
-        )
+    code_status_classification_task = CodeStatusClassificationTask(
+        encounter_dataframe_process=encounter_dataframe_process,
+        dataframe_sampling=dataframe_sampling,
+        negative_code_sampling=negative_code_sampling,
+        code_instructions=code_status_range_classification_instructions,
+        code_convert=code_convert,
+        patient_id_column=args.patient_id_column,
+        code_column=args.code_column,
+        position_column=args.position_column,
+    )
 
-        code_t2e_prediction_task = CodeT2EPredictionTask(
-            encounter_dataframe_process=encounter_dataframe_process,
-            dataframe_sampling=dataframe_sampling,
-            negative_code_sampling=negative_code_sampling,
-            code_instructions=code_t2e_prediction_instructions,
-            code_convert=code_convert,
-            patient_id_column=args.patient_id_column,
-            code_column=args.code_column,
-            position_column=args.position_column,
-        )
-    else:
-        if strict_eval:
-            code_status_range_classification_task = CodeStatusRangeClassificationTaskStrictEval(
-                encounter_dataframe_process=encounter_dataframe_process,
-                dataframe_sampling=dataframe_sampling,
-                negative_code_sampling=negative_code_sampling,
-                code_instructions=code_status_range_classification_instructions,
-                code_convert=code_convert,
-                patient_id_column=args.patient_id_column,
-                code_column=args.code_column,
-                position_column=args.position_column,
-                example_attributes=example_attributes,
-                evaluate_attribute=evaluate_attribute
-            )
-        else:
-            code_status_range_classification_task = CodeStatusRangeClassificationTaskEval(
-                encounter_dataframe_process=encounter_dataframe_process,
-                dataframe_sampling=dataframe_sampling,
-                negative_code_sampling=negative_code_sampling,
-                code_instructions=code_status_range_classification_instructions,
-                code_convert=code_convert,
-                patient_id_column=args.patient_id_column,
-                code_column=args.code_column,
-                position_column=args.position_column,
-                example_attributes=example_attributes,
-                evaluate_attribute=evaluate_attribute
-            )
+    code_t2e_prediction_task = CodeT2EPredictionTask(
+        encounter_dataframe_process=encounter_dataframe_process,
+        dataframe_sampling=dataframe_sampling,
+        negative_code_sampling=negative_code_sampling,
+        code_instructions=code_t2e_prediction_instructions,
+        code_convert=code_convert,
+        patient_id_column=args.patient_id_column,
+        code_column=args.code_column,
+        position_column=args.position_column,
+    )
 
-        code_t2e_prediction_task = None
-
-    instruction_tasks = [code_status_range_classification_task, code_t2e_prediction_task]
-
-    if task_probabilities is None:
-        # task_probabilities = np.ones(len(instruction_tasks)) / len(instruction_tasks)
-        task_probabilities = [1.0, 0.0]
-
-    icd_instruct = ICDInstruct(
-        instruction_tasks=instruction_tasks,
-        task_probabilities=task_probabilities,
-        tokenizer=tokenizer,
-        max_seq_length=max_seq_length,
-        pad_id=pad_id
+    multi_instruct = MultiInstruct(
+        code_status_classification_task=code_status_classification_task,
+        code_t2e_prediction_task=code_t2e_prediction_task,
+        negative_code_cache_sampling=negative_code_cache_sampling
     )
 
     instruct_function = partial(
-        icd_instruct.process_sample_from_args, args=args
+        multi_instruct.process_sample_from_args, args=args
     )
 
-    # Build pipeline extension
-    # pipeline_extension = [
-    #     wds.decode(
-    #         wds.handle_extension("blosc", blosc.unpack_array),
-    #     ),
-    #     wds.rename(image="dict.x.blosc", text="dict.meta.pyd"),
-    #     wds.map_dict(text=instruct_function),
-    #     wds.map_dict(image=wds_ecg_to_torch),
-    #     wds.map_dict(image=preprocess_img),
-    #     wds.to_tuple("image", "text"),
-    #     wds.batched(args.batch_size, partial=not is_train),
-    # ]
     image_key, text_key = get_sample_keys(args)
     if return_sample:
         rename = wds.rename(image=image_key, text=text_key, labels=text_key)
@@ -662,19 +610,6 @@ def get_wds_dataset_icd_instruct(
         return_tuple,
         wds.batched(args.batch_size, partial=not is_train),
     ]
-
-    # pipeline_extension = [
-    #     wds.decode(
-    #         wds.handle_extension("blosc", blosc.unpack_array),
-    #     ),
-    #     wds.rename(image="dict.x.blosc", text="dict.meta.pyd", labels="dict.meta.pyd"),
-    #     wds.map_dict(text=instruct_function),
-    #     wds.map_dict(image=wds_ecg_to_torch),
-    #     wds.map_dict(image=preprocess_img),
-    #     wds.map_dict(labels=test),
-    #     wds.to_tuple("image", "text", "labels"),
-    #     wds.batched(args.batch_size, partial=not is_train),
-    # ]
 
     return get_wds_data_info(
         args=args,
