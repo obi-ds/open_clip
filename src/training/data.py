@@ -40,7 +40,7 @@ from .instruct.utils import (
     get_code_status_classification_instructions,
     get_code_t2e_prediction_instructions
 )
-from .instruct import MultiInstruct
+from .instruct import MultiInstruct, MultiInstructTokenizer
 
 try:
     import horovod.torch as hvd
@@ -578,10 +578,15 @@ def get_wds_dataset_icd_instruct(
         position_column=args.position_column,
     )
 
+    multi_instruct_tokenizer = MultiInstructTokenizer(
+        tokenizer=tokenizer, pad_id=pad_id, max_seq_length=max_seq_length
+    )
+
     multi_instruct = MultiInstruct(
         code_status_classification_task=code_status_classification_task,
         code_t2e_prediction_task=code_t2e_prediction_task,
-        negative_code_cache_sampling=negative_code_cache_sampling
+        negative_code_cache_sampling=negative_code_cache_sampling,
+        multi_instruct_tokenizer=multi_instruct_tokenizer
     )
 
     instruct_function = partial(
