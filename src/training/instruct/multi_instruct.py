@@ -2,7 +2,10 @@ import numpy as np
 import pandas as pd
 from typing import NoReturn
 
+import torch
+
 from .multi_tasks import MultiTasks
+from .multi_instruct_tokenizer import MultiInstructTokenizer
 from .codes import CodeStatusClassificationTask, CodeT2EPredictionTask
 from .codes.processing import NegativeCodeCacheSampling
 
@@ -13,11 +16,13 @@ class MultiInstruct(object):
             code_status_classification_task: CodeStatusClassificationTask,
             code_t2e_prediction_task: CodeT2EPredictionTask,
             negative_code_cache_sampling: NegativeCodeCacheSampling,
+            multi_instruct_tokenizer: MultiInstructTokenizer,
     ):
         self._code_status_classification_task = code_status_classification_task
         self._code_t2e_prediction_task = code_t2e_prediction_task
         self._code_task_object = self.get_code_task_object()
         self._negative_code_cache_sampling = negative_code_cache_sampling
+        self._multi_instruct_tokenizer = multi_instruct_tokenizer
 
         # TODO: Define task probabilities and task in a better way
         self._tasks = self.get_tasks()
@@ -171,7 +176,7 @@ class MultiInstruct(object):
         else:
             return encounter_negatives
 
-    def process_sample_from_args(self, sample, args):
+    def get_multi_task_instructions(self, sample, args):
         number_of_instructions = 5
         k_shot_choices = [0]
         sort_code_status_position = True
@@ -234,6 +239,18 @@ class MultiInstruct(object):
             else:
                 raise ValueError('Invalid task')
             multi_task_instructions += instructions
-
         return multi_task_instructions
+
+    def process_sample_from_args(self, sample, args):
+        multi_task_instructions = self.get_multi_task_instructions(sample=sample, args=args)
+        if self._multi_instruct_tokenizer is None:
+            return multi_task_instructions
+
+        input_ids, labels = self._multi_instruct_tokenizer.get_tokens(
+            multi_task_instructions=multi_task_instructions, return_tensor=True
+        )
+        input_ids = input_ids.unsqueeze(0)
+        labels = labels.unsqueeze(0)
+
+        return torch.cat([input_ids, labels])
 
