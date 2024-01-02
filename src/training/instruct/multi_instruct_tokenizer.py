@@ -1,10 +1,10 @@
 """Define an interface for the instruction tasks"""
-from typing import Tuple, List, Union
+from typing import List
 
 import torch
 
 
-class MultiInstructInterface(object):
+class MultiInstructTokenizer(object):
     """
     An interface for instruction tasks. Define functions that are used
     to build, tokenize and return instructions. The input, output and padding
@@ -14,7 +14,6 @@ class MultiInstructInterface(object):
     predicting the next word. Here we only want to train on the instruction target
     tokens. It's easier to build a label tensor/mask for this if we process everything
     separately
-    TODO - Handle truncation/padding when instruction token length exceeds max seq length
     """
 
     def __init__(
@@ -34,80 +33,39 @@ class MultiInstructInterface(object):
         self._max_seq_length = max_seq_length
         self._pad_id = pad_id
 
-    def process_instructions(
-            self,
-            instructions: List[Tuple[str, str]]
-    ) -> Tuple[str, str]:
-        """
-        Join the different instruction inputs into one single string. Keep the target
-        of the final instruction (the instruction we train on) separate. This step
-        should result in two strings, one that contains the input instruction (this
-        can contain the task definition, inputs and targets of the k_shot examples),
-        the other string is the instruction target
-        Args:
-            instructions (List[Tuple[str, str]]): A list that contains tuples which have the instruction input and
-            target. The list will contain only 1 element for zero shot training
+    def get_tokens(self, multi_task_instructions, return_tensor: bool = True):
+        all_input_ids = []
+        all_labels = []
+        for instruction_input, instruction_output in multi_task_instructions:
+            # Get the tokens for the instruction input - The eos and padding tokens are removed
+            input_tokens = self.get_input_tokens(input_text=instruction_input)
+            # Get the tokens for the instruction target - the bos and padding tokens are removed
+            output_tokens = self.get_output_tokens(output_text=instruction_output)
 
-        Returns:
-            (Tuple[str, str]): Tuple that contains the instruction input text concatenated across the k-shot examples
-            and the instruction target text
-        """
-        input_text = ''
-        output_text = ''
-        k_shot = len(instructions) - 1
-        for index, instruction in enumerate(instructions):
-            if index != k_shot:
-                input_text += ''.join(instruction)
-            else:
-                input_text += instruction[0]
-                output_text = instruction[1]
-        return input_text, output_text
+            # The input to the model - will consist of the instruction input tokens,
+            # instruction target tokens and padding tokens. Target tokens are included in
+            # autoregressive lm - we specify the labels in the next step (next token prediction)
+            input_ids = self.get_input_ids(input_tokens=input_tokens, output_tokens=output_tokens)
+            # Get the tensor that will contain the labels for autoregressive training, such that we
+            # only train on the instruction targets
+            labels = self.get_labels(input_tokens=input_tokens, output_tokens=output_tokens)
 
-    def tokenize_instruction(
-            self,
-            input_text: str,
-            output_text: str
-    ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[str, str]]:
-        """
-        Given the instruction input and instruction target/output texts.
-        Tokenize the texts to return the input_ids that will be passed to the
-        model and the labels that will be used to train/evaluate the model
-        Args:
-            input_text (str): Instruction input
-            output_text (str): Instruction target
+            # Concatenate inputs ids and labels from the different instructions
+            all_input_ids.extend(input_ids)
+            all_labels.extend(labels)
 
-        Returns:
-            (Union[Tuple[torch.Tensor, torch.Tensor], Tuple[str, str]]): String representations of the instruction
-            inputs and targets are returned if tokenizer is None, else the tokenized representations of these
-            are returned
-        """
-        # If tokenizer is None, return the texts as is.
-        if self._tokenizer is None:
-            return input_text, output_text
+        # Truncate tokens, add sentence boundaries and then pad tokens
+        all_input_ids = self.pad_tokens(
+            tokens=self.add_input_ids_boundaries(input_ids=self.truncate_tokens(tokens=all_input_ids))
+        )
+        all_labels = self.pad_tokens(
+            tokens=self.add_labels_boundaries(labels=self.truncate_tokens(tokens=all_labels))
+        )
 
-        # Get the tokens for the instruction input - The eos and padding tokens are removed
-        input_tokens = self.get_input_tokens(input_text=input_text)
-        # Get the tokens for the instruction target - the bos and padding tokens are removed
-        output_tokens = self.get_output_tokens(output_text=output_text)
-        padding_length = self._max_seq_length - len(input_tokens) - len(output_tokens)
-        # Get the padding tokens - to make up the max seq length
-        padding_tokens = self.get_padding_tokens(padding_length=padding_length)
-        # The input to the model - will consist of the instruction input tokens,
-        # instruction target tokens and padding tokens. Target tokens are included in
-        # autoregressive lm - we specify the labels in the next step (next token prediction)
-        input_ids = self.get_input_ids(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            padding_tokens=padding_tokens
-        ).unsqueeze(axis=0)
-        # Get the tensor that will contain the labels for autoregressive training, such that we
-        # only train on the instruction targets
-        labels = self.get_labels(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            padding_tokens=padding_tokens
-        ).unsqueeze(axis=0)
-        return torch.cat([input_ids, labels])
+        if return_tensor:
+            return torch.tensor(all_input_ids), torch.tensor(all_labels)
+        else:
+            return all_input_ids, all_labels
 
     def get_input_tokens(self, input_text: str) -> List[int]:
         """
