@@ -30,12 +30,10 @@ class NegativeCodeCacheSampling(object):
                 self._code_task_negative_cache[patient_id] = encounter_history
 
     def get_code_task_encounter_negatives_from_cache(self, patient_id):
-
-        cached_patient_ids = self._code_task_negative_cache.keys() - set(patient_id)
-
+        cached_patient_ids = self._code_task_negative_cache.keys() - {patient_id}
         # Cache is empty - return empty cache
         if not cached_patient_ids:
-            return {}
+            return None
         else:
             # Sample from cache
             sample_cached_patient_id = np.random.choice(list(cached_patient_ids))
