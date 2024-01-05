@@ -497,8 +497,6 @@ def get_wds_dataset_icd_instruct(
         strict_eval=False,
         return_sample=False
 ):
-    max_seq_length = 76
-    pad_id = 0
 
     encounter_dataframe = pd.read_parquet(
         args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
@@ -532,16 +530,13 @@ def get_wds_dataset_icd_instruct(
         position_column=args.position_column,
     )
 
-    negative_code_cache_sampling = NegativeCodeCacheSampling(code_task_negative_cache_size=5)
-
-    if args.lock_range:
-        assert args.random_negative_probability == 1, "If range is locked/fixed, random negative probability needs to be 1"
+    negative_code_cache_sampling = NegativeCodeCacheSampling(code_task_negative_cache_size=2)
 
     code_status_range_classification_instructions = get_code_status_classification_instructions(
         task_definition='',
         future_input='- {diagnosis} in {time} months',
         future_target='{answer}',
-        past_input='- {diagnosis} {time} months ago:',
+        past_input='- {diagnosis} {time} months ago',
         past_target='{answer}',
         positive_answer_target='yes',
         negative_answer_target='no',
@@ -549,7 +544,7 @@ def get_wds_dataset_icd_instruct(
 
     code_t2e_prediction_instructions = get_code_t2e_prediction_instructions(
         task_definition='',
-        inputs='- {diagnosis}:',
+        inputs='- {diagnosis}',
         targets='{sign}{answer}',
         negative_answer_target=np.inf,
     )
@@ -579,7 +574,7 @@ def get_wds_dataset_icd_instruct(
         multi_instruct_tokenizer = None
     else:
         multi_instruct_tokenizer = MultiInstructTokenizer(
-            tokenizer=tokenizer, pad_id=pad_id, max_seq_length=max_seq_length
+            tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length
         )
 
     multi_instruct = MultiInstruct(
