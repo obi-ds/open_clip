@@ -87,8 +87,7 @@ class CodeStatusClassificationTask(object):
                 time_difference_normalize=time_difference_normalize
             )
         except KeyError:
-            # TODO: A fix for now - because we have missing data - ideally we should not
-            #  use this code - or come up with a better fix
+            # TODO: A fix for now - because we have missing data - ideally we should not have missing data
             position_range = np.arange(6, 7, step=0.5)
             # Sample codes and create a random encounter dataframe
             encounter_history = self.get_random_encounters(
@@ -208,11 +207,10 @@ class CodeStatusClassificationTask(object):
         Returns:
             (pd.DataFrame): The instructions samples
         """
-        number_of_positives = self.get_positive_size(
-            max_size=k_shot + 1,
-            number_of_encounters=encounter_history.shape[0]
+        # Get the number of positives and negative samples to use in the instructions
+        number_of_positives, number_of_negatives = self.get_positive_negative_sizes(
+            k_shot=k_shot, number_of_encounters=encounter_history.shape[0]
         )
-        number_of_negatives = k_shot + 1 - number_of_positives
 
         # Sample a subset of positives from dataframe
         sampled_positives = self.get_positive_samples(
@@ -467,25 +465,20 @@ class CodeStatusClassificationTask(object):
         )
 
     @staticmethod
-    def get_positive_size(max_size: int, number_of_encounters: int) -> int:
+    def get_positive_negative_sizes(k_shot: int, number_of_encounters: int) -> Tuple[int, int]:
         """
         For a given k-shot problem, return how many positive samples
         and negative samples should be present in the instruction
 
         Args:
-            max_size (int): The maximum number of positives
+            k_shot (int): The number of k_shot examples
             number_of_encounters (int): The total number of encounters
         Returns:
             (Tuple[int, int]): The number of positive and negative examples
         """
-        # For zero shot, we have either one positive or one negative
-        positive = 0
-        for k in range(max_size):
-            if positive >= number_of_encounters:
-                break
-            if np.random.rand() <= 0.5:
-                positive += 1
-        return positive
+        number_of_positives = np.random.choice(np.arange(0, min(k_shot + 1, number_of_encounters) + 1))
+        number_of_negatives = k_shot + 1 - number_of_positives
+        return number_of_positives, number_of_negatives
 
 
 class CodeT2EPredictionTask(CodeStatusClassificationTask):
