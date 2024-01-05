@@ -55,7 +55,6 @@ class MultiInstruct(object):
                 self._k_shot_choices_key: self._code_t2e_prediction_task_info[2],
                 self._task_object_key: self._code_t2e_prediction_task_info[0]
             }
-            tasks.append(MultiTasks.CodeT2EPredictionTask)
         return tasks, task_probabilities, task_info
 
     def get_code_status_classification_instructions(
