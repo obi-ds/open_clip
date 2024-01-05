@@ -530,13 +530,15 @@ def get_wds_dataset_icd_instruct(
         position_column=args.position_column,
     )
 
-    negative_code_cache_sampling = NegativeCodeCacheSampling(code_task_negative_cache_size=2)
+    negative_code_cache_sampling = NegativeCodeCacheSampling(
+        code_task_negative_cache_size=3, minimum_encounter_size=8
+    )
 
     code_status_range_classification_instructions = get_code_status_classification_instructions(
         task_definition='',
-        future_input='- {diagnosis} in {time} months',
+        future_input='* {diagnosis} in {time} months',
         future_target='{answer}',
-        past_input='- {diagnosis} {time} months ago',
+        past_input='* {diagnosis} {time} months ago',
         past_target='{answer}',
         positive_answer_target='yes',
         negative_answer_target='no',
@@ -544,7 +546,7 @@ def get_wds_dataset_icd_instruct(
 
     code_t2e_prediction_instructions = get_code_t2e_prediction_instructions(
         task_definition='',
-        inputs='- {diagnosis}',
+        inputs='* {diagnosis}',
         targets='{sign}{answer}',
         negative_answer_target=np.inf,
     )
@@ -578,8 +580,8 @@ def get_wds_dataset_icd_instruct(
         )
 
     multi_instruct = MultiInstruct(
-        code_status_classification_task=code_status_classification_task,
-        code_t2e_prediction_task=code_t2e_prediction_task,
+        code_status_classification_task_info=(code_status_classification_task, 0.5, [0]),
+        code_t2e_prediction_task_info=(code_t2e_prediction_task, 0.5, [0]),
         negative_code_cache_sampling=negative_code_cache_sampling,
         multi_instruct_tokenizer=multi_instruct_tokenizer
     )
