@@ -500,8 +500,6 @@ def get_wds_dataset_icd_instruct(
     max_seq_length = 76
     pad_id = 0
 
-    args.shuffle = shuffle
-
     encounter_dataframe = pd.read_parquet(
         args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
     )
@@ -577,10 +575,12 @@ def get_wds_dataset_icd_instruct(
         code_column=args.code_column,
         position_column=args.position_column,
     )
-
-    multi_instruct_tokenizer = MultiInstructTokenizer(
-        tokenizer=tokenizer, pad_id=pad_id, max_seq_length=max_seq_length
-    )
+    if tokenizer is None:
+        multi_instruct_tokenizer = None
+    else:
+        multi_instruct_tokenizer = MultiInstructTokenizer(
+            tokenizer=tokenizer, pad_id=pad_id, max_seq_length=max_seq_length
+        )
 
     multi_instruct = MultiInstruct(
         code_status_classification_task=code_status_classification_task,
