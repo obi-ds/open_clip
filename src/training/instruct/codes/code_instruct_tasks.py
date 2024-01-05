@@ -237,7 +237,20 @@ class CodeStatusClassificationTask(object):
 
         return instruction_samples
 
-    def concatenate_instruction_samples(self, sampled_positives, sampled_negatives):
+    @staticmethod
+    def concatenate_instruction_samples(
+            sampled_positives: pd.DataFrame,
+            sampled_negatives: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        Concatenate the positive and negative samples
+        Args:
+            sampled_positives (pd.DataFrame): The sampled positives
+            sampled_negatives (pd.DataFrame): The sampled negatives
+
+        Returns:
+            (pd.DataFrame): The concatenated dataframe
+        """
         if not sampled_positives.empty and not sampled_negatives.empty:
             return pd.concat([sampled_positives, sampled_negatives])
         elif not sampled_negatives.empty:
@@ -454,7 +467,7 @@ class CodeStatusClassificationTask(object):
                 encounter_dataframe[self.position_column].max() + 1,
                 step=0.5
             )
-        
+
     def get_random_encounters(
             self,
             size: int,
