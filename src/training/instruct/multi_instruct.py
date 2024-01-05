@@ -144,6 +144,8 @@ class MultiInstruct(object):
                 instruction_samples[self._code_task_object.instruction_label] == True
                 ]
         )
+        # TODO: Do we need to handle if encounter_negatives becomes empty - the code will run
+        #  but will randomly sample negatives
         encounter_negatives = self.filter_encounter_history_by_selected_samples(
             encounter_history=encounter_negatives,
             selected_samples=instruction_samples[
@@ -174,9 +176,6 @@ class MultiInstruct(object):
         if encounter_negatives is None:
             return self.get_code_task_encounter_negatives_from_random(encounter_history=encounter_history)
         else:
-            print(patient_id)
-            print(encounter_negatives)
-            print('__________________')
             return encounter_negatives
 
     def get_multi_task_instructions(self, sample, args):
