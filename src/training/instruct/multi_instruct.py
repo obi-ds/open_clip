@@ -171,9 +171,12 @@ class MultiInstruct(object):
             encounter_history=encounter_history,
             patient_id=patient_id
         )
-        if not encounter_negatives:
+        if encounter_negatives is None:
             return self.get_code_task_encounter_negatives_from_random(encounter_history=encounter_history)
         else:
+            print(patient_id)
+            print(encounter_negatives)
+            print('__________________')
             return encounter_negatives
 
     def get_multi_task_instructions(self, sample, args):
