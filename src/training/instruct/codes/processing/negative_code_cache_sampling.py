@@ -7,10 +7,12 @@ class NegativeCodeCacheSampling(object):
     def __init__(
             self,
             code_task_negative_cache_size: int,
+            minimum_encounter_size: int
     ):
         self._code_task_negative_cache = {}
         self._code_task_negative_cache_size = code_task_negative_cache_size
         self._code_task_negative_cache_counts = Counter()
+        self._minimum_encounter_size = minimum_encounter_size
 
     def update_cache_code_task_negatives(self, encounter_history: pd.DataFrame, patient_id: str):
         # If patient id is already in cache - replace the encounter history
@@ -44,6 +46,6 @@ class NegativeCodeCacheSampling(object):
     def get_code_task_encounter_negatives_from_cache_and_update(self, encounter_history, patient_id):
         # Get encounter negatives and update cache
         encounter_negatives = self.get_code_task_encounter_negatives_from_cache(patient_id=patient_id)
-        if not encounter_history.empty:
+        if len(encounter_history) >= self._minimum_encounter_size:
             self.update_cache_code_task_negatives(encounter_history=encounter_history, patient_id=patient_id)
         return encounter_negatives
