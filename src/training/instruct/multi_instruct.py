@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import NoReturn
+from typing import NoReturn, Tuple, List
 
 import torch
 
@@ -13,38 +13,50 @@ class MultiInstruct(object):
 
     def __init__(
             self,
-            code_status_classification_task: CodeStatusClassificationTask,
-            code_t2e_prediction_task: CodeT2EPredictionTask,
+            code_status_classification_task_info: Tuple[CodeStatusClassificationTask, float, List[int]],
+            code_t2e_prediction_task_info: Tuple[CodeT2EPredictionTask, float, List[int]],
             negative_code_cache_sampling: NegativeCodeCacheSampling,
             multi_instruct_tokenizer: MultiInstructTokenizer,
+            task_object_key: str = 'task_object',
+            k_shot_choices_key: str = 'k_shot_choices'
     ):
-        self._code_status_classification_task = code_status_classification_task
-        self._code_t2e_prediction_task = code_t2e_prediction_task
-        self._code_task_object = self.get_code_task_object()
+        self._code_status_classification_task_info = code_status_classification_task_info
+        self._code_t2e_prediction_task_info = code_t2e_prediction_task_info
         self._negative_code_cache_sampling = negative_code_cache_sampling
         self._multi_instruct_tokenizer = multi_instruct_tokenizer
-
-        # TODO: Define task probabilities and task in a better way
-        self._tasks = self.get_tasks()
-        self._task_probabilities = [0.5, 0.5]
-
+        self._task_object_key = task_object_key
+        self._k_shot_choices_key = k_shot_choices_key
+        self._tasks, self._task_probabilities, self._task_info = self.setup_tasks()
+        self._code_task_object = self.get_code_task_object()
 
     def get_code_task_object(self):
-        if self._code_status_classification_task is not None:
-            return self._code_status_classification_task
-        elif self._code_t2e_prediction_task is not None:
-            return self._code_t2e_prediction_task
+        if self._code_status_classification_task_info is not None:
+            return self._task_info[MultiTasks.CodeStatusClassificationTask][self._task_object_key]
+        elif self._code_t2e_prediction_task_info is not None:
+            return self._task_info[MultiTasks.CodeT2EPredictionTask][self._task_object_key]
         else:
             return None
 
-    def get_tasks(self):
+    def setup_tasks(self):
         tasks = list()
-        if self._code_status_classification_task is not None:
+        task_probabilities =  list()
+        task_info =  dict()
+        if self._code_status_classification_task_info is not None:
             tasks.append(MultiTasks.CodeStatusClassificationTask)
-        if self._code_t2e_prediction_task is not None:
+            task_probabilities.append(self._code_status_classification_task_info[1])
+            task_info[MultiTasks.CodeStatusClassificationTask] =  {
+                self._k_shot_choices_key: self._code_status_classification_task_info[2],
+                self._task_object_key: self._code_status_classification_task_info[0]
+            }
+        if self._code_t2e_prediction_task_info is not None:
             tasks.append(MultiTasks.CodeT2EPredictionTask)
-        return tasks
-
+            task_probabilities.append(self._code_t2e_prediction_task_info[1])
+            task_info[MultiTasks.CodeT2EPredictionTask] = {
+                self._k_shot_choices_key: self._code_t2e_prediction_task_info[2],
+                self._task_object_key: self._code_t2e_prediction_task_info[0]
+            }
+            tasks.append(MultiTasks.CodeT2EPredictionTask)
+        return tasks, task_probabilities, task_info
 
     def get_code_status_classification_instructions(
             self,
@@ -55,7 +67,9 @@ class MultiInstruct(object):
             sort_position,
             encounter_negatives
     ):
-        instruction_samples, instructions = self._code_status_classification_task.get_task_instructions(
+        instruction_samples, instructions = self._task_info[
+            MultiTasks.CodeStatusClassificationTask
+        ][self._task_object_key].get_task_instructions(
             encounter_history=encounter_history,
             all_positives=all_positives,
             positives=positives,
@@ -75,7 +89,9 @@ class MultiInstruct(object):
             sort_position,
             encounter_negatives
     ):
-        instruction_samples, instructions = self._code_t2e_prediction_task.get_task_instructions(
+        instruction_samples, instructions = self._task_info[
+            MultiTasks.CodeT2EPredictionTask
+        ][self._task_object_key].get_task_instructions(
             encounter_history=encounter_history,
             all_positives=all_positives,
             positives=positives,
@@ -144,8 +160,8 @@ class MultiInstruct(object):
                 instruction_samples[self._code_task_object.instruction_label] == True
                 ]
         )
-        # TODO: Do we need to handle if encounter_negatives becomes empty - the code will run
-        #  but will randomly sample negatives
+        # If encounter_negatives becomes empty - the code will run
+        # but will randomly sample negatives
         encounter_negatives = self.filter_encounter_history_by_selected_samples(
             encounter_history=encounter_negatives,
             selected_samples=instruction_samples[
@@ -154,15 +170,17 @@ class MultiInstruct(object):
         )
         return encounter_history, encounter_negatives
 
-        
-    def get_code_task_encounter_negatives_from_random(self, encounter_history):
-        position_range = np.arange(
-            encounter_history[self._code_task_object.position_column].min(),
-            encounter_history[self._code_task_object.position_column].max() + 1,
-            step=0.5
-        )
+    def get_code_task_encounter_negatives_from_random(self, encounter_history, encounter_length=20):
+        if encounter_history.empty:
+            position_range = np.arange(0, 1, step=0.5)
+        else:
+            position_range = np.arange(
+                encounter_history[self._code_task_object.position_column].min(),
+                encounter_history[self._code_task_object.position_column].max() + 1,
+                step=0.5
+            )
         return self._code_task_object.get_random_encounters(
-            size=len(encounter_history),
+            size=encounter_length,
             position_range=position_range,
             exclude_codes=pd.Series([])
         )
@@ -179,8 +197,7 @@ class MultiInstruct(object):
             return encounter_negatives
 
     def get_multi_task_instructions(self, sample, args):
-        number_of_instructions = 5
-        k_shot_choices = [0]
+        number_of_instructions = np.random.choice(args.number_of_instructions)
         sort_code_status_position = True
         sort_code_t2e_position = True
         patient_id = sample[args.patient_id_column]
@@ -214,7 +231,9 @@ class MultiInstruct(object):
                     encounter_history=encounter_history,
                     all_positives=all_positives,
                     positives=positives,
-                    k_shot=np.random.choice(k_shot_choices),
+                    k_shot=np.random.choice(
+                        self._task_info[MultiTasks.CodeStatusClassificationTask][self._k_shot_choices_key]
+                    ),
                     sort_position=sort_code_status_position,
                     encounter_negatives=encounter_negatives
                 )
@@ -229,7 +248,9 @@ class MultiInstruct(object):
                     encounter_history=encounter_history,
                     all_positives=all_positives,
                     positives=positives,
-                    k_shot=np.random.choice(k_shot_choices),
+                    k_shot=np.random.choice(
+                        self._task_info[MultiTasks.CodeT2EPredictionTask][self._k_shot_choices_key]
+                    ),
                     sort_position=sort_code_t2e_position,
                     encounter_negatives=encounter_negatives
                 )
