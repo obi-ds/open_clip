@@ -10,10 +10,10 @@ def get_instruct_arguments():
     """
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
-        "--k-shot",
+        "--number-of-instructions",
         type=int,
         nargs='+',
-        default=0,
-        help="The number of k-shot examples to use",
+        default=2,
+        help="The number of instruction examples to use",
     )
     return parser
