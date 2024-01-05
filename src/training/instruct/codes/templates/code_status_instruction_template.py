@@ -72,7 +72,7 @@ class CodeT2EInstructionTemplate(CodeInstructionTemplateInterface):
             targets,
             inputs_prefix: str = "",
             targets_prefix: str = "",
-            x_y_delimiter: str = "  ",
+            x_y_delimiter: str = ": ",
             example_separator: str = "\n\n\n"
     ):
         """
