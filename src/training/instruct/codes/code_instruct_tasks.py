@@ -88,7 +88,7 @@ class CodeStatusClassificationTask(object):
             )
         except KeyError:
             # TODO: A fix for now - because we have missing data - ideally we should not have missing data
-            position_range = np.arange(6, 7, step=0.5)
+            position_range = np.arange(-6, 7, step=0.5)
             # Sample codes and create a random encounter dataframe
             encounter_history = self.get_random_encounters(
                 size=50,
@@ -350,19 +350,20 @@ class CodeStatusClassificationTask(object):
         )
 
         if len(sampled_negatives) != size:
-            position_range = np.arange(
-                encounter_negatives[self.position_column].min(),
-                encounter_negatives[self.position_column].max() + 1,
-                step=0.5
+            position_range = self.get_position_range_from_encounter_dataframe(
+                encounter_dataframe=encounter_negatives
             )
             random_encounters = self.get_random_encounters(
                 size=size - len(sampled_negatives),
                 position_range=position_range,
                 exclude_codes=exclude_codes
             )
-            sampled_negatives = pd.concat(
-                [sampled_negatives[self.code_column, self.position_column], random_encounters]
-            )
+            if len(sampled_negatives) > 0:
+                sampled_negatives = pd.concat(
+                    [sampled_negatives[[self.code_column, self.position_column]], random_encounters]
+                )
+            else:
+                sampled_negatives = random_encounters
         return sampled_negatives
 
     def get_negative_samples_from_encounter_negatives(
@@ -434,6 +435,26 @@ class CodeStatusClassificationTask(object):
         """
         return all_positives
 
+    def get_position_range_from_encounter_dataframe(self, encounter_dataframe: pd.DataFrame) -> np.array:
+        """
+        Get a position range to create new random encounters. The positions
+        will be based on existing position values, whereas the codes will
+        be sampled
+        Args:
+            encounter_dataframe:
+
+        Returns:
+            (np.array): A range of position values
+        """
+        if encounter_dataframe.empty:
+            return np.arange(0, 1, step=0.5)
+        else:
+            return np.arange(
+                encounter_dataframe[self.position_column].min(),
+                encounter_dataframe[self.position_column].max() + 1,
+                step=0.5
+            )
+        
     def get_random_encounters(
             self,
             size: int,
