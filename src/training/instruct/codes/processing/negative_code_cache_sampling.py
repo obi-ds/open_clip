@@ -44,5 +44,6 @@ class NegativeCodeCacheSampling(object):
     def get_code_task_encounter_negatives_from_cache_and_update(self, encounter_history, patient_id):
         # Get encounter negatives and update cache
         encounter_negatives = self.get_code_task_encounter_negatives_from_cache(patient_id=patient_id)
-        self.update_cache_code_task_negatives(encounter_history=encounter_history, patient_id=patient_id)
+        if not encounter_history.empty:
+            self.update_cache_code_task_negatives(encounter_history=encounter_history, patient_id=patient_id)
         return encounter_negatives
