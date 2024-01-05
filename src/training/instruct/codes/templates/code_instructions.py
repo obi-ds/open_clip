@@ -561,5 +561,5 @@ class CodeT2EPredictionInstructions(object):
         Returns:
             (str): String representation of the position
         """
-        return str(position) if position == np.inf else str(int(np.abs(position)))
+        return str(position) if position == np.inf else str(round(np.abs(position)))
 
