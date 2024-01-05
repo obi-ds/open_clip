@@ -2,7 +2,7 @@
 import re
 import pandas as pd
 import os.path as path
-from typing import Optional, Mapping
+from typing import Optional, Mapping, Dict
 
 class CodeDescriptions(object):
     """
@@ -94,7 +94,16 @@ class PHEDescription(CodeDescriptions):
         super().__init__(codes)
 
     @staticmethod
-    def get_codes(phe_code_df):
+    def get_codes(phe_code_df: pd.DataFrame) -> Dict[str, str]:
+        """
+        Mapping from code to code description
+        Args:
+            phe_code_df (pd.DataFrame): The dataframe that contains phe codes
+            and their textual descriptions
+
+        Returns:
+            (Dict[str, str]): Mapping between code and it's description
+        """
         return {row.phecode: row.phecode_string for row in phe_code_df.itertuples()}
 
     def get_description(self, code: str) -> str:
