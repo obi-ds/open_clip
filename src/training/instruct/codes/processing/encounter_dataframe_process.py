@@ -235,6 +235,36 @@ class EncounterDataframeProcess(object):
         # Get the code encounter history for a patient
         encounter_history = self.get_patient_encounter_history(patient_id=patient_id)
 
+        encounter_history = self.get_position_information(
+            encounter_history=encounter_history,
+            current_time=current_time,
+            use_log_position=use_log_position,
+            time_difference_normalize=time_difference_normalize
+        )
+
+        return encounter_history
+
+    def get_position_information(
+            self,
+            encounter_history: pd.DataFrame,
+            current_time: str,
+            use_log_position: bool,
+            time_difference_normalize: int
+    ) -> pd.DataFrame:
+        """
+       Compute the time differences and the position information
+        Args:
+            encounter_history (pd.DataFrame): The encounter dataframe
+            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
+            with respect to other encounters
+            use_log_position (bool): Whether to keep time deltas in days or as log value of days
+            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
+            (e.g. 30 normalizes it to months)
+
+        Returns:
+            encounter_history (pd.DataFrame): The encounter history after applying various functions, transformations
+            and sampling
+        """
         # Get time difference with respect to given time
         encounter_history[self.time_difference_column] = self.get_time_difference(
             code_timestamps=encounter_history[self._contact_date_column],
