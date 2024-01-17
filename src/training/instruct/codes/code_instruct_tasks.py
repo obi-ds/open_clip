@@ -115,8 +115,10 @@ class CodeStatusClassificationTask(object):
             future_time_delta (str): Filter out encounters beyond this point in time
 
         """
-
-        encounter_history, all_positives = self._encounter_dataframe_process.filter_encounter_history_for_task(
+        all_positives = self._encounter_dataframe_process.get_all_positives(
+            encounter_history=encounter_history
+        )
+        encounter_history = self._encounter_dataframe_process.filter_encounter_history_for_task(
             encounter_history=encounter_history,
             past_time_delta=past_time_delta,
             future_time_delta=future_time_delta,
