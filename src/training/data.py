@@ -531,7 +531,8 @@ def get_wds_dataset_icd_instruct(
     )
 
     negative_code_cache_sampling = NegativeCodeCacheSampling(
-        code_task_negative_cache_size=3, minimum_encounter_size=8
+        code_task_negative_cache_size=args.code_task_negative_cache_size,
+        minimum_encounter_size=args.minimum_encounter_size
     )
 
     code_status_range_classification_instructions = get_code_status_classification_instructions(
@@ -580,8 +581,8 @@ def get_wds_dataset_icd_instruct(
         )
 
     multi_instruct = MultiInstruct(
-        code_status_classification_task_info=(code_status_classification_task, 0.5, [0]),
-        code_t2e_prediction_task_info=(code_t2e_prediction_task, 0.5, [0]),
+        code_status_classification_task_info=(code_status_classification_task, 0.0, [0]),
+        code_t2e_prediction_task_info=(code_t2e_prediction_task, 1.0, [0]),
         negative_code_cache_sampling=negative_code_cache_sampling,
         multi_instruct_tokenizer=multi_instruct_tokenizer
     )
