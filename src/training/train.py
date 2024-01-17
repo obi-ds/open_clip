@@ -358,19 +358,15 @@ def evaluate(model, data, epoch, args, tb_writer=None, tokenizer=None):
 
     return metrics
 
-def evaluate_icd_binary_instruct(
+def evaluate_instruct_basic(
         model,
         data,
         epoch,
         args,
-        tokenizer=None,
         tb_writer=None,
         prefix='',
         pad_id=0,
-        eot_token_id=49407,
-        positive_token_id=1958,
         step=None,
-        return_label_counts=True,
 ):
     metrics = {}
     if not is_master(args):
@@ -389,7 +385,7 @@ def evaluate_icd_binary_instruct(
         # FIXME this does not scale past small eval datasets
         # all_image_features @ all_text_features will blow up memory and compute very quickly
         cumulative_gen_loss = 0.0
-        all_scores, all_predictions, all_labels = [], [], []
+        all_predictions, all_labels = [], []
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
@@ -400,13 +396,12 @@ def evaluate_icd_binary_instruct(
                     # TODO = For multi code eval - we don't want to run forward pass add some caching mechanism,
                     #  and when using cache get the labels directly from the text variable
                     model_out = model(images, texts)
-                    model_logits = model_out['logits'][:, :-1, :]
-                    model_labels = model_out['labels'][:, 1:]
-                    mask = (model_labels != pad_id) & (model_labels != eot_token_id)
+                    model_logits = model_out['logits']
+                    model_labels = model_out['labels']
+                    mask = model_labels != pad_id
                     labels = model_labels[mask]
                     logits = model_logits[mask]
 
-                    all_scores.append(logits[:, positive_token_id].cpu())
                     all_predictions.append(logits.argmax(dim=-1).cpu())
                     all_labels.append(labels.cpu())
                     # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
@@ -426,20 +421,13 @@ def evaluate_icd_binary_instruct(
                         logging.info(
                             f"{prefix} Generative Loss: {cumulative_gen_loss / num_samples:.6f}\t")
             generative_metrics = compute_generative_metrics(
-                scores=torch.cat(all_scores),
                 predictions=torch.cat(all_predictions),
                 labels=torch.cat(all_labels),
                 prefix=prefix
             )
-            if return_label_counts:
-                label_counts = get_label_counts(labels=torch.cat(all_labels), prefix=prefix)
-                metrics.update(
-                    {**generative_metrics, **label_counts, "epoch": epoch, "num_samples": num_samples}
-                )
-            else:
-                metrics.update(
-                    {**generative_metrics, "epoch": epoch, "num_samples": num_samples}
-                )
+            metrics.update(
+                {**generative_metrics, "epoch": epoch, "num_samples": num_samples}
+            )
             if gen_loss is not None:
                 gen_loss = cumulative_gen_loss / num_samples
                 metrics.update({f"{prefix}generative_loss": gen_loss.item()})
@@ -530,49 +518,9 @@ def maybe_compute_generative_loss(model_out):
 def compute_generative_loss(token_logits, token_labels, pad_id=0):
     return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels, ignore_index=pad_id)
 
-def get_label_counts(labels, prefix):
-    classes, counts = labels.unique(return_counts=True)
-    return {
-        f'{prefix}label_{class_name}': count.item()
-        for class_name, count in zip(classes, counts)
-    }
-
-def compute_generative_metrics(scores, predictions, labels, prefix):
+def compute_generative_metrics(predictions, labels, prefix):
 
     metrics = {
         f'{prefix}accuracy': accuracy_score(labels, predictions),
-        f'{prefix}auc': roc_auc_score(labels, scores)
     }
     return metrics
-
-def compute_t2e_metrics(labels, predictions, prefix):
-    metrics = {
-        f'{prefix}overall_accuracy': accuracy_score(labels, predictions),
-        f'{prefix}auc': roc_auc_score(labels, scores)
-    }
-
-    # Inf accuracy
-    inf_labels = [label for label in labels if label == 'inf']
-    inf_predictions = [prediction for label, prediction in zip(labels, predictions) if label == 'inf']
-
-
-
-def get_parsed_t2e_predictions_labels(model_predictions, model_labels, tokenizer_decode):
-    labels = [parse_t2e_text(tokenizer_decode(label)) for label in model_labels]
-    predictions = [parse_t2e_text(tokenizer_decode(prediction)) for prediction in model_predictions]
-
-def parse_t2e_text(text):
-    if 'inf' in text:
-        return 'inf'
-    else:
-        digit_text = re.sub('(<end_of_text>|[^0-9+-]|\s)', '', text)
-        sign = ''
-        digits = ''
-        for character in digit_text:
-            if character in ['+', '-'] and digits == '':
-                sign = character
-            elif sign is not None and re.search('\d+', character):
-                digits += character
-            else:
-                break
-        return sign + digits
