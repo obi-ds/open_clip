@@ -1,6 +1,6 @@
 """Process patient information"""
 import pandas as pd
-from typing import Optional, Union, Tuple
+from typing import Optional, Union
 
 from .code_convert import ICDConvert, PHEConvert
 from .utils import get_log_value
