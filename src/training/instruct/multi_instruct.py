@@ -191,7 +191,9 @@ class MultiInstruct(object):
             patient_id=patient_id
         )
         if encounter_negatives is None:
-            return self.get_code_task_encounter_negatives_from_random(encounter_history=encounter_history)
+            return self.get_code_task_encounter_negatives_from_random(
+                encounter_history=encounter_history
+            )
         else:
             return encounter_negatives
 
@@ -223,16 +225,21 @@ class MultiInstruct(object):
         # TODO: Adding sorting by position code
 
         multi_task_instructions = list()
-        for _ in range(number_of_instructions):
+        processed_instructions = 0
+        while processed_instructions < number_of_instructions:
             instruction_task = np.random.choice(self._tasks, p=self._task_probabilities)
             if instruction_task == MultiTasks.CodeStatusClassificationTask:
+                k_shot = min(
+                    np.random.choice(
+                        self._task_info[MultiTasks.CodeStatusClassificationTask][self._k_shot_choices_key]
+                    ),
+                    number_of_instructions - processed_instructions - 1
+                )
                 instruction_samples, instructions = self.get_code_status_classification_instructions(
                     encounter_history=encounter_history,
                     all_positives=all_positives,
                     positives=positives,
-                    k_shot=np.random.choice(
-                        self._task_info[MultiTasks.CodeStatusClassificationTask][self._k_shot_choices_key]
-                    ),
+                    k_shot=k_shot,
                     sort_position=sort_code_status_position,
                     encounter_negatives=encounter_negatives
                 )
@@ -243,13 +250,17 @@ class MultiInstruct(object):
                 )
 
             elif instruction_task == MultiTasks.CodeT2EPredictionTask:
+                k_shot = min(
+                    np.random.choice(
+                        self._task_info[MultiTasks.CodeT2EPredictionTask][self._k_shot_choices_key]
+                    ),
+                    number_of_instructions - processed_instructions - 1
+                )
                 instruction_samples, instructions = self.get_code_t2e_prediction_instructions(
                     encounter_history=encounter_history,
                     all_positives=all_positives,
                     positives=positives,
-                    k_shot=np.random.choice(
-                        self._task_info[MultiTasks.CodeT2EPredictionTask][self._k_shot_choices_key]
-                    ),
+                    k_shot=k_shot,
                     sort_position=sort_code_t2e_position,
                     encounter_negatives=encounter_negatives
                 )
@@ -260,6 +271,7 @@ class MultiInstruct(object):
                 )
             else:
                 raise ValueError('Invalid task')
+            processed_instructions += k_shot + 1
             multi_task_instructions += instructions
         return multi_task_instructions
 
