@@ -88,12 +88,24 @@ class CodeStatusClassificationTask(object):
             )
         except KeyError:
             # TODO: A fix for now - because we have missing data - ideally we should not have missing data
-            position_range = np.arange(-6, 7, step=0.5)
+            encounter_length = 50
+            past_time = current_time - pd.to_timedelta('180d')
+            future_time = current_time + pd.to_timedelta('180d')
+            contact_dates = pd.date_range(start=past_time, end=future_time, periods=encounter_length)
             # Sample codes and create a random encounter dataframe
             encounter_history = self.get_random_encounters(
-                size=50,
-                position_range=position_range,
+                size=encounter_length,
+                position_range=[0],
                 exclude_codes=pd.Series([])
+            )
+            indexes = np.arange(len(encounter_history))
+            np.random.shuffle(indexes)
+            encounter_history[self._encounter_dataframe_process._contact_date_column] = contact_dates[indexes]
+            encounter_history = self._encounter_dataframe_process.get_position_information(
+                encounter_history=encounter_history,
+                current_time=current_time,
+                use_log_position=use_log_position,
+                time_difference_normalize=time_difference_normalize
             )
             return encounter_history
 
