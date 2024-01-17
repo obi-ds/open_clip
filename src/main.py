@@ -34,7 +34,7 @@ from training.distributed import is_master, init_distributed_device, broadcast_o
 from training.logger import setup_logging
 from training.params import parse_args
 from training.scheduler import cosine_lr, const_lr, const_lr_cooldown
-from training.train import train_one_epoch, evaluate, evaluate_icd_binary_instruct, get_step, log_metrics
+from training.train import train_one_epoch, evaluate, evaluate_instruct_basic, get_step, log_metrics
 from training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
 
 LATEST_CHECKPOINT_NAME = "epoch_latest.pt"
@@ -428,55 +428,6 @@ def main(args):
 
     loss = create_loss(args)
 
-    binary_status = {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0]
-        )
-    }
-
-    # Future status
-    # afib_status = {
-    #     'val': get_wds_dataset_icd_instruct(
-    #         args=args,
-    #         preprocess_img=preprocess_val,
-    #         is_train=False,
-    #         tokenizer=tokenizer,
-    #         task_probabilities=[1.0, 0.0],
-    #         evaluate_attribute=['CV_416.2', (0, 1), None],
-    #         custom_prompt=True,
-    #         lock_range=True
-    #     )
-    # }
-
-    evaluations = {
-        'afib+1_': ('CV_416.2', 0, 1),
-        'hf+1_': ('CV_424', 0, 1),
-        't2d+1_': ('EM_202.2', 0, 1),
-        'afib-1_': ('CV_416.2', 0, -1),
-        'hf-1_': ('CV_424', 0, -1),
-        't2d-1_': ('EM_202.2', 0, -1),
-        'afib+6_': ('CV_416.2', 0, 6),
-        'hf+6_': ('CV_424', 0, 6),
-        't2d+6_': ('EM_202.2', 0, 6),
-    }
-
-    evaluations_data = {
-        eval_prefix: get_icd_evaluation(
-            code=eval_params[0],
-            start_time=eval_params[1],
-            end_time=eval_params[2],
-            args=args,
-            preprocess_val=preprocess_val,
-            tokenizer=tokenizer
-        )
-        for eval_prefix, eval_params in evaluations.items()
-    }
-
-
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
@@ -485,54 +436,7 @@ def main(args):
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
-            # evaluate(model, data, completed_epoch, args, tb_writer=writer, tokenizer=tokenizer)
-            log_step = get_step(data=data, accum_freq=args.accum_freq, epoch=completed_epoch)
-
-            # TODO: We changed from coca eval to only gen eval
-            # TODO - Other evaluations
-            # 1. Evaluate General
-
-            evaluate_icd_binary_instruct(
-                model,
-                binary_status,
-                completed_epoch,
-                args,
-                prefix='binary_status_',
-                tokenizer=tokenizer,
-                tb_writer=writer,
-                step=log_step
-            )
-
-            # Evaluate A-Fib
-            # TODO: This assumes top level code - if using leaf level - we need to change the ICD code
-            #  accordingly
-            # evaluate_icd_binary_instruct(
-            #     model,
-            #     afib_status,
-            #     completed_epoch,
-            #     args,
-            #     prefix='afib_status_',
-            #     tokenizer=tokenizer,
-            #     tb_writer=writer,
-            #     step=log_step
-            # )
-
-            for eval_prefix, eval_data in evaluations_data.items():
-                evaluate_icd_binary_instruct(
-                    model,
-                    eval_data,
-                    completed_epoch,
-                    args,
-                    prefix=eval_prefix,
-                    tokenizer=tokenizer,
-                    tb_writer=writer,
-                    step=log_step
-                )
-
-            # eval_metrics = {**binary_status_metrics, **afib_status_metrics}
-
-            # log_metrics(metrics=binary_status_metrics, args=args, tb_writer=writer, epoch=completed_epoch,
-            # step=log_step)
+            evaluate_instruct_basic(model, data, completed_epoch, args, tb_writer=writer)
 
         # Saving checkpoints.
         if args.save_logs:
@@ -597,60 +501,6 @@ def copy_codebase(args):
     copytree(current_code_path, new_code_path, ignore=ignore_patterns('log', 'logs', 'wandb'))
     print("Done copying code.")
     return 1
-
-def get_icd_evaluation(code, start_time, end_time, args, preprocess_val, tokenizer):
-    return {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0],
-            evaluate_attribute=[code, (start_time, end_time), None],
-            custom_prompt=True,
-            lock_range=True
-        )
-    }
-
-def get_future_evaluation():
-    afib_30_future_status = {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0],
-            evaluate_attribute=['CV_416.2', (0, 1), None],
-            custom_prompt=True,
-            lock_range=True
-        )
-    }
-
-    hf_30_future_status = {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0],
-            evaluate_attribute=['CV_424', (0, 1), None],
-            custom_prompt=True,
-            lock_range=True
-        )
-    }
-
-    t2d_30_future_status = {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0],
-            evaluate_attribute=['EM_202.2', (0, 1), None],
-            custom_prompt=True,
-            lock_range=True
-        )
-    }
 
 
 if __name__ == "__main__":
