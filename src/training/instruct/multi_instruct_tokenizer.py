@@ -56,10 +56,10 @@ class MultiInstructTokenizer(object):
 
         # Truncate tokens, add sentence boundaries and then pad tokens
         all_input_ids = self.pad_tokens(
-            tokens=self.add_input_ids_boundaries(input_ids=self.truncate_tokens(tokens=all_input_ids))
+            tokens=self.truncate_tokens(tokens=all_input_ids)
         )
         all_labels = self.pad_tokens(
-            tokens=self.add_labels_boundaries(labels=self.truncate_tokens(tokens=all_labels))
+            tokens=self.truncate_tokens(tokens=all_labels)
         )
 
         if return_tensor:
@@ -128,7 +128,7 @@ class MultiInstructTokenizer(object):
             (List[int]): The label ids the model will be trained on
         """
         if self._pad_id == 0:
-            return [0] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.eot_token_id]
+            return [self._pad_id] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.eot_token_id]
         else:
             raise NotImplementedError()
 
@@ -150,7 +150,6 @@ class MultiInstructTokenizer(object):
         return tokens + [self._pad_id] * (self._max_seq_length - len(tokens))
 
     def truncate_tokens(self, tokens) -> List[int]:
-        # We use minus 2 because we add the bos and eos tokens after truncating
-        if len(tokens) > self._max_seq_length - 2:
+        if len(tokens) > self._max_seq_length:
             tokens = tokens[:self._max_seq_length]
         return tokens
