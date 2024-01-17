@@ -7,7 +7,7 @@ torchrun \
     --train-num-samples 1062400 \
     --val-num-samples 38400 \
     --dataset-type icddataset \
-    --name="cytometry_icd_test_run_25" \
+    --name="cytometry_phe_test_run_27" \
     --workers 4 \
     --batch-size 256 \
     --epochs 32 \
@@ -28,15 +28,14 @@ torchrun \
     --local-loss \
     --gather-with-grad \
     --model coca_cyto_base \
-    --report-to wandb \
     --billable-probability 0.0 \
     --top-non-probability 1.0 \
     --random-negative-probability 1.0 \
     --code-column phecode \
     --sample-result-date-column "ResultDTS" \
-    --past-time-delta="179d" \
-    --future-time-delta="179d" \
-    --wandb-project-name="open-clip-icd-test-runs" \
+    --past-time-delta="720d" \
+    --future-time-delta="720d" \
+    --wandb-project-name="open-clip-phe-test-runs" \
     --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet" \
-    --k-shot 0 \
+    --number-of-instructions 1 2 3 4 5 \
     --seed 0
