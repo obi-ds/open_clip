@@ -250,12 +250,25 @@ class EncounterDataframeProcess(object):
 
         return encounter_history
 
+    def get_all_positives(self, encounter_history: pd.DataFrame) -> pd.Series:
+        """
+        Return all the positive codes in the encounter history
+
+        Args:
+            encounter_history (pd.DataFrame): The dataframe containing all encounters
+
+        Returns:
+            (pd.Series): Series containing the codes from the encounter history
+
+        """
+        return encounter_history[self._code_column]
+
     def filter_encounter_history_for_task(
             self,
             encounter_history: pd.DataFrame,
             past_time_delta: str,
             future_time_delta: str,
-    ) -> Tuple[pd.DataFrame, pd.Series]:
+    ) -> pd.DataFrame:
         """
         Given the encounter history, map codes, filter out duplicate codes and filter
         the history based on time range. Keep only those entries
@@ -268,7 +281,6 @@ class EncounterDataframeProcess(object):
         Returns:
             encounter_history (pd.DataFrame): The encounter history after mapping codes, dropping duplicates and
             filtering by time range
-            all_positives (pd.Series): The codes present in the entire encounter history of the patient
         """
 
         encounter_history = self.filter_encounter_codes(
@@ -279,12 +291,10 @@ class EncounterDataframeProcess(object):
             )
         )
 
-        all_positives = encounter_history[self._code_column]
-
         encounter_history = self.filter_encounter_history_time_delta(
             encounter_history=encounter_history,
             past_time_delta=past_time_delta,
             future_time_delta=future_time_delta
         )
 
-        return encounter_history, all_positives
+        return encounter_history
