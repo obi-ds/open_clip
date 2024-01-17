@@ -440,11 +440,11 @@ class CaptionLoss(ClipLoss):
         clip_loss = super().forward(image_features, text_features, logit_scale)
         clip_loss = self.clip_loss_weight * clip_loss
 
-        shift_logits = logits[:, :-1, :].contiguous()
-        labels = labels[:, 1:].contiguous()
+        logits = logits[:, :, :].contiguous()
+        labels = labels[:, :].contiguous()
 
         caption_loss = self.caption_loss(
-            shift_logits.view(-1, shift_logits.size(-1)),
+            logits.view(-1, logits.size(-1)),
             labels.view(-1),
         )
         caption_loss = caption_loss
