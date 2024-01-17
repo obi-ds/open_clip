@@ -13,7 +13,7 @@ def get_instruct_arguments():
         "--number-of-instructions",
         type=int,
         nargs='+',
-        default=2,
+        default=None,
         help="The number of instruction examples to use",
     )
     return parser

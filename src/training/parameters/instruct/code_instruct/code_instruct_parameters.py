@@ -40,4 +40,16 @@ def get_code_instruct_arguments():
         action="store_true",
         help="Whether to lowercase icd text"
     )
+    parser.add_argument(
+        "--code-task-negative-cache-size",
+        type=int,
+        default=3,
+        help="The size of the negative sampling cache"
+    )
+    parser.add_argument(
+        "--minimum-encounter-size",
+        type=int,
+        default=8,
+        help="The minimum number of encounters required in the patient history for it to be added to the cache"
+    )
     return parser
