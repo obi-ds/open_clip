@@ -1,4 +1,8 @@
-"""Define the diagnostic code status classification task - The task uses templates, inputs and targets"""
+"""
+Define the diagnostic code status classification task - The task uses templates, inputs and targets.
+This class will return the instruction string. It will make use of the  instruction data
+and the instruction template to create the instruction string.
+"""
 import numpy as np
 import pandas as pd
 from typing import Tuple, List, Union
