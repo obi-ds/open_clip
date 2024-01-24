@@ -1,8 +1,11 @@
-"""Sample dataframe rows based on scores and scoring function"""
-from typing import Optional
-
+"""
+Sample dataframe rows based on scores and scoring function.
+This class can be used to sample positives. We can define other
+classes that do more complex sampling
+"""
 import numpy as np
 import pandas as pd
+from typing import Optional, Union
 
 from .utils import normal_choice
 
@@ -46,7 +49,7 @@ class DataFrameSampling(object):
     def sample_dataframe(
             dataframe: pd.DataFrame,
             sample_size: int,
-            weights: Optional[pd.Series]
+            weights: Optional[Union[pd.Series, np.array]]
     ) -> pd.DataFrame:
         """
         Sample dataframe. Use the scores as sampling weights
@@ -62,3 +65,16 @@ class DataFrameSampling(object):
             return dataframe.sample(n=sample_size)
         else:
             return dataframe.sample(n=sample_size, weights=weights)
+
+    @staticmethod
+    def get_sampling_weights_random(dataframe) -> np.array:
+        # TODO: Eventually we can replace it with smarter sampling
+        """
+        Randomly sample - no sampling strategy
+
+        Args:
+            dataframe (pd.DataFrame): The encounter dataframe
+        Returns:
+            (np.array): Does not return anything
+        """
+        return np.ones(len(dataframe))
