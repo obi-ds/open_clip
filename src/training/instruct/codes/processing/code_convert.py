@@ -1,4 +1,9 @@
-"""Convert icd codes into the desired label format for training models"""
+"""
+Convert icd codes into the desired label format for training models.
+We handle any processing of ICD/PHE codes - for example
+converting  from a leaf node ICD code to a top level ICD code or even
+convert a code to its description
+"""
 import random
 import numpy as np
 import pandas as pd
