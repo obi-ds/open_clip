@@ -1,8 +1,4 @@
-from .code_instruct_tasks import (
-    CodeStatusClassificationTask,
-    CodeT2EPredictionTask,
-)
+from .code_trajectory_instruct_tasks import CodeTrajectoryPredictionTask
 __all__ = [
-    "CodeStatusClassificationTask",
-    "CodeT2EPredictionTask",
+    "CodeTrajectoryPredictionTask"
 ]

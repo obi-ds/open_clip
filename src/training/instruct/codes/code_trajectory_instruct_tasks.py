@@ -1,0 +1,308 @@
+"""Make training data"""
+import numpy as np
+import pandas as pd
+from typing import Union, Tuple, List, Any, Optional, NoReturn
+
+from .processing.code_convert import ICDConvert, PHEConvert
+from .processing.encounter_dataframe_process import EncounterDataframeProcess
+from .processing.dataframe_sampling import GroupBySampling
+from .processing.data_bins import AgglomerativeDataBins
+
+np.random.seed(42)
+
+
+class CodeTrajectoryPredictionTask(object):
+    """
+    Make instruction tuning training data from diagnostic codes
+    # TODO: Sampling whole bins v/s within bins, tokenizer - for phe codes, pre-train LM on
+    """
+
+    def __init__(
+            self,
+            encounter_dataframe_process: EncounterDataframeProcess,
+            dataframe_sampling: GroupBySampling,
+            code_instructions: Any,
+            code_convert: Union[ICDConvert, PHEConvert],
+            time_bins: AgglomerativeDataBins,
+            patient_id_column: str = 'PatientID',
+            code_column: str = 'ICD10CD',
+            position_column: str = 'position',
+            instruction_label: str = 'instruction_label',
+            bins_column: str = 'bins',
+            bin_start_column: str = 'min',
+            bin_end_column: str = 'max',
+            code_value_column: str = 'count'
+    ):
+        """
+        Initialize variables
+        Args:
+            encounter_dataframe_process (EncounterDataframeProcess): Dataframe processing object
+            dataframe_sampling (GroupBySampling): Dataframe sampling object
+            code_instructions (Any): A list of code instruction tasks. At any point one of these
+            tasks is randomly chosen and trained on
+            code_convert (Union[ICDConvert, PHEConvert]): The object to map codes to other codes in hierarchy and
+            their textual descriptions.
+            patient_id_column (str, defaults to `PatientID`): The column name for the patient id
+            code_column (str, defaults to `ICD10CD`): The column that contains the codes
+            position_column (str, defaults to `positions`): The column where position values
+            (e.g. time difference in days or log days) will be stored
+            instruction_label (str, defaults to `instruction_label`): Label assigned to the instructions - either
+            positive or negative
+            bins_column (str, defaults to `bins`): Column that stores the assigned bin
+            bin_start_column (str, defaults to `min`): Column that stores the start position of each bin
+            bin_end_column (str, defaults to `max`): Column that stores the end position of each bin
+        """
+        self._encounter_dataframe_process = encounter_dataframe_process
+        self._dataframe_sampling = dataframe_sampling
+        self._code_instructions = code_instructions
+        self._code_convert = code_convert
+        self._patient_id_column = patient_id_column
+        self._code_column = code_column
+        self._position_column = position_column
+        self._instruction_label = instruction_label
+        self._time_bins = time_bins
+        self._bins_column = bins_column
+        self._bin_start_column = bin_start_column
+        self._bin_end_column = bin_end_column
+        self._code_value_column = code_value_column
+
+    def process_sample(self, sample, args):
+
+        # Get processed encounter history
+        encounter_history = self.get_encounter_history_for_task(
+            patient_id=sample[args.patient_id_column],
+            current_time=sample[args.sample_result_date_column],
+            past_time_delta=None,
+            future_time_delta=None,
+            use_log_position=args.use_log_position,
+            time_difference_normalize=args.time_difference_normalize
+        )
+
+        if len(encounter_history) <= 1:
+            encounter_history = self.get_random_encounters()
+
+        # Get time bins for each encounter
+        encounter_history = self.compute_bins(encounter_history)
+
+        instruction_samples = self.get_instruction_samples(
+            encounter_history=encounter_history, sample_bin_frequency=1.0
+        )
+
+        return self.convert_samples_to_instructions(instruction_samples)
+
+    def get_encounter_history_for_task(
+            self,
+            patient_id: Union[str, int],
+            current_time: str,
+            use_log_position: bool,
+            time_difference_normalize: int,
+            past_time_delta: Optional[str] = None,
+            future_time_delta: Optional[str] = None,
+    ) -> NoReturn:
+        """
+        Given the encounter history, map codes, filter out duplicate codes and filter
+        the history based on time range. Keep only those entries
+        that occur within the time range. If encounter history - create a history
+        by randomly generating codes and positions. This will only be used to sample
+        negatives
+        Args:
+            patient_id (Union[str, int]): The unique id of the patient we need to process
+            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
+            with respect to other encounters
+            use_log_position (bool): Whether to keep time deltas in days or as log value of days
+            time_difference_normalize (int): Normalize time difference by this value
+            past_time_delta (str, defaults to `None`): Filter out encounters beyond this point in time
+            future_time_delta (str, defaults to `None`): Filter out encounters beyond this point in time
+        """
+
+        encounter_history = self.get_full_encounter_history(
+            patient_id=patient_id,
+            current_time=current_time,
+            use_log_position=use_log_position,
+            time_difference_normalize=time_difference_normalize
+        )
+
+        # Time filter
+        if past_time_delta is not None or future_time_delta is not None:
+            encounter_history = self._encounter_dataframe_process.filter_encounter_history_time_delta(
+                encounter_history=encounter_history,
+                past_time_delta=past_time_delta,
+                future_time_delta=future_time_delta,
+            )
+
+        # Drop NA codes
+        encounter_history = self._encounter_dataframe_process.drop_na_codes(encounter_history=encounter_history)
+
+        return encounter_history
+
+    def get_full_encounter_history(
+            self,
+            patient_id: Union[str, int],
+            current_time: str,
+            use_log_position: bool,
+            time_difference_normalize: int,
+    ) -> pd.DataFrame:
+        """
+        Return the encounter history of a patient - if the patient does not have an encounter history
+        return an empty encounter history
+        Args:
+            patient_id (Union[str, int]): The unique id of the patient we need to process
+            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
+            with respect to other encounters
+            use_log_position (bool): Whether to keep time deltas in days or as log value of days
+            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
+            (e.g. 30 normalizes it to months)
+
+        Returns:
+            (pd.DataFrame): The encounter history
+        """
+        try:
+            return self._encounter_dataframe_process.get_patient_encounter_history_with_position(
+                patient_id=patient_id,
+                current_time=current_time,
+                use_log_position=use_log_position,
+                time_difference_normalize=time_difference_normalize
+            )
+        except KeyError:
+            # TODO: A fix for now - because we have missing data - ideally we should not have missing data
+            # Sample codes and create a random encounter dataframe
+            return self.get_random_encounters()
+
+    def get_instruction_samples(
+            self,
+            encounter_history: pd.DataFrame,
+            sample_bin_frequency: float,
+    ) -> pd.DataFrame:
+        """
+        Given the encounter history, map codes, filter out duplicate codes and filter
+        the history based on time range. Keep only those entries
+        that occur within the time range. If encounter history - create a history
+        by randomly generating codes and positions. This will only be used to sample
+        negatives. Then sample the dataframe for encounters to use as positive and
+        negative samples. Use these samples to generate instructions and
+        return the instruction input and targets for the sampled instruction code
+        status classification task with time range
+        Args:
+            encounter_history (pd.DataFrame): The encounter history of the patient
+            sample_bin_frequency (float): The frequency of samples to sample from each bin
+
+        Returns:
+            (pd.DataFrame): The instructions samples
+        """
+        bin_positions = encounter_history.groupby(self._bins_column).position.agg(['min', 'max'])
+        sampled_encounter_history = self._dataframe_sampling.sample_dataframe(
+            dataframe=encounter_history,
+            sample_size=sample_bin_frequency,
+            group_by_column=self._bins_column,
+            values_column=self._code_column
+        )
+        instruction_samples = (
+            pd.merge(sampled_encounter_history, bin_positions, how='left', on=self._bins_column)
+            .sort_values(by=self._position_column)
+        )
+        return instruction_samples
+
+    def convert_samples_to_instructions(
+            self,
+            instruction_samples: pd.DataFrame,
+    ) -> List[Tuple[str, str]]:
+        """
+        Return the instruction input and targets
+        for the sampled instruction code status classification task with time range
+        Args:
+            instruction_samples (pd.DataFrame): The samples that will be used as instructions
+
+        Returns:
+            (List[Tuple[str, str]]): A list that contains tuples which have the instruction input and target.
+            The list will contain only 1 element for zero shot training
+        """
+
+        # description_instructions = self.get_code_description_instructions(instruction_samples=instruction_samples)
+        trajectory_instructions = self.get_code_trajectory_instructions(instruction_samples=instruction_samples)
+
+        return trajectory_instructions
+
+    def get_code_trajectory_instructions(self, instruction_samples: pd.DataFrame):
+        """
+        Return the instruction input and targets
+        that contain the time period and say counts of the codes in that time period
+        Args:
+            instruction_samples (pd.DataFrame): The samples that will be used as instructions
+
+        Returns:
+            (List[Tuple[str, str]]): A list that contains tuples which have the instruction input and target.
+            The list will contain only 1 element for zero shot training
+        """
+        instructions = list()
+        start_flag = None
+        for row in instruction_samples[
+            [self._code_column, self._code_value_column, self._bin_start_column, self._bin_end_column]
+        ].itertuples(index=False):
+            code, code_value, bin_start, bin_end = row[0], row[1], row[2], row[3]
+
+            if start_flag is None or bin_start != start_flag:
+                start_flag = bin_start
+                # TODO: Round time
+                time_instruct_string =  self._code_instructions.get_time_instruction(
+                    start_time=int(bin_start), end_time=int(bin_end)
+                )
+                instructions.append(time_instruct_string)
+
+            code_instruct_string = self._code_instructions.get_code_instruction(
+                diagnosis=self._code_convert.transform_code(code=code), value=code_value
+            )
+            instructions.append(code_instruct_string)
+        return instructions
+
+    def get_code_description_instructions(self, instruction_samples: pd.DataFrame):
+        """
+        Return the instruction input and targets
+        that contain the unique codes and their descriptions
+        Args:
+            instruction_samples (pd.DataFrame): The samples that will be used as instructions
+
+        Returns:
+            (List[Tuple[str, str]]): A list that contains tuples which have the instruction input and target.
+            The list will contain only 1 element for zero shot training
+        """
+        unique_codes = instruction_samples[self._code_column].unique()
+        return [
+            self._code_instructions.get_code_description_instruction(
+                diagnosis=code, description=self._code_convert.transform_code(code=code)
+            )
+            for code in unique_codes
+        ]
+
+    def compute_bins(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
+        """
+        Given the input dataframe - return the dataframe with each row
+        put into specific bins
+        Args:
+            encounter_history (pd.DataFrame): Input dataframe
+
+        Returns:
+            (pd.DataFrame): Input dataframe with a bins column added
+        """
+        bins = self._time_bins.get_bins(encounter_history[self._position_column])
+        encounter_history[self._bins_column] = bins
+        return encounter_history
+
+    def get_random_encounters(self) -> pd.DataFrame:
+        """
+        Use this function to create a random dataframe populated
+        with codes and positions
+        Args:
+
+        Returns:
+            (pd.DataFrame): A randomly generated encounter dataframe
+        """
+
+        # Sample negative codes
+        codes = ['SS_819', 'SS_819']
+        # Sample position values
+        positions = [-3000, -3000]
+        # Use these to create and return a dataframe
+        return pd.DataFrame(
+            {self._code_column: codes, self._position_column: positions}
+        )
+
