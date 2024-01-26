@@ -60,9 +60,8 @@ class EncounterDataframeProcess(object):
             time_difference_normalize: int
     ) -> pd.DataFrame:
         """
-        For a given patient id, extract the encounter history and apply different
-        transformations and operations on the data. Return the transformed dataframe
-        that can be used to train the model.
+        For a given patient id, extract the encounter history, compute a position value
+        and return the encounter history with the computed position column
         Args:
             patient_id (Union[str, int]): The unique id of the patient we need to process
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
@@ -138,7 +137,7 @@ class EncounterDataframeProcess(object):
             time_difference_normalize: int
     ) -> pd.DataFrame:
         """
-       Compute the time differences and the position information
+        Compute the time differences and the position information
         Args:
             encounter_history (pd.DataFrame): The encounter dataframe
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
@@ -156,7 +155,6 @@ class EncounterDataframeProcess(object):
             code_timestamps=encounter_history[self._contact_date_column],
             current_time=current_time
         )
-
         # Convert time deltas into differences in terms of months
         encounter_history[self._position_column] = self.get_time_difference_normalized(
             time_difference=encounter_history[self.time_difference_column],
@@ -164,6 +162,18 @@ class EncounterDataframeProcess(object):
             time_difference_normalize=time_difference_normalize
         )
 
+        return encounter_history
+
+    def drop_na_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
+        """
+        If the code column has NA values, replace them accordingly or drop them
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+
+        Returns:
+            encounter_history (pd.DataFrame): The dataframe with NA values handled
+        """
+        encounter_history.dropna(subset=self._code_column, inplace=True)
         return encounter_history
 
     @staticmethod
@@ -178,36 +188,6 @@ class EncounterDataframeProcess(object):
             (pd.Series): A series containing the time differences
         """
         return pd.to_datetime(code_timestamps) - pd.to_datetime(current_time)
-
-    def drop_na_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
-        """
-        If the code column has NA values, replace them accordingly or drop them
-        Args:
-            encounter_history (pd.DataFrame): The input dataframe
-
-        Returns:
-            encounter_history (pd.DataFrame): The dataframe with NA values handled
-        """
-        encounter_history.dropna(subset=self._code_column, inplace=True)
-        return encounter_history
-
-    def drop_duplicate_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
-        """
-        Drop duplicate entries - entries that repeat codes
-        Args:
-            encounter_history (pd.DataFrame): The input dataframe
-
-        Returns:
-            encounter_history (pd.DataFrame): The dataframe with duplicate codes dropped
-        """
-        # Remove any duplicate entries. When removing duplicates - keep the earliest
-        # entry (hence sorted by position)
-        encounter_history['temp_int_position'] = encounter_history[self._position_column].astype(int)
-        encounter_history.sort_values(by=self._position_column, inplace=True)
-        encounter_history.drop_duplicates(subset=[self._code_column, 'temp_int_position'], inplace=True)
-        encounter_history.drop(columns=['temp_int_position'], inplace=True)
-
-        return encounter_history
 
     @staticmethod
     def get_time_difference_normalized(
@@ -228,9 +208,10 @@ class EncounterDataframeProcess(object):
             months_difference (pd.Series): Input series represented as difference in terms of days
         """
         if use_log_position:
-            time_difference = time_difference.astype(float)
-            time_difference = time_difference.apply(get_log_value)
-        return time_difference.dt.days / time_difference_normalize
+            time_difference = time_difference.dt.days.astype(float)
+            return time_difference.apply(get_log_value)
+        else:
+            return time_difference.dt.days / time_difference_normalize
 
     @staticmethod
     def get_time_filter(
