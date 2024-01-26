@@ -1,4 +1,4 @@
-from .code_trajectories_template import (
+from .code_trajectory_templates import (
     TimeBinCodeTemplate, TimeBinPeriodTemplate, DescriptionInstructionTemplate
 )
 from .code_trajectory_instructions import CodeTrajectoryPredictionInstructions

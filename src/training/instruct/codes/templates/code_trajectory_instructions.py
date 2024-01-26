@@ -5,7 +5,7 @@ and the instruction template to create the instruction string.
 """
 from typing import Tuple, Union
 
-from .code_trajectories_template import (
+from .code_trajectory_templates import (
     TimeBinPeriodTemplate,
     TimeBinCodeTemplate,
     DescriptionInstructionTemplate
