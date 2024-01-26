@@ -5,7 +5,6 @@ classes that do more complex sampling
 """
 import numpy as np
 import pandas as pd
-from typing import Optional, Union
 
 from .utils import normal_choice
 
@@ -45,29 +44,25 @@ class DataFrameSampling(object):
         )
         return sample_size
 
-    @staticmethod
     def sample_dataframe(
+            self,
             dataframe: pd.DataFrame,
             sample_size: int,
-            weights: Optional[Union[pd.Series, np.array]]
     ) -> pd.DataFrame:
         """
         Sample dataframe. Use the scores as sampling weights
         Args:
             dataframe (pd.DataFrame): The input dataframe
             sample_size (int): The number of elements to sample
-            weights (Optional[pd.Series]): The score for each element
 
         Returns:
             (pd.DataFrame): Sampled dataframe
         """
-        if weights is None:
-            return dataframe.sample(n=sample_size)
-        else:
-            return dataframe.sample(n=sample_size, weights=weights)
+        weights = self.get_sampling_weights(dataframe=dataframe)
+        return dataframe.sample(n=sample_size, weights=weights)
 
     @staticmethod
-    def get_sampling_weights_random(dataframe) -> np.array:
+    def get_sampling_weights(dataframe) -> np.array:
         # TODO: Eventually we can replace it with smarter sampling
         """
         Randomly sample - no sampling strategy
@@ -78,3 +73,63 @@ class DataFrameSampling(object):
             (np.array): Does not return anything
         """
         return np.ones(len(dataframe))
+
+
+class GroupBySampling(DataFrameSampling):
+    """
+    Sample from the groups after doing group by in a given dataframe
+    """
+
+    def sample_dataframe(
+            self,
+            dataframe: pd.DataFrame,
+            sample_size: float,
+            group_by_column: str = None,
+            values_column: str = None
+    ) -> pd.DataFrame:
+        """
+        Sample dataframe. Use the group by function and sample from within the groups
+        Args:
+            dataframe (pd.DataFrame): The input dataframe
+            sample_size (float): The fraction of elements to sample within each group
+            group_by_column (str): The column used to group elements
+            values_column (str): Calculate the counts within each group for elements belonging to this column
+
+        Returns:
+            (pd.DataFrame): Sampled dataframe
+        """
+        grouped_value_counts = self.get_sampling_weights(
+            dataframe=dataframe,
+            group_by_column=group_by_column,
+            values_column=values_column
+        )
+        sampled_codes = (
+            grouped_value_counts
+            .groupby(group_by_column)
+            .sample(frac=sample_size, weights=grouped_value_counts)
+        )
+        return pd.merge(
+            sampled_codes,
+            dataframe.drop_duplicates(subset=[values_column, group_by_column]),
+            how='left',
+            on=[group_by_column, values_column]
+        )
+
+    @staticmethod
+    def get_sampling_weights(
+            dataframe: pd.DataFrame,
+            group_by_column: str = None,
+            values_column: str = None
+    ) -> pd.DataFrame:
+        """
+        Given a dataframe, a group by column and a values column
+        Compute the counts of the values in the groups
+        Args:
+            dataframe (pd.DataFrame): The input dataframe
+            group_by_column (str): The column used to group elements
+            values_column (str): Calculate the counts within each group for elements belonging to this column
+
+        Returns:
+            (pd.DataFrame): Dataframe that contains the counts of the values in each group
+        """
+        return dataframe.groupby(group_by_column)[values_column].value_counts()
