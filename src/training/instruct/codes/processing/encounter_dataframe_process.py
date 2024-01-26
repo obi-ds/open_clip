@@ -21,6 +21,7 @@ class EncounterDataframeProcess(object):
         """
         Processing diagnostic codes, positions and other attributes of the dataframe
         for a given patient and their history.
+
         Args:
             encounter_dataframe (pd.DataFrame): The dataframe that contains encounter history for all patients
             patient_id_column (str, defaults to `PatientID`): The column name for the patient id
@@ -41,6 +42,7 @@ class EncounterDataframeProcess(object):
     def get_patient_encounter_history(self, patient_id: str) -> pd.DataFrame:
         """
         For a given patient, return their code encounter history
+
         Args:
             patient_id (str): Unique patient identifier
 
@@ -62,6 +64,7 @@ class EncounterDataframeProcess(object):
         """
         For a given patient id, extract the encounter history, compute a position value
         and return the encounter history with the computed position column
+
         Args:
             patient_id (Union[str, int]): The unique id of the patient we need to process
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
@@ -95,6 +98,7 @@ class EncounterDataframeProcess(object):
         """
         Filter encounter history based on the given time range. Keep only those entries
         that occur within the time range
+
         Args:
             encounter_history (pd.DataFrame): The input dataframe
             past_time_delta (str): Filter out encounters beyond this point in time
@@ -138,6 +142,7 @@ class EncounterDataframeProcess(object):
     ) -> pd.DataFrame:
         """
         Compute the time differences and the position information
+
         Args:
             encounter_history (pd.DataFrame): The encounter dataframe
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
@@ -167,6 +172,7 @@ class EncounterDataframeProcess(object):
     def drop_na_codes(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
         """
         If the code column has NA values, replace them accordingly or drop them
+
         Args:
             encounter_history (pd.DataFrame): The input dataframe
 
@@ -198,6 +204,7 @@ class EncounterDataframeProcess(object):
         """
         Convert the timedelta series into a series that contains the time difference
         in terms of days
+
         Args:
             time_difference (pd.Series): Series containing time deltas
             use_log_position (bool): Whether to represent the days as raw or log values
@@ -222,6 +229,7 @@ class EncounterDataframeProcess(object):
         """
         Return a mask that contains true when the time falls
         within the given range and false otherwise
+
         Args:
             time_difference (pd.Series): The column containing time deltas
             past_time_delta (): Time delta range in the past
@@ -244,6 +252,7 @@ class EncounterDataframeProcess(object):
     def filter_dataframe(dataframe: pd.DataFrame, filter_mask: pd.Series) -> pd.DataFrame:
         """
         Filter dataframe based on the boolean filter
+
         Args:
             dataframe (pd.DataFrame): Original dataframe
             filter_mask (pd.Series): Boolean filter

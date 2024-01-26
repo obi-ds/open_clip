@@ -24,6 +24,7 @@ class DataFrameSampling(object):
         """
         Calculate the number of samples/codes we are going to extract
         for a given patient from their history
+
         Args:
             dataframe_size (int): The number of codes in the patient history
             full_sequence_probability (float): Probability of sampling all codes
@@ -51,6 +52,7 @@ class DataFrameSampling(object):
     ) -> pd.DataFrame:
         """
         Sample dataframe. Use the scores as sampling weights
+
         Args:
             dataframe (pd.DataFrame): The input dataframe
             sample_size (int): The number of elements to sample
@@ -69,6 +71,7 @@ class DataFrameSampling(object):
 
         Args:
             dataframe (pd.DataFrame): The encounter dataframe
+
         Returns:
             (np.array): Does not return anything
         """
@@ -89,6 +92,7 @@ class GroupBySampling(DataFrameSampling):
     ) -> pd.DataFrame:
         """
         Sample dataframe. Use the group by function and sample from within the groups
+
         Args:
             dataframe (pd.DataFrame): The input dataframe
             sample_size (float): The fraction of elements to sample within each group
@@ -124,6 +128,7 @@ class GroupBySampling(DataFrameSampling):
         """
         Given a dataframe, a group by column and a values column
         Compute the counts of the values in the groups
+
         Args:
             dataframe (pd.DataFrame): The input dataframe
             group_by_column (str): The column used to group elements

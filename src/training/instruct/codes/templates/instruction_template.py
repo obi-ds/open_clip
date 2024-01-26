@@ -174,5 +174,3 @@ class CodeT2EInstructionTemplate(CodeInstructionTemplateInterface):
             (str): The instruction target with the label
         """
         return self._targets_prefix + self._targets.format(sign=sign, answer=answer) + self._example_separator
-
-

@@ -27,6 +27,7 @@ class ICDConvert(object):
         """
         Initialize parameters that will be used for converting icd codes
         to codes in the hierarchy and their textual form.
+
         Args:
             descriptions (): The object to get descriptions of raw codes
             billable_probability (float): The probability of mapping the sequence into only a billable sequence. This
@@ -60,6 +61,7 @@ class ICDConvert(object):
     def get_billable_code(code: str) -> str:
         """
         The input sequence is a sequence of billable codes, so return the code as is
+
         Args:
             code (str): An icd code
 
@@ -106,6 +108,7 @@ class ICDConvert(object):
         We can keep the codes as is, replace with top most level no billable
         codes or have a mixed set. Return the appropriate function based on the
         probabilities
+
         Args:
             billable_probability (float): The probability of mapping the sequence into only a billable sequence. This
             would mean keeping the sequence as is
@@ -155,6 +158,7 @@ class ICDConvert(object):
         """
         Given a set of codes, leave them as is, or convert to relevant codes in their hierarchy.
         Post which the codes can be returned as is or mapped to their textual descriptions.
+
         Args:
             codes (Sequence[str]): List of input icd codes
 
@@ -185,6 +189,7 @@ class PHEConvert(object):
         """
         Initialize parameters that will be used for converting icd codes
         to codes in the hierarchy and their textual form.
+
         Args:
             descriptions (): The object to get descriptions of raw codes
             lowercase (bool): Whether to lowercase the output
@@ -221,6 +226,7 @@ class PHEConvert(object):
         """
         Given a set of codes, leave them as is, or convert to relevant codes in their hierarchy.
         Post which the codes can be returned as is or mapped to their textual descriptions.
+
         Args:
             codes (Sequence[str]): List of input icd codes
 

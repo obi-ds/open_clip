@@ -25,6 +25,7 @@ class AgglomerativeDataBins(object):
     def get_bins(self, data_to_bin: pd.Series) -> np.array:
         """
         Given some piece of data - cluster the data into bin
+
         Args:
             data_to_bin (pd.Series): The data we want to bin
 
