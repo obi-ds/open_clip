@@ -7,10 +7,10 @@ torchrun \
     --train-num-samples 1062400 \
     --val-num-samples 38400 \
     --dataset-type icddataset \
-    --name="cytometry_phe_test_run_27" \
+    --name="cytometry_phe_test_run_5" \
     --workers 4 \
     --batch-size 256 \
-    --epochs 32 \
+    --epochs 200 \
     --lr 5e-4 \
     --beta1 0.9 \
     --beta1 0.98 \
