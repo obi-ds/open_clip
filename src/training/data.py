@@ -23,24 +23,18 @@ from webdataset.filters import _shuffle
 from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander, valid_sample
 
 from .instruct.codes import (
-    CodeStatusClassificationTask,
-    CodeT2EPredictionTask,
+    CodeTrajectoryPredictionTask
 )
 from .instruct.codes.descriptions import ICDDescription, PHEDescription
 from .instruct.codes.processing import (
     EncounterDataframeProcess,
-    DataFrameSampling,
+    GroupBySampling,
     ICDConvert,
     PHEConvert,
-    NegativePHESampling,
-    NegativeICDSampling,
-    NegativeCodeCacheSampling
 )
-from .instruct.utils import (
-    get_code_status_classification_instructions,
-    get_code_t2e_prediction_instructions
-)
-from .instruct import MultiInstruct, MultiInstructTokenizer
+from .instruct.utils import get_code_trajectory_prediction_instructions
+from .instruct.codes.processing.data_bins import AgglomerativeDataBins
+from .instruct import MultiInstructTrajectory, MultiInstructTokenizer
 
 try:
     import horovod.torch as hvd
@@ -445,40 +439,6 @@ def get_synthetic_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None
 
     return DataInfo(dataloader, sampler)
 
-def get_patient_encounter_history_object(
-        args,
-        use_phe_codes=True
-):
-    encounter_dataframe = pd.read_parquet(
-        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
-    )
-
-
-    if use_phe_codes or 'phe' in args.code_column:
-        code_convert = PHEConvert(
-            descriptions=PHEDescription(),
-            lowercase=False
-        )
-    else:
-        code_convert = ICDConvert(
-            descriptions=ICDDescription(),
-            billable_probability=args.billable_probability,
-            top_non_probability=args.top_non_probability,
-            mixed_non_probability=args.mixed_non_probability,
-            lowercase=False
-        )
-
-    encounter_dataframe_process = EncounterDataframeProcess(
-        encounter_dataframe=encounter_dataframe,
-        code_convert=code_convert,
-        patient_id_column=args.patient_id_column,
-        contact_date_column=args.contact_date_column,
-        time_difference_column=args.time_difference_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
-    )
-
-    return encounter_dataframe_process
 
 def get_wds_dataset_icd_instruct(
         args,
@@ -502,14 +462,14 @@ def get_wds_dataset_icd_instruct(
         args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
     )
 
-    dataframe_sampling = DataFrameSampling()
+    # dataframe_sampling = DataFrameSampling()
+    dataframe_sampling = GroupBySampling()
 
     if use_phe_codes or 'phe' in args.code_column:
         code_convert = PHEConvert(
             descriptions=PHEDescription(),
             lowercase=False
         )
-        negative_code_sampling = NegativePHESampling(code_convert=code_convert)
     else:
         code_convert = ICDConvert(
             descriptions=ICDDescription(),
@@ -518,11 +478,9 @@ def get_wds_dataset_icd_instruct(
             mixed_non_probability=args.mixed_non_probability,
             lowercase=False
         )
-        negative_code_sampling = NegativeICDSampling(code_convert=code_convert)
 
     encounter_dataframe_process = EncounterDataframeProcess(
         encounter_dataframe=encounter_dataframe,
-        code_convert=code_convert,
         patient_id_column=args.patient_id_column,
         contact_date_column=args.contact_date_column,
         time_difference_column=args.time_difference_column,
@@ -530,49 +488,21 @@ def get_wds_dataset_icd_instruct(
         position_column=args.position_column,
     )
 
-    negative_code_cache_sampling = NegativeCodeCacheSampling(
-        code_task_negative_cache_size=args.code_task_negative_cache_size,
-        minimum_encounter_size=args.minimum_encounter_size
-    )
+    agglomerative_time_bins = AgglomerativeDataBins(distance_threshold=args.distance_threshold)
 
-    code_status_range_classification_instructions = get_code_status_classification_instructions(
-        task_definition='',
-        future_input='* {diagnosis} in {time} months',
-        future_target='{answer}',
-        past_input='* {diagnosis} {time} months ago',
-        past_target='{answer}',
-        positive_answer_target='yes',
-        negative_answer_target='no',
-    )
+    code_trajectory_prediction_instructions = get_code_trajectory_prediction_instructions()
 
-    code_t2e_prediction_instructions = get_code_t2e_prediction_instructions(
-        task_definition='',
-        inputs='* {diagnosis}',
-        targets='{sign}{answer}',
-        negative_answer_target=np.inf,
-    )
-
-    code_status_classification_task = CodeStatusClassificationTask(
+    code_trajectory_prediction_task = CodeTrajectoryPredictionTask(
         encounter_dataframe_process=encounter_dataframe_process,
         dataframe_sampling=dataframe_sampling,
-        negative_code_sampling=negative_code_sampling,
-        code_instructions=code_status_range_classification_instructions,
+        code_instructions=code_trajectory_prediction_instructions,
+        time_bins=agglomerative_time_bins,
         code_convert=code_convert,
         patient_id_column=args.patient_id_column,
         code_column=args.code_column,
         position_column=args.position_column,
     )
 
-    code_t2e_prediction_task = CodeT2EPredictionTask(
-        encounter_dataframe_process=encounter_dataframe_process,
-        dataframe_sampling=dataframe_sampling,
-        negative_code_sampling=negative_code_sampling,
-        code_instructions=code_t2e_prediction_instructions,
-        code_convert=code_convert,
-        patient_id_column=args.patient_id_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
-    )
     if tokenizer is None:
         multi_instruct_tokenizer = None
     else:
@@ -580,10 +510,8 @@ def get_wds_dataset_icd_instruct(
             tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length
         )
 
-    multi_instruct = MultiInstruct(
-        code_status_classification_task_info=(code_status_classification_task, 0.0, [0]),
-        code_t2e_prediction_task_info=(code_t2e_prediction_task, 1.0, [0]),
-        negative_code_cache_sampling=negative_code_cache_sampling,
+    multi_instruct = MultiInstructTrajectory(
+        code_trajectory_instruct_task=code_trajectory_prediction_task,
         multi_instruct_tokenizer=multi_instruct_tokenizer
     )
 
