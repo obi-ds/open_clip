@@ -23,33 +23,21 @@ def get_code_instruct_arguments():
         help="Probability to get any code in the hierarchy"
     )
     parser.add_argument(
-        "--random-negative-probability",
-        type=float,
-        default=1.0,
-        help="Probability of sampling negative codes randomly"
-    )
-    parser.add_argument(
-        "--lock-range",
+        "--lowercase-code-text",
         default=False,
         action="store_true",
-        help="Whether to used fixed time ranges in the prompt"
+        help="Whether to lowercase code text"
     )
     parser.add_argument(
-        "--lowercase_icd_text",
+        "--distance_threshold",
+        type=int,
+        default=60,
+        help="Threshold to use for clustering encounters into bins",
+    )
+    parser.add_argument(
+        "--shuffle-bins",
         default=False,
         action="store_true",
-        help="Whether to lowercase icd text"
-    )
-    parser.add_argument(
-        "--code-task-negative-cache-size",
-        type=int,
-        default=3,
-        help="The size of the negative sampling cache"
-    )
-    parser.add_argument(
-        "--minimum-encounter-size",
-        type=int,
-        default=8,
-        help="The minimum number of encounters required in the patient history for it to be added to the cache"
+        help="Whether to shuffle bins within a code"
     )
     return parser
