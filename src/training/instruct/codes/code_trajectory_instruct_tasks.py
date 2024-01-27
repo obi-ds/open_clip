@@ -82,7 +82,7 @@ class CodeTrajectoryPredictionTask(object):
         instruction_samples = self.get_instruction_samples(
             encounter_history=encounter_history,
             sample_bin_frequency=1.0,
-            shuffle=True
+            shuffle=args.shuffle_bins
         )
 
         return self.convert_samples_to_instructions(instruction_samples)
