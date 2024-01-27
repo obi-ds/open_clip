@@ -14,7 +14,7 @@ np.random.seed(42)
 class CodeTrajectoryPredictionTask(object):
     """
     Make instruction tuning training data from diagnostic codes
-    # TODO: Sampling whole bins v/s within bins, tokenizer - for phe codes, pre-train LM on
+    # TODO: Sampling whole bins v/s within bins, tokenizer - for phe codes, pre-train LM on, pre compute clusters
     """
 
     def __init__(
@@ -35,6 +35,7 @@ class CodeTrajectoryPredictionTask(object):
     ):
         """
         Initialize variables
+
         Args:
             encounter_dataframe_process (EncounterDataframeProcess): Dataframe processing object
             dataframe_sampling (GroupBySampling): Dataframe sampling object
@@ -78,14 +79,10 @@ class CodeTrajectoryPredictionTask(object):
             time_difference_normalize=args.time_difference_normalize
         )
 
-        if len(encounter_history) <= 1:
-            encounter_history = self.get_random_encounters()
-
-        # Get time bins for each encounter
-        encounter_history = self.compute_bins(encounter_history)
-
         instruction_samples = self.get_instruction_samples(
-            encounter_history=encounter_history, sample_bin_frequency=1.0
+            encounter_history=encounter_history,
+            sample_bin_frequency=1.0,
+            shuffle=True
         )
 
         return self.convert_samples_to_instructions(instruction_samples)
@@ -98,13 +95,11 @@ class CodeTrajectoryPredictionTask(object):
             time_difference_normalize: int,
             past_time_delta: Optional[str] = None,
             future_time_delta: Optional[str] = None,
-    ) -> NoReturn:
+    ) -> pd.DataFrame:
         """
-        Given the encounter history, map codes, filter out duplicate codes and filter
-        the history based on time range. Keep only those entries
-        that occur within the time range. If encounter history - create a history
-        by randomly generating codes and positions. This will only be used to sample
-        negatives
+        Given the encounter history, filter out any NA codes and apply a time
+        filter if passed and return the resulting dataframe
+
         Args:
             patient_id (Union[str, int]): The unique id of the patient we need to process
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
@@ -113,6 +108,9 @@ class CodeTrajectoryPredictionTask(object):
             time_difference_normalize (int): Normalize time difference by this value
             past_time_delta (str, defaults to `None`): Filter out encounters beyond this point in time
             future_time_delta (str, defaults to `None`): Filter out encounters beyond this point in time
+
+        Returns:
+            encounter_history (pd.DataFrame): The processed dataframe for the task
         """
 
         encounter_history = self.get_full_encounter_history(
@@ -131,7 +129,15 @@ class CodeTrajectoryPredictionTask(object):
             )
 
         # Drop NA codes
-        encounter_history = self._encounter_dataframe_process.drop_na_codes(encounter_history=encounter_history)
+        encounter_history.dropna(subset=self._code_column, inplace=True)
+
+        if len(encounter_history) <= 1:
+            encounter_history = self.get_random_encounters()
+
+        # Get time bins for each encounter
+        encounter_history[self._bins_column] = self.get_bins(
+            bin_value_column=encounter_history[self._position_column]
+        )
 
         return encounter_history
 
@@ -144,7 +150,8 @@ class CodeTrajectoryPredictionTask(object):
     ) -> pd.DataFrame:
         """
         Return the encounter history of a patient - if the patient does not have an encounter history
-        return an empty encounter history
+        return a random history (temporary fix)
+
         Args:
             patient_id (Union[str, int]): The unique id of the patient we need to process
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
@@ -172,35 +179,32 @@ class CodeTrajectoryPredictionTask(object):
             self,
             encounter_history: pd.DataFrame,
             sample_bin_frequency: float,
+            shuffle: bool
     ) -> pd.DataFrame:
         """
-        Given the encounter history, map codes, filter out duplicate codes and filter
-        the history based on time range. Keep only those entries
-        that occur within the time range. If encounter history - create a history
-        by randomly generating codes and positions. This will only be used to sample
-        negatives. Then sample the dataframe for encounters to use as positive and
-        negative samples. Use these samples to generate instructions and
-        return the instruction input and targets for the sampled instruction code
-        status classification task with time range
+        Given the encounter history - generate instruction samples that will be
+        used to predict the trajectory of the patient in terms of diagnostic codes.
+
         Args:
             encounter_history (pd.DataFrame): The encounter history of the patient
             sample_bin_frequency (float): The frequency of samples to sample from each bin
+            shuffle (bool): Whether to shuffle codes within the bin
 
         Returns:
-            (pd.DataFrame): The instructions samples
+            (pd.DataFrame): The instructions samples - represents diagnostic history
         """
-        bin_positions = encounter_history.groupby(self._bins_column).position.agg(['min', 'max'])
+        bin_positions = encounter_history.groupby(self._bins_column)[self._position_column].agg(['min', 'max'])
         sampled_encounter_history = self._dataframe_sampling.sample_dataframe(
             dataframe=encounter_history,
             sample_size=sample_bin_frequency,
             group_by_column=self._bins_column,
             values_column=self._code_column
         )
-        instruction_samples = (
-            pd.merge(sampled_encounter_history, bin_positions, how='left', on=self._bins_column)
-            .sort_values(by=self._position_column)
-        )
-        return instruction_samples
+        instruction_samples = pd.merge(sampled_encounter_history, bin_positions, how='left', on=self._bins_column)
+        if shuffle:
+            return instruction_samples.groupby(self._bins_column).sample(frac=1).sort_values(by=self._bin_start_column)
+        else:
+            return instruction_samples.sort_values(by=self._position_column)
 
     def convert_samples_to_instructions(
             self,
@@ -273,19 +277,17 @@ class CodeTrajectoryPredictionTask(object):
             for code in unique_codes
         ]
 
-    def compute_bins(self, encounter_history: pd.DataFrame) -> pd.DataFrame:
+    def get_bins(self, bin_value_column: pd.Series) -> pd.Series:
         """
         Given the input dataframe - return the dataframe with each row
         put into specific bins
         Args:
-            encounter_history (pd.DataFrame): Input dataframe
+            bin_value_column (pd.DataFrame): The column to use to calculate the bins
 
         Returns:
-            (pd.DataFrame): Input dataframe with a bins column added
+            (pd.Series): Computed bins
         """
-        bins = self._time_bins.get_bins(encounter_history[self._position_column])
-        encounter_history[self._bins_column] = bins
-        return encounter_history
+        return self._time_bins.get_bins(bin_value_column)
 
     def get_random_encounters(self) -> pd.DataFrame:
         """
