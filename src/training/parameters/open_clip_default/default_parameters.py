@@ -280,7 +280,7 @@ def get_open_clip_arguments():
         help="Force use of CustomTextCLIP model (separate text-tower).",
     )
     parser.add_argument(
-        "--max_seq_length", type=int, default=76, help="Maximum sequence length of text"
+        "--max_seq_length", type=int, default=77, help="Maximum sequence length of text"
     )
     parser.add_argument(
         "--pad_id", type=int, default=0, help="The ID of the padding token"
