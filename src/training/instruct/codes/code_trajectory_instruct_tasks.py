@@ -1,7 +1,7 @@
 """Make training data"""
 import numpy as np
 import pandas as pd
-from typing import Union, Tuple, List, Any, Optional, NoReturn
+from typing import Union, Tuple, List, Any, Optional, Sequence
 
 from .processing.code_convert import ICDConvert, PHEConvert
 from .processing.encounter_dataframe_process import EncounterDataframeProcess
@@ -14,7 +14,10 @@ np.random.seed(42)
 class CodeTrajectoryPredictionTask(object):
     """
     Make instruction tuning training data from diagnostic codes
-    # TODO: Sampling whole bins v/s within bins, tokenizer - for phe codes, pre-train LM on, pre compute clusters
+    # TODO: Sampling whole bins v/s within bins,
+    # TODO: Pre-train LM
+    # TODO: pre compute clusters, variable clusters sizes
+    # TODO: Generative pre-train  v/s instruction pre-train
     """
 
     def __init__(
@@ -23,7 +26,7 @@ class CodeTrajectoryPredictionTask(object):
             dataframe_sampling: GroupBySampling,
             code_instructions: Any,
             code_convert: Union[ICDConvert, PHEConvert],
-            time_bins: AgglomerativeDataBins,
+            time_bins: Union[AgglomerativeDataBins, Sequence[AgglomerativeDataBins]],
             patient_id_column: str = 'PatientID',
             code_column: str = 'ICD10CD',
             position_column: str = 'position',
@@ -61,7 +64,7 @@ class CodeTrajectoryPredictionTask(object):
         self._code_column = code_column
         self._position_column = position_column
         self._instruction_label = instruction_label
-        self._time_bins = time_bins
+        self._time_bins = [time_bins] if not isinstance(time_bins, list) else  time_bins
         self._bins_column = bins_column
         self._bin_start_column = bin_start_column
         self._bin_end_column = bin_end_column
@@ -287,7 +290,8 @@ class CodeTrajectoryPredictionTask(object):
         Returns:
             (pd.Series): Computed bins
         """
-        return self._time_bins.get_bins(bin_value_column)
+        time_bins_object = np.random.choice(self._time_bins)
+        return time_bins_object.get_bins(bin_value_column)
 
     def get_random_encounters(self) -> pd.DataFrame:
         """
