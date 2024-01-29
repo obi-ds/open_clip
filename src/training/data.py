@@ -34,7 +34,7 @@ from .instruct.codes.processing import (
 )
 from .instruct.utils import get_code_trajectory_prediction_instructions
 from .instruct.codes.processing.data_bins import AgglomerativeDataBins
-from .instruct import MultiInstructTrajectory, MultiInstructTokenizer
+from .instruct import MultiInstructTrajectory, MultiInstructTokenizer, MultiTokenizer
 
 try:
     import horovod.torch as hvd
@@ -506,7 +506,7 @@ def get_wds_dataset_icd_instruct(
     if tokenizer is None:
         multi_instruct_tokenizer = None
     else:
-        multi_instruct_tokenizer = MultiInstructTokenizer(
+        multi_instruct_tokenizer = MultiTokenizer(
             tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length
         )
 

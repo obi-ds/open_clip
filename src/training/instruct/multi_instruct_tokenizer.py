@@ -1,12 +1,10 @@
 """Define an interface for the instruction tasks"""
-from typing import List
-
 import torch
-
+from typing import List
 
 class MultiInstructTokenizer(object):
     """
-    An interface for instruction tasks. Define functions that are used
+    An interface for instruction tokenizer. Define functions that are used
     to build, tokenize and return instructions. The input, output and padding
     tokens are processed separately. This is because we can create the labels
     and label mask based on the output tokens and also create the input_ids

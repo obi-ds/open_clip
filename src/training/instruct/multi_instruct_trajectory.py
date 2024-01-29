@@ -1,14 +1,17 @@
 import torch
+from typing import Union
 
+from .multi_tokenizer import MultiTokenizer
 from .multi_instruct_tokenizer import MultiInstructTokenizer
 from .codes import CodeTrajectoryPredictionTask
+
 
 class MultiInstructTrajectory(object):
 
     def __init__(
             self,
             code_trajectory_instruct_task: CodeTrajectoryPredictionTask,
-            multi_instruct_tokenizer: MultiInstructTokenizer,
+            multi_instruct_tokenizer: Union[MultiInstructTokenizer, MultiTokenizer]
     ):
         self._code_trajectory_instruct_task = code_trajectory_instruct_task
         self._multi_instruct_tokenizer = multi_instruct_tokenizer
