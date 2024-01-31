@@ -23,7 +23,7 @@ from webdataset.filters import _shuffle
 from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander, valid_sample
 
 from .instruct.codes import (
-    CodeTrajectoryPredictionTask
+    CodeTrajectoryPredictionTask, CodeTrajectoryPredictionTaskEvaluation
 )
 from .instruct.codes.descriptions import ICDDescription, PHEDescription
 from .instruct.codes.processing import (
@@ -34,7 +34,7 @@ from .instruct.codes.processing import (
 )
 from .instruct.utils import get_code_trajectory_prediction_instructions
 from .instruct.codes.processing.data_bins import AgglomerativeDataBins
-from .instruct import MultiInstructTrajectory, MultiInstructTokenizer, MultiTokenizer
+from .instruct import MultiInstructTrajectory, MultiInstructTokenizer, MultiTokenizer, MultiTokenizerEval
 
 try:
     import horovod.torch as hvd
@@ -439,6 +439,63 @@ def get_synthetic_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None
 
     return DataInfo(dataloader, sampler)
 
+def get_multi_tokenizer(tokenizer, eval_mode, args):
+    if eval_mode:
+        return MultiTokenizerEval(
+            tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length
+        )
+    else:
+        return MultiTokenizer(
+            tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length
+        )
+
+def get_code_trajectory_prediction_task(
+        encounter_dataframe_process,
+        dataframe_sampling,
+        code_trajectory_prediction_instructions,
+        agglomerative_time_bins,
+        code_convert,
+        eval_mode,
+        args
+):
+    if eval_mode:
+        return CodeTrajectoryPredictionTaskEvaluation(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_trajectory_prediction_instructions,
+            time_bins=agglomerative_time_bins,
+            code_convert=code_convert,
+            patient_id_column=args.patient_id_column,
+            code_column=args.code_column,
+            position_column=args.position_column,
+        )
+    else:
+        return CodeTrajectoryPredictionTask(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_trajectory_prediction_instructions,
+            time_bins=agglomerative_time_bins,
+            code_convert=code_convert,
+            patient_id_column=args.patient_id_column,
+            code_column=args.code_column,
+            position_column=args.position_column,
+        )
+
+def get_code_convert(args):
+    if 'phe' in args.code_column:
+        return PHEConvert(
+            descriptions=PHEDescription(),
+            lowercase=False
+        )
+    else:
+        return ICDConvert(
+            descriptions=ICDDescription(),
+            billable_probability=args.billable_probability,
+            top_non_probability=args.top_non_probability,
+            mixed_non_probability=args.mixed_non_probability,
+            lowercase=False
+        )
+
 
 def get_wds_dataset_icd_instruct(
         args,
@@ -447,15 +504,8 @@ def get_wds_dataset_icd_instruct(
         epoch=0,
         floor=False,
         tokenizer=None,
-        evaluate_attribute=None,
-        example_attributes=None,
-        custom_prompt=False,
-        task_probabilities=None,
-        lock_range=None,
-        use_phe_codes=False,
-        shuffle=True,
-        strict_eval=False,
-        return_sample=False
+        return_sample=False,
+        eval_mode=False
 ):
 
     encounter_dataframe = pd.read_parquet(
@@ -465,19 +515,7 @@ def get_wds_dataset_icd_instruct(
     # dataframe_sampling = DataFrameSampling()
     dataframe_sampling = GroupBySampling()
 
-    if use_phe_codes or 'phe' in args.code_column:
-        code_convert = PHEConvert(
-            descriptions=PHEDescription(),
-            lowercase=False
-        )
-    else:
-        code_convert = ICDConvert(
-            descriptions=ICDDescription(),
-            billable_probability=args.billable_probability,
-            top_non_probability=args.top_non_probability,
-            mixed_non_probability=args.mixed_non_probability,
-            lowercase=False
-        )
+    code_convert = get_code_convert(args=args)
 
     encounter_dataframe_process = EncounterDataframeProcess(
         encounter_dataframe=encounter_dataframe,
@@ -492,23 +530,20 @@ def get_wds_dataset_icd_instruct(
 
     code_trajectory_prediction_instructions = get_code_trajectory_prediction_instructions()
 
-    code_trajectory_prediction_task = CodeTrajectoryPredictionTask(
+    code_trajectory_prediction_task = get_code_trajectory_prediction_task(
         encounter_dataframe_process=encounter_dataframe_process,
         dataframe_sampling=dataframe_sampling,
-        code_instructions=code_trajectory_prediction_instructions,
-        time_bins=agglomerative_time_bins,
+        code_trajectory_prediction_instructions=code_trajectory_prediction_instructions,
+        agglomerative_time_bins=agglomerative_time_bins,
         code_convert=code_convert,
-        patient_id_column=args.patient_id_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
+        eval_mode=eval_mode,
+        args=args
     )
 
     if tokenizer is None:
         multi_instruct_tokenizer = None
     else:
-        multi_instruct_tokenizer = MultiTokenizer(
-            tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length
-        )
+        multi_instruct_tokenizer = get_multi_tokenizer(tokenizer=tokenizer, args=args, eval_mode=eval_mode)
 
     multi_instruct = MultiInstructTrajectory(
         code_trajectory_instruct_task=code_trajectory_prediction_task,
