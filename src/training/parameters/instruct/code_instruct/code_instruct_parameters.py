@@ -29,7 +29,7 @@ def get_code_instruct_arguments():
         help="Whether to lowercase code text"
     )
     parser.add_argument(
-        "--distance_threshold",
+        "--distance-threshold",
         type=int,
         default=60,
         help="Threshold to use for clustering encounters into bins",
