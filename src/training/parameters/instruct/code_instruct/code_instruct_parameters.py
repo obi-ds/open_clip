@@ -31,8 +31,8 @@ def get_code_instruct_arguments():
     parser.add_argument(
         "--distance-threshold",
         type=int,
-        default=60,
-        help="Threshold to use for clustering encounters into bins",
+        nargs='+',
+        help="Threshold to use for clustering encounters into bins - can specify multiple thresholds",
     )
     parser.add_argument(
         "--shuffle-bins",
