@@ -86,55 +86,78 @@ class GroupBySampling(DataFrameSampling):
     def sample_dataframe(
             self,
             dataframe: pd.DataFrame,
-            sample_size: float,
             group_by_column: str = None,
-            values_column: str = None
     ) -> pd.DataFrame:
         """
-        Sample dataframe. Use the group by function and sample from within the groups
+        Sample dataframe. Use the group by function and sample
+        all or a collection of groups
 
         Args:
             dataframe (pd.DataFrame): The input dataframe
-            sample_size (float): The fraction of elements to sample within each group
             group_by_column (str): The column used to group elements
-            values_column (str): Calculate the counts within each group for elements belonging to this column
 
         Returns:
             (pd.DataFrame): Sampled dataframe
         """
-        grouped_value_counts = self.get_sampling_weights(
+
+        # Perform groupby operation
+        group_by_object = dataframe.groupby(group_by_column)
+
+        # Get the number of groups we are going to sample
+        number_of_groups_to_sample = self.get_number_of_groups_to_sample(
+            total_number_of_groups=group_by_object.ngroups
+        )
+
+        # Based on the number of groups - sample only those groups
+        # Return the input dataframe containing only those groups
+        return self.sample_dataframe_groups(
             dataframe=dataframe,
-            group_by_column=group_by_column,
-            values_column=values_column
-        )
-        sampled_codes = (
-            grouped_value_counts
-            .groupby(group_by_column)
-            .sample(frac=sample_size, weights=grouped_value_counts)
-        )
-        return pd.merge(
-            sampled_codes,
-            dataframe.drop_duplicates(subset=[values_column, group_by_column]),
-            how='left',
-            on=[group_by_column, values_column]
+            group_by_object=group_by_object,
+            number_of_groups_to_sample=number_of_groups_to_sample
         )
 
     @staticmethod
-    def get_sampling_weights(
+    def get_number_of_groups_to_sample(total_number_of_groups: int) -> int:
+        """
+        Given the total number of groups - return the number of groups
+        to sample
+
+        Args:
+            total_number_of_groups (int): The total number of groups in dataframe
+
+        Returns:
+            (int): The number of groups to sample
+        """
+        # sampling_percentages = np.arange(0.1, 1, 0.1)
+        # percentage_sample = int(max(1, np.round(np.random.choice(sampling_percentages * number_of_groups))))
+        return np.random.choice([1, total_number_of_groups])
+
+    @staticmethod
+    def sample_dataframe_groups(
             dataframe: pd.DataFrame,
-            group_by_column: str = None,
-            values_column: str = None
+            group_by_object,
+            number_of_groups_to_sample: int,
     ) -> pd.DataFrame:
         """
-        Given a dataframe, a group by column and a values column
-        Compute the counts of the values in the groups
+        Sample dataframe. Given the number of groups to
+        sample - return the groups that contain only those
+        many number of groups
 
         Args:
             dataframe (pd.DataFrame): The input dataframe
-            group_by_column (str): The column used to group elements
-            values_column (str): Calculate the counts within each group for elements belonging to this column
+            group_by_object (): The pandas group by object
+            number_of_groups_to_sample (int): The number of groups to sample
 
         Returns:
-            (pd.DataFrame): Dataframe that contains the counts of the values in each group
+            (pd.DataFrame): Sampled dataframe
         """
-        return dataframe.groupby(group_by_column)[values_column].value_counts()
+        # Get the total number of groups
+        total_number_of_groups = group_by_object.ngroups
+        # Create an index array thing - we will select the number from this
+        groups_array = np.arange(total_number_of_groups)
+        # Shuffle it - so that we can sample any group
+        np.random.shuffle(groups_array)
+        # Select only those rows that belong to the groups we specify using the array
+        return dataframe[group_by_object.ngroup().isin(groups_array[:number_of_groups_to_sample])]
+
+
