@@ -16,7 +16,7 @@ class AgglomerativeDataBins(object):
     Use the AgglomerativeClustering algorithm to bin/cluster time bins
     """
 
-    def __init__(self, distance_threshold=60):
+    def __init__(self, distance_threshold):
         # Agglomerate
         self._agglomerative_clustering = AgglomerativeClustering(
             n_clusters=None, distance_threshold=distance_threshold
