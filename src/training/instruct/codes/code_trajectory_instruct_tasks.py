@@ -16,10 +16,6 @@ class CodeTrajectoryPredictionTask(object):
     Make instruction tuning training data from diagnostic codes
     # TODO: Sampling whole bins v/s within bins,
     # TODO: Pre-train LM
-    # TODO: pre compute clusters, variable clusters sizes (specify cluster value in instruction string)
-    # TODO (cont) - model should know what's going on - especially the generative model
-    # TODO (cont) - mixed clustering - some part of the trajectory wide clusters, some parts with narrow clusters etc
-    # TODO (cont) - I think we can do this by applying clustering to different time periods with different cluster size
     # TODO: Generative pre-train  v/s instruction pre-train
     """
 
@@ -91,15 +87,14 @@ class CodeTrajectoryPredictionTask(object):
         encounter_history = self.get_encounter_history_for_task(
             patient_id=sample[args.patient_id_column],
             current_time=sample[args.sample_result_date_column],
-            past_time_delta=None,
-            future_time_delta=None,
+            past_time_delta=args.past_time_delta,
+            future_time_delta=args.future_time_delta,
             use_log_position=args.use_log_position,
             time_difference_normalize=args.time_difference_normalize
         )
 
         instruction_samples = self.get_instruction_samples(
             encounter_history=encounter_history,
-            sample_bin_frequency=1.0,
             shuffle=args.shuffle_bins
         )
 
@@ -149,13 +144,16 @@ class CodeTrajectoryPredictionTask(object):
         # Drop NA codes
         encounter_history.dropna(subset=self._code_column, inplace=True)
 
-        if len(encounter_history) <= 1:
+        if len(encounter_history) == 0:
             encounter_history = self.get_random_encounters()
-
-        # Get time bins for each encounter
-        encounter_history[self._bins_column] = self.get_bins(
-            bin_value_column=encounter_history[self._position_column]
-        )
+            encounter_history[self._bins_column] = 0
+        elif len(encounter_history) == 1:
+            encounter_history[self._bins_column] = 0
+        else:
+            # Get time bins for each encounter
+            encounter_history[self._bins_column] = self.get_bins(
+                bin_value_column=encounter_history[self._position_column]
+            )
 
         return encounter_history
 
@@ -196,7 +194,6 @@ class CodeTrajectoryPredictionTask(object):
     def get_instruction_samples(
             self,
             encounter_history: pd.DataFrame,
-            sample_bin_frequency: float,
             shuffle: bool
     ) -> pd.DataFrame:
         """
@@ -205,20 +202,21 @@ class CodeTrajectoryPredictionTask(object):
 
         Args:
             encounter_history (pd.DataFrame): The encounter history of the patient
-            sample_bin_frequency (float): The frequency of samples to sample from each bin
             shuffle (bool): Whether to shuffle codes within the bin
 
         Returns:
             (pd.DataFrame): The instructions samples - represents diagnostic history
         """
-        bin_positions = encounter_history.groupby(self._bins_column)[self._position_column].agg(['min', 'max'])
+
+        # Group based sampling - return the encounter history containing only
+        # the groups/bins that are sampled
         sampled_encounter_history = self._dataframe_sampling.sample_dataframe(
             dataframe=encounter_history,
-            sample_size=sample_bin_frequency,
-            group_by_column=self._bins_column,
-            values_column=self._code_column
+            group_by_column=self._bins_column
         )
-        instruction_samples = pd.merge(sampled_encounter_history, bin_positions, how='left', on=self._bins_column)
+
+        instruction_samples = self.get_grouped_encounter_history(encounter_history=sampled_encounter_history)
+
         if shuffle:
             instruction_samples = (
                 instruction_samples
@@ -226,14 +224,33 @@ class CodeTrajectoryPredictionTask(object):
                 .sample(frac=1)
                 .sort_values(by=self._bin_start_column)
             )
-        else:
-            instruction_samples = instruction_samples.sort_values(by=self._position_column)
 
         instruction_samples[self._ignore_instruction_column] = self.get_ignore_instructions(
             instruction_samples=instruction_samples
         )
 
         return instruction_samples
+
+    def get_grouped_encounter_history(self, encounter_history):
+        """
+        Given a dataframe - group the dataframe and return
+        the grouped dataframe - it should contain the counts
+        of the codes in the group and start and end positions of
+        the group
+
+        Args:
+            encounter_history (pd.DataFrame): The input dataframe
+
+        Returns:
+            (pd.DataFrame): Grouped encounter history
+        """
+
+        group_by_object = encounter_history.groupby(self._bins_column, as_index=False)
+
+        group_code_values = group_by_object[self._code_column].value_counts()
+        group_positions = group_by_object[self._position_column].agg(['min', 'max'])
+
+        return pd.merge(group_code_values, group_positions, on=self._bins_column)
 
     def convert_samples_to_instructions(
             self,
@@ -283,7 +300,8 @@ class CodeTrajectoryPredictionTask(object):
         instructions = list()
         start_flag = None
         for row in instruction_samples[
-            [self._code_column, self._code_value_column, self._bin_start_column, self._bin_end_column, self._ignore_instruction_column]
+            [self._code_column, self._code_value_column, self._bin_start_column,
+             self._bin_end_column, self._ignore_instruction_column]
         ].itertuples(index=False):
             code, code_value, bin_start, bin_end, ignore_instruction = row[0], row[1], row[2], row[3], row[4]
 
@@ -365,9 +383,9 @@ class CodeTrajectoryPredictionTask(object):
         """
 
         # Sample negative codes
-        codes = ['SS_819', 'SS_819']
+        codes = ['SS_819']
         # Sample position values
-        positions = [-3000, -3000]
+        positions = [-3000]
         # Use these to create and return a dataframe
         return pd.DataFrame(
             {self._code_column: codes, self._position_column: positions}
@@ -445,17 +463,17 @@ class CodeTrajectoryPredictionTaskEvaluation(CodeTrajectoryPredictionTask):
 
         """
 
-        time_filter_delta = self.get_time_filter_delta(
-            start_time=args.eval_start_time,
-            time_gap=args.eval_time_gap
-        )
+        # time_filter_delta = self.get_time_filter_delta(
+        #     start_time=args.eval_start_time,
+        #     time_gap=args.eval_time_gap
+        # )
 
         # Get processed encounter history
         encounter_history = self.get_encounter_history_for_task(
             patient_id=sample[args.patient_id_column],
             current_time=sample[args.sample_result_date_column],
-            past_time_delta=None,
-            future_time_delta=time_filter_delta,
+            past_time_delta=args.past_time_delta,
+            future_time_delta=args.future_time_delta,
             use_log_position=args.use_log_position,
             time_difference_normalize=args.time_difference_normalize
         )
@@ -469,7 +487,6 @@ class CodeTrajectoryPredictionTaskEvaluation(CodeTrajectoryPredictionTask):
         # time delta to start time of code
         instruction_samples = self.get_instruction_samples(
             encounter_history=encounter_history,
-            sample_bin_frequency=1.0,
             shuffle=args.shuffle_bins
         )
 
@@ -552,3 +569,19 @@ class CodeTrajectoryPredictionTaskEvaluation(CodeTrajectoryPredictionTask):
         """
         time_delta = start_time - time_gap
         return f'{time_delta}d'
+
+    def get_random_encounters(self) -> pd.DataFrame:
+        """
+        Use this function to create a random dataframe populated
+        with codes and positions
+
+        Args:
+
+        Returns:
+            (pd.DataFrame): A randomly generated encounter dataframe
+        """
+
+        # Use these to create and return a dataframe
+        return pd.DataFrame(
+            {self._code_column: [], self._position_column: []}
+        )
