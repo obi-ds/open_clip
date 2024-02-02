@@ -526,7 +526,10 @@ def get_wds_dataset_icd_instruct(
         position_column=args.position_column,
     )
 
-    agglomerative_time_bins = AgglomerativeDataBins(distance_threshold=args.distance_threshold)
+    agglomerative_time_bins = [
+        AgglomerativeDataBins(distance_threshold=distance_threshold) for distance_threshold in args.distance_threshold
+    ]
+    # agglomerative_time_bins = AgglomerativeDataBins(distance_threshold=args.distance_threshold)
 
     code_trajectory_prediction_instructions = get_code_trajectory_prediction_instructions()
 
