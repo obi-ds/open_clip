@@ -120,7 +120,7 @@ class MultiTokenizer(object):
         Returns:
             (List[int]): Input ids with the eot token added
         """
-        return input_ids + [self._tokenizer.eot_token_id]
+        return [self._tokenizer.sot_token_id] + input_ids + [self._tokenizer.eot_token_id]
 
     def add_labels_boundaries(self, labels: List[int]) -> List[int]:
         """
@@ -158,8 +158,8 @@ class MultiTokenizer(object):
             tokens (List[int]): The tokens truncated to max length if exceeded max length
         """
         # -2 - for the sot and eot tokens we will add at the end
-        if len(tokens) > self._max_seq_length - 1:
-            tokens = tokens[:self._max_seq_length - 1]
+        if len(tokens) > self._max_seq_length - 2:
+            tokens = tokens[:self._max_seq_length - 2]
         return tokens
 
 
@@ -256,4 +256,4 @@ class MultiTokenizerEval(MultiTokenizer):
             # return self.get_input_ids(input_tokens=input_tokens, output_tokens=output_tokens)
             # TODO: Temporary fix for evaluation
             labels = self.get_input_ids(input_tokens=input_tokens, output_tokens=output_tokens)
-            return [self._pad_id] + labels[1:-1] + [self._pad_id]
+            return [self._pad_id] + labels[1:]
