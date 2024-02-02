@@ -153,11 +153,14 @@ class GroupBySampling(DataFrameSampling):
         """
         # Get the total number of groups
         total_number_of_groups = group_by_object.ngroups
-        # Create an index array thing - we will select the number from this
-        groups_array = np.arange(total_number_of_groups)
-        # Shuffle it - so that we can sample any group
-        np.random.shuffle(groups_array)
-        # Select only those rows that belong to the groups we specify using the array
-        return dataframe[group_by_object.ngroup().isin(groups_array[:number_of_groups_to_sample])]
+        if number_of_groups_to_sample == total_number_of_groups:
+            return dataframe
+        else:
+            # Create an index array thing - we will select the number from this
+            groups_array = np.arange(total_number_of_groups)
+            # Shuffle it - so that we can sample any group
+            np.random.shuffle(groups_array)
+            # Select only those rows that belong to the groups we specify using the array
+            return dataframe[group_by_object.ngroup().isin(groups_array[:number_of_groups_to_sample])]
 
 
