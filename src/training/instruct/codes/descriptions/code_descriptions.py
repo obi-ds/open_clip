@@ -68,6 +68,7 @@ class ICDDescription(CodeDescriptions):
         """
         description = self.codes.get(code.replace('.', ''), '')
         if not re.search(r'\w+', description):
+            print(code)
             return code
         return description
 
