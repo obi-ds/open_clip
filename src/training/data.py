@@ -23,18 +23,27 @@ from webdataset.filters import _shuffle
 from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander, valid_sample
 
 from .instruct.codes import (
-    CodeTrajectoryPredictionTask, CodeTrajectoryPredictionTaskEvaluation
+    CodeTrajectoryFutureLabelPredictionTask,
+    CodeTrajectoryPredictionTask,
+    CodeTrajectoryAnyLabelPredictionTask
 )
 from .instruct.codes.descriptions import ICDDescription, PHEDescription
 from .instruct.codes.processing import (
     EncounterDataframeProcess,
+    NegativeCodeCacheSampling,
     GroupBySampling,
     ICDConvert,
     PHEConvert,
 )
 from .instruct.utils import get_code_trajectory_prediction_instructions
 from .instruct.codes.processing.data_bins import AgglomerativeDataBins
-from .instruct import MultiInstructTrajectory, MultiInstructTokenizer, MultiTokenizer, MultiTokenizerEval
+from .instruct import (
+    MultiInstructTrajectory,
+    GPT2MultiTokenizer,
+    GPT2MultiInstructTokenizer,
+    MultiTokenizer,
+    MultiTokenizerEval
+)
 
 try:
     import horovod.torch as hvd
@@ -439,37 +448,27 @@ def get_synthetic_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None
 
     return DataInfo(dataloader, sampler)
 
-def get_multi_tokenizer(tokenizer, eval_mode, args):
-    if eval_mode:
-        return MultiTokenizerEval(
+def get_multi_tokenizer(tokenizer, args):
+    # TODO - return normal text tokenizer if not using huggingface and using oopen clip models
+    if args.training_type == 'trajectory':
+        return GPT2MultiTokenizer(
             tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length
         )
     else:
-        return MultiTokenizer(
+        return GPT2MultiInstructTokenizer(
             tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length
         )
 
 def get_code_trajectory_prediction_task(
         encounter_dataframe_process,
+        negative_code_sampling,
         dataframe_sampling,
         code_trajectory_prediction_instructions,
         agglomerative_time_bins,
         code_convert,
-        eval_mode,
         args
 ):
-    if eval_mode:
-        return CodeTrajectoryPredictionTaskEvaluation(
-            encounter_dataframe_process=encounter_dataframe_process,
-            dataframe_sampling=dataframe_sampling,
-            code_instructions=code_trajectory_prediction_instructions,
-            time_bins=agglomerative_time_bins,
-            code_convert=code_convert,
-            patient_id_column=args.patient_id_column,
-            code_column=args.code_column,
-            position_column=args.position_column,
-        )
-    else:
+    if args.training_type == 'trajectory':
         return CodeTrajectoryPredictionTask(
             encounter_dataframe_process=encounter_dataframe_process,
             dataframe_sampling=dataframe_sampling,
@@ -479,6 +478,32 @@ def get_code_trajectory_prediction_task(
             patient_id_column=args.patient_id_column,
             code_column=args.code_column,
             position_column=args.position_column,
+        )
+    elif args.training_type == 'future_instruct_trajectory':
+        return CodeTrajectoryFutureLabelPredictionTask(
+            encounter_dataframe_process=encounter_dataframe_process,
+            negative_code_sampling=negative_code_sampling,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_trajectory_prediction_instructions,
+            time_bins=agglomerative_time_bins,
+            code_convert=code_convert,
+            patient_id_column=args.patient_id_column,
+            code_column=args.code_column,
+            position_column=args.position_column,
+            label_type=args.label_type
+        )
+    else:
+        return CodeTrajectoryAnyLabelPredictionTask(
+            encounter_dataframe_process=encounter_dataframe_process,
+            negative_code_sampling=negative_code_sampling,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_trajectory_prediction_instructions,
+            time_bins=agglomerative_time_bins,
+            code_convert=code_convert,
+            patient_id_column=args.patient_id_column,
+            code_column=args.code_column,
+            position_column=args.position_column,
+            label_type=args.label_type
         )
 
 def get_code_convert(args):
@@ -505,14 +530,15 @@ def get_wds_dataset_icd_instruct(
         floor=False,
         tokenizer=None,
         return_sample=False,
-        eval_mode=False
+        eval_mode=False,
+        encounter_dataframe=None
 ):
 
-    encounter_dataframe = pd.read_parquet(
-        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
-    )
+    if encounter_dataframe is None:
+        encounter_dataframe = pd.read_parquet(
+            args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
+        )
 
-    # dataframe_sampling = DataFrameSampling()
     dataframe_sampling = GroupBySampling()
 
     code_convert = get_code_convert(args=args)
@@ -526,27 +552,31 @@ def get_wds_dataset_icd_instruct(
         position_column=args.position_column,
     )
 
+    negative_code_cache_sampling = NegativeCodeCacheSampling(
+        code_task_negative_cache_size=10,
+        minimum_encounter_size=30
+    )
+
     agglomerative_time_bins = [
         AgglomerativeDataBins(distance_threshold=distance_threshold) for distance_threshold in args.distance_threshold
     ]
-    # agglomerative_time_bins = AgglomerativeDataBins(distance_threshold=args.distance_threshold)
 
     code_trajectory_prediction_instructions = get_code_trajectory_prediction_instructions()
 
     code_trajectory_prediction_task = get_code_trajectory_prediction_task(
         encounter_dataframe_process=encounter_dataframe_process,
+        negative_code_sampling=negative_code_cache_sampling,
         dataframe_sampling=dataframe_sampling,
         code_trajectory_prediction_instructions=code_trajectory_prediction_instructions,
         agglomerative_time_bins=agglomerative_time_bins,
         code_convert=code_convert,
-        eval_mode=eval_mode,
         args=args
     )
 
     if tokenizer is None:
         multi_instruct_tokenizer = None
     else:
-        multi_instruct_tokenizer = get_multi_tokenizer(tokenizer=tokenizer, args=args, eval_mode=eval_mode)
+        multi_instruct_tokenizer = get_multi_tokenizer(tokenizer=tokenizer, args=args)
 
     multi_instruct = MultiInstructTrajectory(
         code_trajectory_instruct_task=code_trajectory_prediction_task,
