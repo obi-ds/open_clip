@@ -3,6 +3,8 @@ Sample dataframe rows based on scores and scoring function.
 This class can be used to sample positives. We can define other
 classes that do more complex sampling
 """
+from typing import Optional, Sequence
+
 import numpy as np
 import pandas as pd
 
@@ -117,20 +119,23 @@ class GroupBySampling(DataFrameSampling):
         )
 
     @staticmethod
-    def get_number_of_groups_to_sample(total_number_of_groups: int) -> int:
+    def get_number_of_groups_to_sample(total_number_of_groups: int, weights: Optional[Sequence[float]] = None) -> int:
         """
         Given the total number of groups - return the number of groups
         to sample
 
         Args:
             total_number_of_groups (int): The total number of groups in dataframe
+            weights (Optional[Sequence[float]], defaults to `None`): Weights for sampling
 
         Returns:
             (int): The number of groups to sample
         """
         # sampling_percentages = np.arange(0.1, 1, 0.1)
         # percentage_sample = int(max(1, np.round(np.random.choice(sampling_percentages * number_of_groups))))
-        return np.random.choice([1, total_number_of_groups], p=[0.0, 1.0])
+        if weights is None:
+            weights = [0.0, 1.0]
+        return np.random.choice([1, total_number_of_groups], p=weights)
 
     @staticmethod
     def sample_dataframe_groups(
