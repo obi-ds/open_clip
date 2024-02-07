@@ -5,7 +5,7 @@ from typing import List
 from .multi_tokenizer import MultiTokenizer
 
 
-class GPT2MultiInstructTokenizer(MultiTokenizer):
+class MultiInstructTokenizer(MultiTokenizer):
     """
     Define functions that are used to build, tokenize and return input
     ids and labels that will be used by the model for generative tasks
@@ -87,6 +87,93 @@ class GPT2MultiInstructTokenizer(MultiTokenizer):
         Returns:
             (torch.Tensor): Return tokenized input
         """
+        return self._tokenizer.encode(input_text)
+
+    def get_output_tokens(self, output_text: str) -> List[int]:
+        """
+        Tokenize the input instruction and return the tokens
+        Returns all tokens but the bos token - since we eventually
+        add the instruction input to this
+
+        Args:
+            output_text (str): Any input text
+
+        Returns:
+            (List[int]): Return tokenized input
+        """
+        return self._tokenizer.encode(output_text)
+
+    def get_labels(
+            self,
+            input_tokens: List[int],
+            output_tokens: List[int],
+            ignore_instruction: bool = False
+    ) -> List[int]:
+        """
+        Given the instruction input tokens, instruction target tokens and padding tokens,
+        return a tensor that contains 0 (ignore_index) values in positions that correspond
+        to input and padding tokens, and output token values are left as is. We are creating
+        a label mask essentially.
+        Args:
+            input_tokens (List[int]): The instruction input tokens
+            output_tokens (List[int]): The instruction output tokens
+            ignore_instruction (bool, defaults to `False`): Boolean whether to ignore the output of this instruction
+
+        Returns:
+            (List[int]): The label ids the model will be trained on
+        """
+        if ignore_instruction:
+            return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
+        else:
+            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.eot_token_id]
+
+
+    def truncate_tokens(self, tokens: List[int]) -> List[int]:
+        """
+        Truncate tokens to max length
+
+        Args:
+            tokens (List[int]): The input tokens
+
+        Returns:
+            tokens (List[int]): The tokens truncated to max length if exceeded max length
+        """
+        # Truncate from left side
+        if len(tokens) > self._max_seq_length - 1:
+            tokens = tokens[len(tokens) - self._max_seq_length:]
+        return tokens
+
+
+class GPT2MultiInstructTokenizer(MultiInstructTokenizer):
+    """
+    Define functions that are used to build, tokenize and return input
+    ids and labels that will be used by the model for generative tasks
+    The input, output and padding. Autoregressive LM - we give it an input and train on
+    predicting the next word.
+    """
+
+    def __init__(self, tokenizer, max_seq_length, pad_id, ignore_index=-100):
+        """
+        Initialize variables
+        Args:
+            tokenizer (): The tokenizer used for training
+            max_seq_length (int): The maximum sequence length allowed by model/tokenizer
+            pad_id (int): The id used for padding tokens
+        """
+        super().__init__(tokenizer, max_seq_length, pad_id, ignore_index)
+
+    def get_input_tokens(self, input_text: str) -> List[int]:
+        """
+        Tokenize the input instruction and return the tokens
+        Returns all tokens but the eos token - since we eventually
+        add the instruction target to this
+
+        Args:
+            input_text (str): Any input text
+
+        Returns:
+            (torch.Tensor): Return tokenized input
+        """
         return self._tokenizer.tokenizer(input_text)['input_ids']
 
     def get_output_tokens(self, output_text: str) -> List[int]:
@@ -126,19 +213,3 @@ class GPT2MultiInstructTokenizer(MultiTokenizer):
             return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
         else:
             return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.tokenizer.eos_token_id]
-
-
-    def truncate_tokens(self, tokens: List[int]) -> List[int]:
-        """
-        Truncate tokens to max length
-
-        Args:
-            tokens (List[int]): The input tokens
-
-        Returns:
-            tokens (List[int]): The tokens truncated to max length if exceeded max length
-        """
-        # Truncate from left side
-        if len(tokens) > self._max_seq_length - 1:
-            tokens = tokens[len(tokens) - self._max_seq_length:]
-        return tokens

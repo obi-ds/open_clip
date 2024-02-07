@@ -190,6 +190,66 @@ class MultiTokenizer(object):
             tokens = tokens[:self._max_seq_length - 1]
         return tokens
 
+
+class GPT2MultiTokenizer(MultiTokenizer):
+    """
+    Define functions that are used to build, tokenize and return input
+    ids and labels that will be used by the model for generative tasks
+    The input, output and padding. Autoregressive LM - we give it an input and train on
+    predicting the next word.
+    """
+
+    def __init__(self, tokenizer, max_seq_length, pad_id, ignore_index=-100):
+        """
+        Initialize variables
+        Args:
+            tokenizer (): The tokenizer used for training
+            max_seq_length (int): The maximum sequence length allowed by model/tokenizer
+            pad_id (int): The id used for padding tokens
+        """
+        super().__init__(tokenizer, max_seq_length, pad_id, ignore_index)
+
+    def get_input_tokens(self, input_text: str) -> List[int]:
+        """
+        Tokenize the input instruction and return the tokens
+        Returns all tokens but the eos token - since we eventually
+        add the instruction target to this
+
+        Args:
+            input_text (str): Any input text
+
+        Returns:
+            (torch.Tensor): Return tokenized input
+        """
+        return self._tokenizer.tokenizer(input_text)['input_ids']
+
+    def get_output_tokens(self, output_text: str) -> List[int]:
+        """
+        Tokenize the input instruction and return the tokens
+        Returns all tokens but the bos token - since we eventually
+        add the instruction input to this
+
+        Args:
+            output_text (str): Any input text
+
+        Returns:
+            (List[int]): Return tokenized input
+        """
+        return self._tokenizer.tokenizer(output_text)['input_ids']
+
+    def add_input_ids_boundaries(self, input_ids: List[int]):
+        """
+        Add the sot and eot tokens to the input
+
+        Args:
+            input_ids (Sequence[int]): The inputs ids given by the tokenizer
+
+        Returns:
+            (List[int]): Input ids with the eot token added
+        """
+        return input_ids + [self._tokenizer.tokenizer.eos_token_id]
+
+
 class MultiTokenizerEval(MultiTokenizer):
     """
     Define functions that are used to build, tokenize and return input
