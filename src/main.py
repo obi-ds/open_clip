@@ -352,7 +352,7 @@ def main(args):
             logging.info(f"=> loaded checkpoint '{args.resume}' (epoch {start_epoch})")
 
     # initialize datasets
-    tokenizer = get_tokenizer(args.model)
+    tokenizer = get_tokenizer(args.model, context_length=args.max_seq_length)
     data = get_data(
         args,
         (preprocess_train, preprocess_val),
