@@ -11,7 +11,7 @@ class MultiTokenizer(object):
     predicting the next word.
     """
 
-    def __init__(self, tokenizer, max_seq_length, pad_id):
+    def __init__(self, tokenizer, max_seq_length, pad_id, ignore_index=-100):
         """
         Initialize variables
 
@@ -23,6 +23,7 @@ class MultiTokenizer(object):
         self._tokenizer = tokenizer
         self._max_seq_length = max_seq_length
         self._pad_id = pad_id
+        self._ignore_index = ignore_index
 
     def get_tokens(self, multi_task_instructions, return_tensor: bool = True):
         """
@@ -41,7 +42,6 @@ class MultiTokenizer(object):
             input_tokens = self.get_input_tokens(input_text=instruction_input)
             # Get the tokens for the instruction target - the bos and padding tokens are removed
             output_tokens = self.get_output_tokens(output_text=instruction_output)
-
             # The input to the model - will consist of the instruction input tokens,
             # instruction target tokens and padding tokens. Target tokens are included in
             # autoregressive lm - we specify the labels in the next step (next token prediction)
@@ -50,14 +50,15 @@ class MultiTokenizer(object):
             # Concatenate inputs ids and labels from the different instructions
             all_input_ids.extend(input_ids)
 
-        # Truncate tokens, add sentence boundaries and then pad tokens
-        all_input_ids = self.pad_tokens(
-            tokens=self.add_input_ids_boundaries(
+        # Truncate tokens, add sentence boundaries
+        all_input_ids = self.add_input_ids_boundaries(
                 input_ids=self.truncate_tokens(tokens=all_input_ids)
-            )
         )
-
         all_labels = self.add_labels_boundaries(labels=all_input_ids[1:])
+
+        # Pad tokens
+        all_input_ids = self.pad_input_tokens(all_input_ids)
+        all_labels = self.pad_label_tokens(tokens=all_labels)
 
         if return_tensor:
             return torch.tensor(all_input_ids), torch.tensor(all_labels)
@@ -120,7 +121,7 @@ class MultiTokenizer(object):
         Returns:
             (List[int]): Input ids with the eot token added
         """
-        return [self._tokenizer.sot_token_id] + input_ids + [self._tokenizer.eot_token_id]
+        return input_ids + [self._tokenizer.eot_token_id]
 
     def add_labels_boundaries(self, labels: List[int]) -> List[int]:
         """
@@ -132,9 +133,23 @@ class MultiTokenizer(object):
         Returns:
             (List[int]): Labels with pad/ignore-index token added
         """
-        return labels + [self._pad_id]
+        return labels + [self._ignore_index]
 
-    def pad_tokens(self, tokens: List[int]) -> List[int]:
+    def pad_tokens_with_id(self, tokens: List[int], pad_id) -> List[int]:
+        """
+        Return a tensor that contains the padding id. This will be used
+        to pad the final instruction (that contains instruction input and target)
+
+        Args:
+            tokens (List[int]): The input tokens
+            pad_id (int): The ID to use for padding
+
+        Returns:
+            (List[int]): Tensor containing the padding tokens
+        """
+        return tokens + [pad_id] * (self._max_seq_length - len(tokens))
+
+    def pad_input_tokens(self, tokens: List[int]) -> List[int]:
         """
         Return a tensor that contains the padding id. This will be used
         to pad the final instruction (that contains instruction input and target)
@@ -145,7 +160,20 @@ class MultiTokenizer(object):
         Returns:
             (List[int]): Tensor containing the padding tokens
         """
-        return tokens + [self._pad_id] * (self._max_seq_length - len(tokens))
+        return self.pad_tokens_with_id(tokens=tokens, pad_id=self._pad_id)
+
+    def pad_label_tokens(self, tokens: List[int]) -> List[int]:
+        """
+        Return a tensor that contains the padding id. This will be used
+        to pad the final instruction (that contains instruction input and target)
+
+        Args:
+            tokens (List[int]): The input tokens
+
+        Returns:
+            (List[int]): Tensor containing the padding tokens
+        """
+        return self.pad_tokens_with_id(tokens=tokens, pad_id=self._ignore_index)
 
     def truncate_tokens(self, tokens: List[int]) -> List[int]:
         """
@@ -158,10 +186,9 @@ class MultiTokenizer(object):
             tokens (List[int]): The tokens truncated to max length if exceeded max length
         """
         # -2 - for the sot and eot tokens we will add at the end
-        if len(tokens) > self._max_seq_length - 2:
-            tokens = tokens[:self._max_seq_length - 2]
+        if len(tokens) > self._max_seq_length - 1:
+            tokens = tokens[:self._max_seq_length - 1]
         return tokens
-
 
 class MultiTokenizerEval(MultiTokenizer):
     """
@@ -214,16 +241,18 @@ class MultiTokenizerEval(MultiTokenizer):
             all_input_ids.extend(input_ids)
             all_labels.extend(labels)
 
+
+
         # Truncate tokens, add sentence boundaries and then pad tokens
-        all_input_ids = self.pad_tokens(
+        all_input_ids = self.pad_input_tokens(
             tokens=self.add_input_ids_boundaries(
                 input_ids=self.truncate_tokens(tokens=all_input_ids)
             )
         )
 
         # Truncate tokens, add sentence boundaries and then pad tokens
-        all_labels = self.pad_tokens(
-            tokens=self.add_labels_boundaries(labels=self.truncate_tokens(tokens=all_labels))[1:]
+        all_labels = self.pad_input_tokens(
+            tokens=self.add_labels_boundaries(labels=self.truncate_tokens(tokens=all_labels))
         )
 
         if return_tensor:
@@ -251,9 +280,10 @@ class MultiTokenizerEval(MultiTokenizer):
             (List[int]): The label ids the model will be trained on
         """
         if ignore_instruction:
-            return [self._pad_id] * (len(input_tokens) + len(output_tokens))
+            return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
         else:
             # return self.get_input_ids(input_tokens=input_tokens, output_tokens=output_tokens)
-            # TODO: Temporary fix for evaluation
+            # TODO: Temporary fix for evaluation - pad id is to ignore the token that starts the sentence
+            #  Example: * Sprains and ... : -> ignore the probability of the "*" token and ':' token
             labels = self.get_input_ids(input_tokens=input_tokens, output_tokens=output_tokens)
-            return [self._pad_id] + labels[1:]
+            return [self._ignore_index] + labels[1:-1] + [self._ignore_index]
