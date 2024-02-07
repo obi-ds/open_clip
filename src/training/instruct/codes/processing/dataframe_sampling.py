@@ -89,6 +89,7 @@ class GroupBySampling(DataFrameSampling):
             self,
             dataframe: pd.DataFrame,
             group_by_column: str = None,
+            weights: Optional[Sequence[float]] = None
     ) -> pd.DataFrame:
         """
         Sample dataframe. Use the group by function and sample
@@ -97,6 +98,7 @@ class GroupBySampling(DataFrameSampling):
         Args:
             dataframe (pd.DataFrame): The input dataframe
             group_by_column (str): The column used to group elements
+            weights (Optional[Sequence[float]], defaults to `None`): Weights for sampling
 
         Returns:
             (pd.DataFrame): Sampled dataframe
@@ -107,7 +109,8 @@ class GroupBySampling(DataFrameSampling):
 
         # Get the number of groups we are going to sample
         number_of_groups_to_sample = self.get_number_of_groups_to_sample(
-            total_number_of_groups=group_by_object.ngroups
+            total_number_of_groups=group_by_object.ngroups,
+            weights=weights
         )
 
         # Based on the number of groups - sample only those groups
@@ -131,11 +134,11 @@ class GroupBySampling(DataFrameSampling):
         Returns:
             (int): The number of groups to sample
         """
-        # sampling_percentages = np.arange(0.1, 1, 0.1)
-        # percentage_sample = int(max(1, np.round(np.random.choice(sampling_percentages * number_of_groups))))
+        sampling_percentages = np.arange(0.1, 1, 0.1)
+        percentage_sample = int(max(1, np.round(np.random.choice(sampling_percentages * total_number_of_groups))))
         if weights is None:
-            weights = [0.0, 1.0]
-        return np.random.choice([1, total_number_of_groups], p=weights)
+            weights = [0.0, 0.0, 1.0]
+        return np.random.choice([1, percentage_sample, total_number_of_groups], p=weights)
 
     @staticmethod
     def sample_dataframe_groups(
