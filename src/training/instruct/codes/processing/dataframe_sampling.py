@@ -130,7 +130,7 @@ class GroupBySampling(DataFrameSampling):
         """
         # sampling_percentages = np.arange(0.1, 1, 0.1)
         # percentage_sample = int(max(1, np.round(np.random.choice(sampling_percentages * number_of_groups))))
-        return np.random.choice([1, total_number_of_groups])
+        return np.random.choice([1, total_number_of_groups], p=[0.0, 1.0])
 
     @staticmethod
     def sample_dataframe_groups(
