@@ -16,4 +16,14 @@ def get_instruct_arguments():
         default=None,
         help="The number of instruction examples to use",
     )
+    parser.add_argument(
+        "--training-type",
+        choices=["future_instruct_trajectory", "any_instruct_trajectory", "any_instruct", "trajectory"],
+        help="The type of training to perform"
+    )
+    parser.add_argument(
+        "--label-type",
+        choices=["binary", "binary_strict", "multiclass"],
+        help="The type of labels to use for instruct tasks"
+    )
     return parser
