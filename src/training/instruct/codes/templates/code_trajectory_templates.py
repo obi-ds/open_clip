@@ -19,8 +19,7 @@ class TimeBinPeriodTemplate(InstructionTemplateInterface):
             targets: str = '',
             inputs_prefix: str = "",
             targets_prefix: str = "",
-            x_y_delimiter: str = " :\n",
-            example_separator: str = " :\n\n\n"
+            x_y_delimiter: str = ":",
     ):
         """
         Initialize the variables
@@ -31,7 +30,6 @@ class TimeBinPeriodTemplate(InstructionTemplateInterface):
             inputs_prefix (str): Append this prefix to the instruction input
             targets_prefix (str): Append this prefix to the instruction target
             x_y_delimiter (str): Delimiter between instruction input and target
-            example_separator (str): Delimiter between multiple instruction examples - few shot
         """
         super().__init__(
             inputs,
@@ -39,7 +37,6 @@ class TimeBinPeriodTemplate(InstructionTemplateInterface):
             inputs_prefix,
             targets_prefix,
             x_y_delimiter,
-            example_separator
         )
 
     def get_instruction_input(self, start_time: Union[str, int], end_time: Union[str, int]) -> str:
@@ -81,8 +78,7 @@ class TimeBinCodeTemplate(InstructionTemplateInterface):
             targets: str = '',
             inputs_prefix: str = "",
             targets_prefix: str = "",
-            x_y_delimiter: str = " : ",
-            example_separator: str = "\n"
+            x_y_delimiter: str = ": ",
     ):
         """
         Initialize the variables
@@ -93,7 +89,6 @@ class TimeBinCodeTemplate(InstructionTemplateInterface):
             inputs_prefix (str): Append this prefix to the instruction input
             targets_prefix (str): Append this prefix to the instruction target
             x_y_delimiter (str): Delimiter between instruction input and target
-            example_separator (str): Delimiter between multiple instruction examples - few shot
         """
         super().__init__(
             inputs,
@@ -101,7 +96,6 @@ class TimeBinCodeTemplate(InstructionTemplateInterface):
             inputs_prefix,
             targets_prefix,
             x_y_delimiter,
-            example_separator
         )
 
     def get_instruction_input(self, diagnosis: str) -> str:
@@ -128,7 +122,7 @@ class TimeBinCodeTemplate(InstructionTemplateInterface):
         Returns:
             (str): The instruction target with the label
         """
-        return str(value) + self._example_separator
+        return str(value)
 
 
 class DescriptionInstructionTemplate(InstructionTemplateInterface):
@@ -143,7 +137,6 @@ class DescriptionInstructionTemplate(InstructionTemplateInterface):
             inputs_prefix: str = "",
             targets_prefix: str = "",
             x_y_delimiter: str = " : ",
-            example_separator: str = "\n"
     ):
         """
         Initialize the variables
@@ -154,7 +147,6 @@ class DescriptionInstructionTemplate(InstructionTemplateInterface):
             inputs_prefix (str): Append this prefix to the instruction input
             targets_prefix (str): Append this prefix to the instruction target
             x_y_delimiter (str): Delimiter between instruction input and target
-            example_separator (str): Delimiter between multiple instruction examples - few shot
         """
         super().__init__(
             inputs,
@@ -162,7 +154,6 @@ class DescriptionInstructionTemplate(InstructionTemplateInterface):
             inputs_prefix,
             targets_prefix,
             x_y_delimiter,
-            example_separator
         )
 
     def get_instruction_input(self, diagnosis: str) -> str:
@@ -188,4 +179,4 @@ class DescriptionInstructionTemplate(InstructionTemplateInterface):
         Returns:
             (str): The instruction target with the label
         """
-        return self._targets_prefix + self._targets.format(description=description) + self._example_separator
+        return self._targets_prefix + self._targets.format(description=description)

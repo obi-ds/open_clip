@@ -16,7 +16,6 @@ class InstructionTemplateInterface(object):
             inputs_prefix: str = "",
             targets_prefix: str = "",
             x_y_delimiter: str = "\n\n",
-            example_separator: str = "\n\n\n",
     ):
         """
         Initialize the variables
@@ -27,7 +26,6 @@ class InstructionTemplateInterface(object):
             inputs_prefix (str): Append this prefix to the instruction input
             targets_prefix (str): Append this prefix to the instruction target
             x_y_delimiter (str): Delimiter between instruction input and target
-            example_separator (str): Delimiter between multiple instruction examples - few shot
         """
 
         self._inputs = inputs
@@ -35,7 +33,6 @@ class InstructionTemplateInterface(object):
         self._inputs_prefix = inputs_prefix
         self._targets_prefix = targets_prefix
         self._x_y_delimiter = x_y_delimiter
-        self._example_separator = example_separator
 
     def get_instruction_input(self, *args) -> str:
         """
