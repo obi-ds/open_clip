@@ -136,7 +136,6 @@ class CoCaLoss(ClipLoss):
             self,
             caption_loss_weight,
             clip_loss_weight,
-            pad_id=0,  # pad_token for open_clip custom tokenizer
             local_loss=False,
             gather_with_grad=False,
             cache_labels=False,
@@ -155,7 +154,7 @@ class CoCaLoss(ClipLoss):
 
         self.clip_loss_weight = clip_loss_weight
         self.caption_loss_weight = caption_loss_weight
-        self.caption_loss = nn.CrossEntropyLoss(ignore_index=pad_id)
+        self.caption_loss = nn.CrossEntropyLoss(ignore_index=-100)
 
     def forward(self, image_features, text_features, logits, labels, logit_scale, output_dict=False):
         
@@ -416,7 +415,6 @@ class SigLipLoss(nn.Module):
 class CaptionLoss(ClipLoss):
     def __init__(
             self,
-            pad_id=0,  # pad_token for open_clip custom tokenizer
             local_loss=False,
             gather_with_grad=False,
             cache_labels=False,
@@ -434,7 +432,7 @@ class CaptionLoss(ClipLoss):
         )
 
         self.clip_loss_weight = 0
-        self.caption_loss = nn.CrossEntropyLoss(ignore_index=pad_id)
+        self.caption_loss = nn.CrossEntropyLoss(ignore_index=-100)
 
     def forward(self, image_features, text_features, logits, labels, logit_scale, output_dict=False):
         clip_loss = super().forward(image_features, text_features, logit_scale)
