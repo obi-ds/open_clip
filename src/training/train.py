@@ -365,7 +365,7 @@ def evaluate_instruct_basic(
         args,
         tb_writer=None,
         prefix='',
-        pad_id=0,
+        ignore_index=-100,
         step=None,
 ):
     metrics = {}
@@ -398,7 +398,7 @@ def evaluate_instruct_basic(
                     model_out = model(images, texts)
                     model_logits = model_out['logits']
                     model_labels = model_out['labels']
-                    mask = model_labels != pad_id
+                    mask = model_labels != ignore_index
                     labels = model_labels[mask]
                     logits = model_logits[mask]
 
@@ -515,8 +515,8 @@ def maybe_compute_generative_loss(model_out):
         token_labels = model_out["labels"]
         return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels)
 
-def compute_generative_loss(token_logits, token_labels, pad_id=0):
-    return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels, ignore_index=pad_id)
+def compute_generative_loss(token_logits, token_labels, ignore_index=-100):
+    return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels, ignore_index=ignore_index)
 
 def compute_generative_metrics(predictions, labels, prefix):
 
