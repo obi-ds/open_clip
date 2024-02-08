@@ -761,7 +761,12 @@ class CodeTrajectoryFutureLabelPredictionTask(CodeTrajectoryPredictionTask):
         )
 
         # Get the encounters that will contain the positive and negative labels
-        positive_labels = self.get_labels(past_time_period, current_time_period, future_time_period, sample_size_choices)
+        positive_labels = self.get_positive_labels(
+            past_time_period=past_time_period,
+            current_time_period=current_time_period,
+            future_time_period=future_time_period,
+            sample_size_choices=sample_size_choices
+        )
         negative_labels = self.get_negative_labels(
             encounter_negatives=encounter_negatives,
             current_bin_period=current_bin_period,
@@ -802,6 +807,30 @@ class CodeTrajectoryFutureLabelPredictionTask(CodeTrajectoryPredictionTask):
         instructions = trajectory_instructions + prediction_start_instruction + label_instructions
 
         return instructions
+
+    def get_positive_labels(self, past_time_period, current_time_period, future_time_period, sample_size_choices):
+
+        return self.combine_sampled_positive_labels(
+            sampled_codes_for_labels=self.get_labels(
+                past_time_period, current_time_period, future_time_period, sample_size_choices
+            )
+        )
+
+    def get_negative_labels(self, encounter_negatives, current_bin_period, sample_size_choices):
+
+        past_time_period, current_time_period, future_time_period = self.get_time_periods(
+            encounter_history=encounter_negatives, current_bin_period=current_bin_period
+        )
+
+        negative_labels = self.combine_sampled_negative_labels(
+            sampled_codes_for_labels=self.get_labels(
+                past_time_period, current_time_period, future_time_period, sample_size_choices
+            )
+        )
+
+        negative_labels[self._label_column] = 'never'
+
+        return negative_labels
     
     def get_labels(
             self,
@@ -848,6 +877,9 @@ class CodeTrajectoryFutureLabelPredictionTask(CodeTrajectoryPredictionTask):
             sample_size_choices=sample_size_choices
         )
 
+        return sampled_codes_for_labels
+
+    def combine_sampled_positive_labels(self, sampled_codes_for_labels):
         sampled_codes_for_labels = [
             self.add_label_column(dataframe=dataframe, label=label)
             for label, dataframe in zip(self._labels, sampled_codes_for_labels) if label is not None
@@ -855,19 +887,13 @@ class CodeTrajectoryFutureLabelPredictionTask(CodeTrajectoryPredictionTask):
 
         return pd.concat(sampled_codes_for_labels)
 
-    def get_negative_labels(self, encounter_negatives, current_bin_period, sample_size_choices):
+    def combine_sampled_negative_labels(self, sampled_codes_for_labels):
+        sampled_codes_for_labels = [
+            self.add_label_column(dataframe=dataframe, label=label)
+            for label, dataframe in zip(self._labels, sampled_codes_for_labels) if label is not None
+        ]
 
-        past_time_period, current_time_period, future_time_period = self.get_time_periods(
-            encounter_history=encounter_negatives, current_bin_period=current_bin_period
-        )
-
-        negative_labels = self.get_labels(
-            past_time_period, current_time_period, future_time_period, sample_size_choices
-        )
-
-        negative_labels[self._label_column] = 'never'
-
-        return negative_labels
+        return pd.concat(sampled_codes_for_labels)
 
     def combine_positive_and_negative_labels(self, positive_labels, negative_labels):
         return self.concatenate_instruction_samples(
