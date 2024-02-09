@@ -88,7 +88,7 @@ torchrun \
     --train-num-samples 272000 \
     --val-num-samples 12800 \
     --dataset-type icddataset \
-    --name="ecg_phe_test_run_11" \
+    --name="ecg_phe_test_run_12" \
     --workers 4 \
     --batch-size 256 \
     --epochs 100 \
@@ -118,5 +118,5 @@ torchrun \
     --future-time-delta="720d" \
     --wandb-project-name="open-clip-phe-test-runs" \
     --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet" \
-    --k-shot 5 \
+    --k-shot 0 \
     --seed 0
