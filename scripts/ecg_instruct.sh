@@ -88,10 +88,10 @@ torchrun \
     --train-num-samples 272000 \
     --val-num-samples 12800 \
     --dataset-type icddataset \
-    --name="ecg_phe_test_run_10" \
+    --name="ecg_phe_test_run_11" \
     --workers 4 \
     --batch-size 256 \
-    --epochs 32 \
+    --epochs 100 \
     --lr 5e-4 \
     --beta1 0.9 \
     --beta1 0.98 \
@@ -114,9 +114,9 @@ torchrun \
     --top-non-probability 1.0 \
     --random-negative-probability 1.0 \
     --code-column phecode \
-    --past-time-delta="179d" \
-    --future-time-delta="179d" \
+    --past-time-delta="720d" \
+    --future-time-delta="720d" \
     --wandb-project-name="open-clip-phe-test-runs" \
     --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet" \
-    --k-shot 0 \
+    --k-shot 5 \
     --seed 0
