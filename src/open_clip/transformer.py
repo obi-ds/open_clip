@@ -831,33 +831,56 @@ class ScatteringTransformer(nn.Module):
                  ):
         super().__init__()
 
-        #print(layers, scattering_j, scattering_q, scattering_t)
+        # CHANGED:
+        # use either scattering transform or CNN architecture before transformer
 
-        # TODO T is an optional low-pass filter, could drop that parameter
-        # T=2**13
         shape = 2500
-        # Scattering transformation
-        self.scattering = Scattering1D(J=scattering_j, shape=shape, Q=scattering_q, T=scattering_t)
-
-        # TODO is there a function for the signal length dimension as well?
-        # this is running it to look up the output size
-        dummy_signal = torch.randn(shape)
-        dummy_output = self.scattering(dummy_signal)
-        self.scattering_signal_length = dummy_output.shape[1]
-        self.scattering_output_size = dummy_output.shape[0]
-        # this is the same as the function below
-        # self.scattering_output_size = self.scattering.output_size()
-
         scale = width ** -0.5
         self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
-        self.pos_embed = nn.Parameter(scale * torch.randn(1, 12 + 1, width))
         self.pos_drop = nn.Dropout(p=dropout)
 
-        # TODO dropping zero-order coefficients and log-scaling should be config parameters
-        # scattering_output_size - 1 takes into account dropping zero-order coefficients
-        self.input_projection = nn.Linear(in_features=(
-                (self.scattering_output_size - 1) * self.scattering_signal_length),
-            out_features=width)
+        if scattering_j >= 0:
+            self.use_scattering = True
+            # TODO T is an optional low-pass filter, could drop that parameter
+            # T=2**13
+
+            # Scattering transformation
+            self.scattering = Scattering1D(J=scattering_j, shape=shape, Q=scattering_q, T=scattering_t)
+
+            # TODO is there a function for the signal length dimension as well?
+            # this is running it to look up the output size
+            dummy_signal = torch.randn(shape)
+            dummy_output = self.scattering(dummy_signal)
+            self.scattering_signal_length = dummy_output.shape[1]
+            self.scattering_output_size = dummy_output.shape[0]
+            self.pos_embed = nn.Parameter(scale * torch.randn(1, 12 + 1, width))
+            # this is the same as the function below
+            # self.scattering_output_size = self.scattering.output_size()
+
+            # self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
+            # self.pos_embed = nn.Parameter(scale * torch.randn(1, 12 + 1, width))
+            # self.pos_drop = nn.Dropout(p=dropout)
+
+            # TODO dropping zero-order coefficients and log-scaling should be config parameters
+            # scattering_output_size - 1 takes into account dropping zero-order coefficients
+            self.input_projection = nn.Linear(in_features=(
+                    (self.scattering_output_size - 1) * self.scattering_signal_length),
+                out_features=width)
+
+        else:
+            #breakpoint()
+            self.use_scattering = False
+            self.initial_filters = 16
+            self.conv1 = MultiConvolution2D(initial_filters=self.initial_filters)
+            # TODO compute dimension on the fly
+            self.pos_embed = nn.Parameter(scale * torch.randn(1, 81, width))
+            #dummy_signal = torch.randn(shape)
+            #dummy_output = self.conv1(dummy_signal)
+            #self.scattering_signal_length = #dummy_output.shape[1]
+            #self.scattering_output_size = #dummy_output.shape[0]
+
+            self.input_projection = nn.Linear(in_features=int(self.initial_filters * 16 * 3), out_features=width)
+
 
         # TODO could also use a Conv2d layer here
         # self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=width, kernel_size=patch_size, stride=patch_size,
@@ -893,35 +916,68 @@ class ScatteringTransformer(nn.Module):
     def forward(self, x):
 
         batch_size, leads, _ = x.shape
-        # Reshape the input to treat each lead as a separate signal
-        x_reshaped = x.view(-1, 2500)
 
-        # Apply the scattering transform
-        scattered_x = self.scattering.forward(x_reshaped)
+        if self.use_scattering:
+            #batch_size, leads, _ = x.shape
+            # Reshape the input to treat each lead as a separate signal
+            x_reshaped = x.view(-1, 2500)
 
-        # log-scale and dropping zero-order coefficients
-        scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
+            # Apply the scattering transform
+            scattered_x = self.scattering.forward(x_reshaped)
 
-        # Reshape to [64, 12, 125, 39]
-        x1 = scattered_x.view(batch_size,
-                              leads,
-                              self.scattering_output_size - 1,
-                              self.scattering_signal_length)
+            # log-scale and dropping zero-order coefficients
+            scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
 
-        # Reshape to [64, 12, 125 * 39]
-        x2 = x1.contiguous().view(batch_size,
+            # Reshape to [64, 12, 125, 39]
+            x1 = scattered_x.view(batch_size,
                                   leads,
-                                  (self.scattering_output_size - 1) * self.scattering_signal_length)
+                                  self.scattering_output_size - 1,
+                                  self.scattering_signal_length)
 
-        # use this to project down to transformer input width
-        x = self.input_projection(x2)
+            # Reshape to [64, 12, 125 * 39]
+            x2 = x1.contiguous().view(batch_size,
+                                      leads,
+                                      (self.scattering_output_size - 1) * self.scattering_signal_length)
+
+            # use this to project down to transformer input width
+            x = self.input_projection(x2)
+
+            # # concatenate the CLS token, and add the position tokens to each lead
+            # x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
+            # x = x + self.pos_embed
+            # x = self.pos_drop(x)
+            #
+            # # TODO verify the dimensions here
+            # x = x.permute(1, 0, 2)  # NLD -> LND
+            # x = self.transformer(x)
+            # x = x.permute(1, 0, 2)  # LND -> NLD
+
+        else:
+            # use CNN architecture
+            batch_size, leads, _ = x.shape
+
+            # TODO is the multiconv2d implemenation using channels last?
+            x = x.unsqueeze(2)
+            x = x.permute(0, 2, 3, 1)
+            x = self.conv1.forward(x)
+
+            # [8, 768, 8, 10]
+            # this is batch, dim, height, width
+            # need [8*10, 8, 768] as input for transformer model
+
+            x = x.permute(0, 2, 3, 1)  # permute to [batch, height, width, dim]
+            new_dim = x.size(1) * x.size(2)  # joint dim size
+
+            # TODO do this in one step or clean up code
+            # Reshape the tensor to merge height and width
+            x = x.reshape(x.size(0), new_dim, x.size(3))  # Reshaping to [8, 8*10, 768]
+            x = self.input_projection(x)
 
         # concatenate the CLS token, and add the position tokens to each lead
         x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
         x = x + self.pos_embed
         x = self.pos_drop(x)
 
-        # TODO verify the dimensions here
         x = x.permute(1, 0, 2)  # NLD -> LND
         x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
@@ -941,27 +997,27 @@ class ScatteringTransformer(nn.Module):
             return pooled, tokens
         return pooled
 
-class CPCScatteringTransformer(nn.Module):
-    def __init__(self, scattering_transformer, prediction_steps=12):
-        super().__init__()
-        self.scattering_transformer = scattering_transformer
-        self.prediction_steps = prediction_steps
-        self.cpc_head = nn.Linear(scattering_transformer.output_dim, scattering_transformer.output_dim)
-
-    def forward(self, x):
-        # Forward pass through the base transformer
-        base_representation = self.scattering_transformer(x)
-
-        # CPC prediction
-        cpc_prediction = self.cpc_head(base_representation)
-
-        return base_representation, cpc_prediction
-
-    @staticmethod
-    def info_nce_loss(current_rep, future_rep):
-        # Implement the InfoNCE loss function
-        # ...
-        return loss
+# class CPCScatteringTransformer(nn.Module):
+#     def __init__(self, scattering_transformer, prediction_steps=12):
+#         super().__init__()
+#         self.scattering_transformer = scattering_transformer
+#         self.prediction_steps = prediction_steps
+#         self.cpc_head = nn.Linear(scattering_transformer.output_dim, scattering_transformer.output_dim)
+#
+#     def forward(self, x):
+#         # Forward pass through the base transformer
+#         base_representation = self.scattering_transformer(x)
+#
+#         # CPC prediction
+#         cpc_prediction = self.cpc_head(base_representation)
+#
+#         return base_representation, cpc_prediction
+#
+#     @staticmethod
+#     def info_nce_loss(current_rep, future_rep):
+#         # Implement the InfoNCE loss function
+#         # ...
+#         return loss
 
 
 class multi_conv2d_new(nn.Module):
@@ -1019,10 +1075,10 @@ class multi_conv2d_new(nn.Module):
 
         return out
 
-class ECGConvTransformer(nn.Module):
+class MultiConvolution2D(nn.Module):
 
     def __init__(self, initial_filters=64):
-        super(ECGConvTransformer, self).__init__()
+        super(MultiConvolution2D, self).__init__()
 
         self.conv1 = nn.Conv2d(1, initial_filters, kernel_size=(7, 3), stride=(2, 1))
         self.act1 = nn.ReLU()
@@ -1059,8 +1115,9 @@ class ECGConvTransformer(nn.Module):
         self.multi_conv2d_17 = multi_conv2d_new(int(initial_filters * 12 * 3), int(initial_filters * 14))
         self.multi_conv2d_18 = multi_conv2d_new(int(initial_filters * 14 * 3), int(initial_filters * 16))
 
-        self.dp = nn.Dropout(0.5)
-        self.linear = nn.Linear(int(initial_filters * 16 * 3), 1)
+        # TODO parameterize
+        #self.dp = nn.Dropout(0.1)
+        #self.linear = nn.Linear(int(initial_filters * 16 * 3), 1)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -1100,11 +1157,11 @@ class ECGConvTransformer(nn.Module):
         x = self.multi_conv2d_17(x)
         x = self.multi_conv2d_18(x)
 
-        x = torch.mean(x, [2, 3])
+        #x = torch.mean(x, [2, 3])
 
         #         x = x + (torch.randn(x.size()).to(x.get_device()) * 0.1 + 0)
 
-        x = self.dp(x)
-        x = self.linear(x)
+        #x = self.dp(x)
+        #x = self.linear(x)
 
         return x
