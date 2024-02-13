@@ -997,6 +997,32 @@ class ScatteringTransformer(nn.Module):
             return pooled, tokens
         return pooled
 
+
+class ReconstructionWrapper(nn.Module):
+    def __init__(self, visual_model, input_features=None, output_features=None):
+        super(ReconstructionWrapper, self).__init__()
+        self.visual_model = visual_model
+
+        # Define additional linear layers for reconstruction
+        # input_features: number of features coming from the visual_model
+        # output_features: number of features of the original ECG data
+        #
+        if not input_features:
+            self.reconstruction_layer = nn.Linear(512, 12 * 2500)
+        else:
+            self.reconstruction_layer = nn.Linear(input_features, output_features)
+
+    def forward(self, x):
+        # Pass input through the visual model
+        pooled, tokens = self.visual_model(x)
+
+        # Apply the linear layer for reconstruction
+        reconstruction = self.reconstruction_layer(pooled)
+        # Reshape to match ECG input data
+        reconstruction = reconstruction.view(-1, 12, 2500)
+
+        return pooled, tokens, reconstruction
+
 # class CPCScatteringTransformer(nn.Module):
 #     def __init__(self, scattering_transformer, prediction_steps=12):
 #         super().__init__()
