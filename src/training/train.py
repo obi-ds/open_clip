@@ -250,7 +250,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
     # end for
 
 # TODO mask with 0 or something like -10000?
-def mask_input(features, mask_prob=0.4, mask_token=-5000):
+def mask_input(features, mask_prob=0.1, mask_token=0):
     """
     Masks a portion of the input features with a specified probability.
 
@@ -387,8 +387,24 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
                 latent_cosine_loss = masked_cosine_similarity_loss(original_output[1], masked_output[1], mask_with_cls)
                 latent_mse_loss = masked_mse_loss(original_output[1], masked_output[1], mask_with_cls)
 
-                reconstruction_mse_loss = masked_mse_loss(images, masked_output[2], mask)
+                # ECG reconstruction loss
+                #reconstruction_mse_loss = masked_mse_loss(images, masked_output[2], mask)
 
+                # scattering coefficient reconstruction loss
+                scattered_original = visual_model.visual_model.scattering.forward(images.view(-1, 2500))
+                scattered_original = torch.log(torch.abs(scattered_original[:, 1:, :]) + 1e-6)
+                scattered_original = scattered_original.view(batch_size, 12,
+                                                             visual_model.visual_model.scattering_output_size - 1,
+                                                             visual_model.visual_model.scattering_signal_length)
+
+                scattered_reconstruction = masked_output[2].view(batch_size, 12,
+                                                                 visual_model.visual_model.scattering_output_size - 1,
+                                                                visual_model.visual_model.scattering_signal_length)
+
+                #reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask)
+                reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask=None)
+
+                #scattered_reconstruction = masked_output[2].view(-1, 2500)
                 #total_loss = sum(losses.values())
                 #losses["loss"] = cosine_loss
 
@@ -398,7 +414,8 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
                     "latent_mse_loss": latent_mse_loss,
                     "reconstruction_mse_loss": reconstruction_mse_loss
                           }
-                total_loss = latent_cosine_loss + latent_mse_loss + reconstruction_mse_loss
+                #total_loss = latent_cosine_loss + latent_mse_loss + reconstruction_mse_loss
+                total_loss = reconstruction_mse_loss
             #backward(total_loss)
             backward(total_loss, scaler)
             #backward(total_loss, scaler)
@@ -807,7 +824,23 @@ def evaluate_mlm(model, data, epoch, args, tb_writer=None, tokenizer=None):
                         masked_output = model(masked_images)
                         latent_cosine_loss = masked_cosine_similarity_loss(original_output[1], masked_output[1], mask_with_cls)
                         latent_mse_loss = masked_mse_loss(original_output[1], masked_output[1], mask_with_cls)
-                        reconstruction_mse_loss = masked_mse_loss(images, masked_output[2], mask)
+
+
+                        #reconstruction_mse_loss = masked_mse_loss(images, masked_output[2], mask)
+
+                        # scattering coefficient reconstruction loss
+                        scattered_original = model.visual_model.scattering.forward(images.view(-1, 2500))
+                        scattered_original = torch.log(torch.abs(scattered_original[:, 1:, :]) + 1e-6)
+                        scattered_original = scattered_original.view(batch_size, 12,
+                                                                     model.visual_model.scattering_output_size - 1,
+                                                                     model.visual_model.scattering_signal_length)
+
+                        scattered_reconstruction = masked_output[2].view(batch_size, 12,
+                                                                         model.visual_model.scattering_output_size - 1,
+                                                                         model.visual_model.scattering_signal_length)
+
+                        reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask)
+
 
                         # total_loss = sum(losses.values())
                         # losses["loss"] = cosine_loss
@@ -850,7 +883,7 @@ def evaluate_mlm(model, data, epoch, args, tb_writer=None, tokenizer=None):
                 #cumulative_loss += total_loss * batch_size
                 cumulative_latent_cosine_loss += latent_cosine_loss.cpu().numpy()
                 cumulative_latent_mse_loss += latent_mse_loss.cpu().numpy()
-                cumulative_reconstruction_mse_loss += latent_mse_loss.cpu().numpy()
+                cumulative_reconstruction_mse_loss += reconstruction_mse_loss.cpu().numpy()
                 num_samples += batch_size
                 if is_master(args) and (i % 100) == 0:
                     logging.info(

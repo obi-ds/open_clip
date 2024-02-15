@@ -999,7 +999,7 @@ class ScatteringTransformer(nn.Module):
 
 
 class ReconstructionWrapper(nn.Module):
-    def __init__(self, visual_model, input_features=None, output_features=None):
+    def __init__(self, visual_model, input_features=None, hidden_features=512, output_features=None):
         super(ReconstructionWrapper, self).__init__()
         self.visual_model = visual_model
 
@@ -1010,16 +1010,28 @@ class ReconstructionWrapper(nn.Module):
         if not input_features:
             self.reconstruction_layer = nn.Linear(512, 12 * 2500)
         else:
-            self.reconstruction_layer = nn.Linear(input_features, output_features)
+            #self.reconstruction_layer = nn.Linear(input_features, output_features)
+            self.reconstruction_layer1 = nn.Linear(input_features, hidden_features)
+            self.reconstruction_layer2 = nn.Linear(hidden_features, hidden_features)
+            self.reconstruction_output_layer = nn.Linear(hidden_features, output_features)
 
     def forward(self, x):
         # Pass input through the visual model
         pooled, tokens = self.visual_model(x)
 
+        # this reconstructs the input data
         # Apply the linear layer for reconstruction
-        reconstruction = self.reconstruction_layer(pooled)
-        # Reshape to match ECG input data
-        reconstruction = reconstruction.view(-1, 12, 2500)
+        #reconstruction = self.reconstruction_layer(pooled)
+        x = self.reconstruction_layer1(pooled)
+        x = self.reconstruction_layer2(x)
+        reconstruction = self.reconstruction_output_layer(x)
+
+        # TODO this should be a parameter or happen outside of this
+        # this reshaped for ECG reconstruction
+        #reconstruction = reconstruction.view(-1, 12, 2500)
+
+        # Apply the scattering transform
+        #scattered_x = self.visual_model.scattering.forward(x_reshaped)
 
         return pooled, tokens, reconstruction
 

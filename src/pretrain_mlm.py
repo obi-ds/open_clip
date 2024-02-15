@@ -271,13 +271,26 @@ def main(args):
         model = trace_model(model, batch_size=args.batch_size, device=device)
 
     ### now use only self.visual - remove the rest?
-    #from IPython import embed
-    #embed()
+    # from IPython import embed
+    # embed()
     #breakpoint()
 
-    #visual_model =
+    #visual_model = model.visual
+    #model.visual.scattering_output_size
+    #model.visual.scattering_signal_length
 
-    visual_model = ReconstructionWrapper(model.visual)
+    #scattering_output_size = model.visual.scattering_output_size - 1
+    #scattering_signal_length = model.visual.scattering_signal_length
+
+    visual_model = ReconstructionWrapper(model.visual,
+                                         input_features=512,
+                                         output_features=12*(model.visual.scattering_output_size-1)*model.visual.scattering_signal_length)
+
+    # visual_model = ReconstructionWrapper(model.visual,
+    #                                      input_features=512,
+    #                                      output_features=12*800*39)
+
+    12, 800, 39
     # TODO this might break multi-gpu training, could move to the same device as original model when building
     visual_model.to(device)
 
