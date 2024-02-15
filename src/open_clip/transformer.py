@@ -868,18 +868,41 @@ class ScatteringTransformer(nn.Module):
                 out_features=width)
 
         else:
+
             #breakpoint()
             self.use_scattering = False
             self.initial_filters = 16
-            self.conv1 = MultiConvolution2D(initial_filters=self.initial_filters)
+            #self.conv1 = SimpleCNN(input_length=2500, hidden_size=1024, output_size=512)
+
+            # Define reconstruction layers for each token/lead
+            self.cnn_layers = nn.ModuleList([
+                SimpleCNN(input_length=2500, hidden_size=1024, output_size=768)
+                for _ in range(12)  # Assuming 12 leads in ECG
+            ])
+
+
             # TODO compute dimension on the fly
-            self.pos_embed = nn.Parameter(scale * torch.randn(1, 81, width))
+            #self.pos_embed = nn.Parameter(scale * torch.randn(1, 81, width))
+            self.pos_embed = nn.Parameter(scale * torch.randn(1, 13, width))
             #dummy_signal = torch.randn(shape)
             #dummy_output = self.conv1(dummy_signal)
             #self.scattering_signal_length = #dummy_output.shape[1]
             #self.scattering_output_size = #dummy_output.shape[0]
 
-            self.input_projection = nn.Linear(in_features=int(self.initial_filters * 16 * 3), out_features=width)
+            self.input_projection = nn.Linear(in_features=512, out_features=width)
+
+            # #breakpoint()
+            # self.use_scattering = False
+            # self.initial_filters = 16
+            # self.conv1 = MultiConvolution2D(initial_filters=self.initial_filters)
+            # # TODO compute dimension on the fly
+            # self.pos_embed = nn.Parameter(scale * torch.randn(1, 81, width))
+            # #dummy_signal = torch.randn(shape)
+            # #dummy_output = self.conv1(dummy_signal)
+            # #self.scattering_signal_length = #dummy_output.shape[1]
+            # #self.scattering_output_size = #dummy_output.shape[0]
+            #
+            # self.input_projection = nn.Linear(in_features=int(self.initial_filters * 16 * 3), out_features=width)
 
 
         # TODO could also use a Conv2d layer here
@@ -953,25 +976,41 @@ class ScatteringTransformer(nn.Module):
             # x = x.permute(1, 0, 2)  # LND -> NLD
 
         else:
+
             # use CNN architecture
             batch_size, leads, _ = x.shape
 
-            # TODO is the multiconv2d implemenation using channels last?
-            x = x.unsqueeze(2)
-            x = x.permute(0, 2, 3, 1)
-            x = self.conv1.forward(x)
+            #from IPython import embed
+            #embed()
 
-            # [8, 768, 8, 10]
-            # this is batch, dim, height, width
-            # need [8*10, 8, 768] as input for transformer model
+            # # TODO is the multiconv2d implemenation using channels last?
+            # x = x.unsqueeze(2)
+            # x = x.permute(0, 2, 3, 1)
+            # x = self.conv1.forward(x)
 
-            x = x.permute(0, 2, 3, 1)  # permute to [batch, height, width, dim]
-            new_dim = x.size(1) * x.size(2)  # joint dim size
+            #x2 = self.conv1.forward(x)
+            # using same conv layer of all leads, but processing each lead separately
+            #x2 = [self.conv1.forward(x_) for x_ in x.transpose(0,1)]
 
-            # TODO do this in one step or clean up code
-            # Reshape the tensor to merge height and width
-            x = x.reshape(x.size(0), new_dim, x.size(3))  # Reshaping to [8, 8*10, 768]
-            x = self.input_projection(x)
+            x = [layer(lead.unsqueeze(1)) for layer, lead in zip(self.cnn_layers, x.transpose(0, 1))]
+            x = torch.stack(x, dim=0)
+            x = x.transpose(0, 1)
+
+            #x_concat = torch.cat(x2, dim=2)
+
+            #x2 = [layer(lead) for layer, lead in zip(self.cnn_layers, x)]
+
+            # # [8, 768, 8, 10]
+            # # this is batch, dim, height, width
+            # # need [8*10, 8, 768] as input for transformer model
+            #
+            # x = x.permute(0, 2, 3, 1)  # permute to [batch, height, width, dim]
+            # new_dim = x.size(1) * x.size(2)  # joint dim size
+            #
+            # # TODO do this in one step or clean up code
+            # # Reshape the tensor to merge height and width
+            # x = x.reshape(x.size(0), new_dim, x.size(3))  # Reshaping to [8, 8*10, 768]
+            #x = self.input_projection(x)
 
         # concatenate the CLS token, and add the position tokens to each lead
         x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
@@ -998,19 +1037,14 @@ class ScatteringTransformer(nn.Module):
         return pooled
 
 
-class ReconstructionWrapper(nn.Module):
-    def __init__(self, visual_model, input_features=None, hidden_features=512, output_features=None):
-        super(ReconstructionWrapper, self).__init__()
+class PooledReconstructionWrapper(nn.Module):
+    def __init__(self, visual_model, input_features=None, hidden_features=1024, output_features=None):
+        super(PooledReconstructionWrapper, self).__init__()
         self.visual_model = visual_model
 
-        # Define additional linear layers for reconstruction
-        # input_features: number of features coming from the visual_model
-        # output_features: number of features of the original ECG data
-        #
         if not input_features:
             self.reconstruction_layer = nn.Linear(512, 12 * 2500)
         else:
-            #self.reconstruction_layer = nn.Linear(input_features, output_features)
             self.reconstruction_layer1 = nn.Linear(input_features, hidden_features)
             self.reconstruction_layer2 = nn.Linear(hidden_features, hidden_features)
             self.reconstruction_output_layer = nn.Linear(hidden_features, output_features)
@@ -1019,21 +1053,52 @@ class ReconstructionWrapper(nn.Module):
         # Pass input through the visual model
         pooled, tokens = self.visual_model(x)
 
-        # this reconstructs the input data
-        # Apply the linear layer for reconstruction
-        #reconstruction = self.reconstruction_layer(pooled)
-        x = self.reconstruction_layer1(pooled)
-        x = self.reconstruction_layer2(x)
+        x = F.relu(self.reconstruction_layer1(pooled))
+        x = F.relu(self.reconstruction_layer2(x))
         reconstruction = self.reconstruction_output_layer(x)
 
-        # TODO this should be a parameter or happen outside of this
-        # this reshaped for ECG reconstruction
-        #reconstruction = reconstruction.view(-1, 12, 2500)
+        return pooled, tokens, reconstruction
 
-        # Apply the scattering transform
-        #scattered_x = self.visual_model.scattering.forward(x_reshaped)
+
+class TokenReconstructionWrapper(nn.Module):
+    def __init__(self, visual_model, token_features, hidden_features, output_features_per_lead):
+        super(TokenReconstructionWrapper, self).__init__()
+        self.visual_model = visual_model
+
+        # Assuming token_features is the size of each token
+        # hidden_features is the size of the hidden layer for each lead
+        # output_features_per_lead is the number of features (data points) in each lead
+
+        # Define reconstruction layers for each token/lead
+        self.reconstruction_layers = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(token_features, hidden_features),
+                nn.ReLU(),
+                nn.Linear(hidden_features, hidden_features),
+                nn.ReLU(),
+                nn.Linear(hidden_features, output_features_per_lead)
+            ) for _ in range(12)  # Assuming 12 leads in ECG
+        ])
+
+    def forward(self, x):
+        # Pass input through the visual model
+        pooled, tokens = self.visual_model(x)
+
+        #from IPython import embed
+        #embed()
+
+        # TODO do they need to transposed?
+        # Process each token through its respective reconstruction layer
+        # remove the CLS token
+        reconstructions = [layer(token) for layer, token in zip(self.reconstruction_layers, tokens[:,:-1,:].transpose(0, 1))]
+        #reconstructions = [layer(token) for layer, token in zip(self.reconstruction_layers, tokens.transpose(1, 2))]
+        #reconstructions = [layer(token) for layer, token in zip(self.reconstruction_layers, tokens)]
+
+        # Stack the reconstructions to form the final output
+        reconstruction = torch.stack(reconstructions, dim=1)
 
         return pooled, tokens, reconstruction
+
 
 # class CPCScatteringTransformer(nn.Module):
 #     def __init__(self, scattering_transformer, prediction_steps=12):
@@ -1056,6 +1121,67 @@ class ReconstructionWrapper(nn.Module):
 #         # Implement the InfoNCE loss function
 #         # ...
 #         return loss
+
+
+class SimpleCNN(nn.Module):
+    def __init__(self, input_length, hidden_size, output_size):
+        super(SimpleCNN, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.act1 = nn.LeakyReLU()
+        self.bn1 = nn.BatchNorm1d(32)
+        self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(32 * (input_length // 2), hidden_size)  # Adjust input_length
+        self.fc2 = nn.Linear(hidden_size, output_size)  # output_size depends on the task
+
+    def forward(self, x):
+        x = self.pool1(self.bn1(self.act1(self.conv1(x))))
+        x = self.flatten(x)
+        x = self.act1(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
+class MultiLayerCNN(nn.Module):
+    def __init__(self, input_length, hidden_size, output_size):
+        super(MultiLayerCNN, self).__init__()
+
+        # Number of times to repeat the layers
+        num_repeats = 4
+
+        # Initial in_channels for the first Conv1d layer
+        in_channels = 1
+        out_channels = 32
+        features = 16
+
+        # Creating repeated layers
+        self.layers = nn.ModuleList()
+        for _ in range(num_repeats):
+            self.layers.append(
+                nn.Sequential(
+                    nn.Conv1d(in_channels, features, kernel_size=7, stride=2, padding=1),
+                    nn.ReLU(),
+                    nn.BatchNorm1d(features),
+                    nn.MaxPool1d(kernel_size=2, stride=2)
+                )
+            )
+            # Update in_channels for the next sequence of layers
+            in_channels = 32
+            in_channels = 32
+            in_channels = 32
+
+        self.layers.append(
+            nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(32 * (input_length // 2), hidden_size),  # Adjust input_length
+                nn.Linear(hidden_size, output_size)  # output_size depends on the task
+            )
+        )
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
 
 class multi_conv2d_new(nn.Module):

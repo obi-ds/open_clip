@@ -126,19 +126,19 @@ torchrun \
 # debug run for CNN
 #     #--name="ecg_phe_cnn_run_1" \
 #     --name="ecg_phe_cnn_run_21" \
-export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+#export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+export CUDA_VISIBLE_DEVICES='1'
 torchrun \
-    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2126 \
+    --nnodes=1 --nproc_per_node=1 --master_addr=localhost --master_port=2126 \
     -m main \
-    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2402/shard_{0000..0082}.tar"  \
-    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2402/shard_{0000..0003}.tar"  \
-    --name="ecg_phe_cnn_run_22"
-    --train-num-samples 272000 \
-    --val-num-samples 12800 \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_23_10_23/shard_{0000..0082}.tar" \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_23_10_23/shard_{0000..0002}.tar" \
+    --train-num-samples 1062400 \
+    --val-num-samples 38400 \
     --dataset-type icddataset \
     --workers 4 \
-    --batch-size 20 \
-    --epochs 100 \
+    --batch-size 4 \
+    --epochs 20 \
     --lr 1e-4 \
     --beta1 0.9 \
     --beta1 0.98 \

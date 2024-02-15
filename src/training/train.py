@@ -374,8 +374,8 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
         # TODO not using scaler for this
         scaler = None
 
-        # from IPython import embed
-        # embed()
+        #from IPython import embed
+        #embed()
 
         if args.accum_freq == 1:
             with autocast():
@@ -399,7 +399,7 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
 
                 scattered_reconstruction = masked_output[2].view(batch_size, 12,
                                                                  visual_model.visual_model.scattering_output_size - 1,
-                                                                visual_model.visual_model.scattering_signal_length)
+                                                                 visual_model.visual_model.scattering_signal_length)
 
                 #reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask)
                 reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask=None)

@@ -37,7 +37,7 @@ from training.scheduler import cosine_lr, const_lr, const_lr_cooldown
 from training.train import train_one_epoch_mlm, evaluate_mlm, get_step, log_metrics
 #from training.train import evaluate, evaluate_instruct_basic, get_step, log_metrics
 from training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
-from open_clip.transformer import ReconstructionWrapper
+from open_clip.transformer import PooledReconstructionWrapper, TokenReconstructionWrapper
 
 LATEST_CHECKPOINT_NAME = "epoch_latest.pt"
 
@@ -282,15 +282,26 @@ def main(args):
     #scattering_output_size = model.visual.scattering_output_size - 1
     #scattering_signal_length = model.visual.scattering_signal_length
 
-    visual_model = ReconstructionWrapper(model.visual,
-                                         input_features=512,
-                                         output_features=12*(model.visual.scattering_output_size-1)*model.visual.scattering_signal_length)
+    # visual_model = PooledReconstructionWrapper(
+    #     model.visual,
+    #     input_features=512,
+    #     hidden_features=1024,
+    #     output_features=12 * (model.visual.scattering_output_size-1) * model.visual.scattering_signal_length
+    # )
+
+
+    visual_model = TokenReconstructionWrapper(
+        model.visual,
+        token_features=768, # TODO width parameter of transformer
+        hidden_features=1024,
+        output_features_per_lead=(model.visual.scattering_output_size - 1) * model.visual.scattering_signal_length,
+    )
 
     # visual_model = ReconstructionWrapper(model.visual,
     #                                      input_features=512,
     #                                      output_features=12*800*39)
 
-    12, 800, 39
+    #12, 800, 39
     # TODO this might break multi-gpu training, could move to the same device as original model when building
     visual_model.to(device)
 
