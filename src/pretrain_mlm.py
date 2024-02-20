@@ -286,15 +286,23 @@ def main(args):
     #     model.visual,
     #     input_features=512,
     #     hidden_features=1024,
-    #     output_features=12 * (model.visual.scattering_output_size-1) * model.visual.scattering_signal_length
+    #     output_features=12 * (model.visual.scattering_output_size) * model.visual.scattering_signal_length
     # )
 
+    # this was used for reconstructing the scattering transform
+    # visual_model = TokenReconstructionWrapper(
+    #     model.visual,
+    #     token_features=768, # TODO width parameter of transformer
+    #     hidden_features=1024,
+    #     output_features_per_lead=(model.visual.scattering_output_size - 1) * model.visual.scattering_signal_length,
+    # )
 
+    # using this for the simple CNN to reconstruct the input data
     visual_model = TokenReconstructionWrapper(
         model.visual,
-        token_features=768, # TODO width parameter of transformer
+        token_features=768,
         hidden_features=1024,
-        output_features_per_lead=(model.visual.scattering_output_size - 1) * model.visual.scattering_signal_length,
+        output_features_per_lead=2500,
     )
 
     # visual_model = ReconstructionWrapper(model.visual,

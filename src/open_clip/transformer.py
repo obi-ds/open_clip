@@ -863,8 +863,12 @@ class ScatteringTransformer(nn.Module):
 
             # TODO dropping zero-order coefficients and log-scaling should be config parameters
             # scattering_output_size - 1 takes into account dropping zero-order coefficients
+            # self.input_projection = nn.Linear(in_features=(
+            #         (self.scattering_output_size - 1) * self.scattering_signal_length),
+            #     out_features=width)
+
             self.input_projection = nn.Linear(in_features=(
-                    (self.scattering_output_size - 1) * self.scattering_signal_length),
+                    (self.scattering_output_size) * self.scattering_signal_length),
                 out_features=width)
 
         else:
@@ -948,19 +952,35 @@ class ScatteringTransformer(nn.Module):
             # Apply the scattering transform
             scattered_x = self.scattering.forward(x_reshaped)
 
+            # # TODO use a flag for this
+            # # log-scale and dropping zero-order coefficients
+            # scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
+            #
+            # # Reshape to [64, 12, 125, 39]
+            # x1 = scattered_x.view(batch_size,
+            #                       leads,
+            #                       self.scattering_output_size - 1,
+            #                       self.scattering_signal_length)
+            #
+            # # Reshape to [64, 12, 125 * 39]
+            # x2 = x1.contiguous().view(batch_size,
+            #                           leads,
+            #                           (self.scattering_output_size - 1) * self.scattering_signal_length)
+
+            # TODO use a flag for this
             # log-scale and dropping zero-order coefficients
-            scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
+            #scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
 
             # Reshape to [64, 12, 125, 39]
             x1 = scattered_x.view(batch_size,
                                   leads,
-                                  self.scattering_output_size - 1,
+                                  self.scattering_output_size,
                                   self.scattering_signal_length)
 
             # Reshape to [64, 12, 125 * 39]
             x2 = x1.contiguous().view(batch_size,
                                       leads,
-                                      (self.scattering_output_size - 1) * self.scattering_signal_length)
+                                      (self.scattering_output_size) * self.scattering_signal_length)
 
             # use this to project down to transformer input width
             x = self.input_projection(x2)
@@ -1077,6 +1097,7 @@ class TokenReconstructionWrapper(nn.Module):
                 nn.Linear(hidden_features, hidden_features),
                 nn.ReLU(),
                 nn.Linear(hidden_features, output_features_per_lead)
+                #nn.Linear(token_features, output_features_per_lead)
             ) for _ in range(12)  # Assuming 12 leads in ECG
         ])
 
