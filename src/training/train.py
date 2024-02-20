@@ -329,12 +329,18 @@ def mask_cls_token(mask):
     return updated_mask
 
 
-def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=None):
+def train_one_epoch_mlm(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=None):
     device = torch.device(args.device)
     autocast = get_autocast(args.precision)
     input_dtype = get_input_dtype(args.precision)
 
-    visual_model.train()
+    # handle DDP wrapper
+    if hasattr(model, 'module'):
+        visual_model = model.module.visual_model
+    else:
+        visual_model = model.visual_model
+
+    model.train()
     if args.distill:
         dist_model.eval()
 
@@ -381,11 +387,11 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
 
         if args.accum_freq == 1:
             with autocast():
-                #model_out = visual_model(images)
+                #model_out = model(images)
 
                 # minimize reconstruction loss
-                original_output = visual_model(images)
-                masked_output = visual_model(masked_images)
+                original_output = model(images)
+                masked_output = model(masked_images)
                 pooled_cosine_loss = masked_cosine_similarity_loss(original_output[0], masked_output[0])
                 #latent_cosine_loss = masked_cosine_similarity_loss(original_output[1], masked_output[1], mask_with_cls)
                 #latent_mse_loss = masked_mse_loss(original_output[1], masked_output[1], mask_with_cls)
@@ -397,16 +403,18 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
                 #total_loss = sum(losses.values())
                 #losses["loss"] = cosine_loss
 
+
+
                 # scattering coefficient reconstruction loss
-                scattered_original = visual_model.visual_model.scattering.forward(images.view(-1, 2500))
+                scattered_original = visual_model.scattering.forward(images.view(-1, 2500))
                 #scattered_original = torch.log(torch.abs(scattered_original[:, 1:, :]) + 1e-6)
                 scattered_original = scattered_original.view(batch_size, 12,
-                                                             visual_model.visual_model.scattering_output_size,
-                                                             visual_model.visual_model.scattering_signal_length)
+                                                             visual_model.scattering_output_size,
+                                                             visual_model.scattering_signal_length)
 
                 scattered_reconstruction = masked_output[2].view(batch_size, 12,
-                                                                 visual_model.visual_model.scattering_output_size,
-                                                                 visual_model.visual_model.scattering_signal_length)
+                                                                 visual_model.scattering_output_size,
+                                                                 visual_model.scattering_signal_length)
 
                 reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask)
                 #reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask=None)
@@ -431,7 +439,7 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
         #     # First, cache the features without any gradient tracking.
         #     with torch.no_grad():
         #         with autocast():
-        #             model_out = visual_model(images)
+        #             model_out = model(images)
         #
         #             for f in ("logit_scale", "logit_bias"):
         #                 model_out.pop(f, None)
@@ -483,18 +491,18 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
                 optimizer.synchronize()
                 scaler.unscale_(optimizer)
                 if args.grad_clip_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(visual_model.parameters(), args.grad_clip_norm, norm_type=2.0)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
                 with optimizer.skip_synchronize():
                     scaler.step(optimizer)
             else:
                 if args.grad_clip_norm is not None:
                     scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(visual_model.parameters(), args.grad_clip_norm, norm_type=2.0)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
                 scaler.step(optimizer)
             scaler.update()
         else:
             if args.grad_clip_norm is not None:
-                torch.nn.utils.clip_grad_norm_(visual_model.parameters(), args.grad_clip_norm, norm_type=2.0)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip_norm, norm_type=2.0)
             optimizer.step()
 
         # reset gradient accum, if enabled
@@ -789,6 +797,12 @@ def evaluate_mlm(model, data, epoch, args, tb_writer=None, tokenizer=None):
     device = torch.device(args.device)
     model.eval()
 
+    # handle DDP wrapper
+    if hasattr(model, 'module'):
+        visual_model = model.module.visual_model
+    else:
+        visual_model = model.visual_model
+
     autocast = get_autocast(args.precision)
     input_dtype = get_input_dtype(args.precision)
 
@@ -835,22 +849,18 @@ def evaluate_mlm(model, data, epoch, args, tb_writer=None, tokenizer=None):
                         #latent_cosine_loss = masked_cosine_similarity_loss(original_output[1], masked_output[1], mask_with_cls)
                         #latent_mse_loss = masked_mse_loss(original_output[1], masked_output[1], mask_with_cls)
 
-                        # and also of the reconstruction per lead
-                        reconstruction_mse_loss = masked_mse_loss(images, masked_output[2], mask)
-
-                        # this is the scattering coefficient reconstruction loss
-                        # # scattering coefficient reconstruction loss
-                        # scattered_original = model.visual_model.scattering.forward(images.view(-1, 2500))
+                        # scattering coefficient reconstruction loss
+                        scattered_original = visual_model.scattering.forward(images.view(-1, 2500))
                         # scattered_original = torch.log(torch.abs(scattered_original[:, 1:, :]) + 1e-6)
-                        # scattered_original = scattered_original.view(batch_size, 12,
-                        #                                              model.visual_model.scattering_output_size - 1,
-                        #                                              model.visual_model.scattering_signal_length)
-                        #
-                        # scattered_reconstruction = masked_output[2].view(batch_size, 12,
-                        #                                                  model.visual_model.scattering_output_size - 1,
-                        #                                                  model.visual_model.scattering_signal_length)
-                        #
-                        # reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask)
+                        scattered_original = scattered_original.view(batch_size, 12,
+                                                                     visual_model.scattering_output_size,
+                                                                     visual_model.scattering_signal_length)
+
+                        scattered_reconstruction = masked_output[2].view(batch_size, 12,
+                                                                         visual_model.scattering_output_size,
+                                                                         visual_model.scattering_signal_length)
+
+                        reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask)
 
 
                         # total_loss = sum(losses.values())

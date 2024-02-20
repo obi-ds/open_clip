@@ -171,7 +171,7 @@ torchrun \
 
 export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 torchrun \
-    --nnodes=1 --nproc_per_node=1 --master_addr=localhost --master_port=2126 \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2126 \
     -m pretrain_mlm \
     --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2402/shard_{0000..0082}.tar"  \
     --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2402/shard_{0000..0003}.tar"  \
@@ -179,14 +179,14 @@ torchrun \
     --val-num-samples 12800 \
     --dataset-type icddataset \
     --workers 4 \
-    --batch-size 1280 \
+    --batch-size 640 \
     --epochs 10 \
-    --lr 1e-6 \
+    --lr 1e-4 \
     --beta1 0.9 \
     --beta1 0.98 \
     --eps 1e-6 \
     --wd 0.01 \
-    --warmup 1000 \
+    --warmup 10000 \
     --lr-scheduler="cosine" \
     --lr-cooldown-end 5e-5 \
     --coca-caption-loss-weight 1.0 \
