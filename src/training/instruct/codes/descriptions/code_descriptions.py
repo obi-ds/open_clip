@@ -87,8 +87,8 @@ class PHEDescription(CodeDescriptions):
             and textual descriptions.
         """
         if source_file is None:
-            source_file = path.dirname(path.abspath(__file__)) + '/phe_codes_flat.csv'
-            codes = self.get_codes(phe_code_df=pd.read_csv(source_file))
+            source_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
+            codes = self.get_codes(phe_code_df=pd.read_csv(source_file, encoding='ISO-8859-1'))
         else:
             raise NotImplementedError('Custom icd source files are not supported yet')
 
