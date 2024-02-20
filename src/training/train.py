@@ -377,34 +377,39 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
         #from IPython import embed
         #embed()
 
+        #breakpoint()
+
         if args.accum_freq == 1:
             with autocast():
                 #model_out = visual_model(images)
 
                 # minimize reconstruction loss
-                #original_output = visual_model(images)
+                original_output = visual_model(images)
                 masked_output = visual_model(masked_images)
+                pooled_cosine_loss = masked_cosine_similarity_loss(original_output[0], masked_output[0])
                 #latent_cosine_loss = masked_cosine_similarity_loss(original_output[1], masked_output[1], mask_with_cls)
                 #latent_mse_loss = masked_mse_loss(original_output[1], masked_output[1], mask_with_cls)
 
                 # ECG reconstruction loss
-                reconstruction_mse_loss = masked_mse_loss(images, masked_output[2], mask)
+                #reconstruction_mse_loss = masked_mse_loss(images, masked_output[2], mask)
+
+
                 #total_loss = sum(losses.values())
                 #losses["loss"] = cosine_loss
 
-                # # scattering coefficient reconstruction loss
-                # scattered_original = visual_model.visual_model.scattering.forward(images.view(-1, 2500))
-                # scattered_original = torch.log(torch.abs(scattered_original[:, 1:, :]) + 1e-6)
-                # scattered_original = scattered_original.view(batch_size, 12,
-                #                                              visual_model.visual_model.scattering_output_size - 1,
-                #                                              visual_model.visual_model.scattering_signal_length)
-                #
-                # scattered_reconstruction = masked_output[2].view(batch_size, 12,
-                #                                                  visual_model.visual_model.scattering_output_size - 1,
-                #                                                  visual_model.visual_model.scattering_signal_length)
-                #
-                # #reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask)
-                # reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask=None)
+                # scattering coefficient reconstruction loss
+                scattered_original = visual_model.visual_model.scattering.forward(images.view(-1, 2500))
+                #scattered_original = torch.log(torch.abs(scattered_original[:, 1:, :]) + 1e-6)
+                scattered_original = scattered_original.view(batch_size, 12,
+                                                             visual_model.visual_model.scattering_output_size,
+                                                             visual_model.visual_model.scattering_signal_length)
+
+                scattered_reconstruction = masked_output[2].view(batch_size, 12,
+                                                                 visual_model.visual_model.scattering_output_size,
+                                                                 visual_model.visual_model.scattering_signal_length)
+
+                reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask)
+                #reconstruction_mse_loss = masked_mse_loss(scattered_original, scattered_reconstruction, mask=None)
 
 
 
@@ -412,10 +417,11 @@ def train_one_epoch_mlm(visual_model, data, loss, epoch, optimizer, scaler, sche
                 losses = {
                     #"latent_cosine_loss": latent_cosine_loss,
                     #"latent_mse_loss": latent_mse_loss,
+                    "pooled_cosine_loss": pooled_cosine_loss,
                     "reconstruction_mse_loss": reconstruction_mse_loss
                           }
-                #total_loss = latent_cosine_loss + latent_mse_loss + reconstruction_mse_loss
-                total_loss = reconstruction_mse_loss
+                total_loss = pooled_cosine_loss + reconstruction_mse_loss
+                #total_loss = reconstruction_mse_loss
             #backward(total_loss)
             backward(total_loss, scaler)
             #backward(total_loss, scaler)
@@ -798,6 +804,7 @@ def evaluate_mlm(model, data, epoch, args, tb_writer=None, tokenizer=None):
 
         cumulative_latent_cosine_loss = 0.0
         cumulative_latent_mse_loss = 0.0
+        cumulative_pooled_cosine_loss = 0.0
         cumulative_reconstruction_mse_loss = 0.0
 
         all_image_features, all_text_features = [], []
@@ -812,18 +819,23 @@ def evaluate_mlm(model, data, epoch, args, tb_writer=None, tokenizer=None):
                 extra_true = torch.ones((batch_size, 1), dtype=torch.bool, device=device)
                 mask_with_cls = torch.cat((mask, extra_true), dim=1)
 
-                # from IPython import embed
-                # embed()
+                #from IPython import embed
+                #embed()
 
                 # TODO not using scaler for this
                 scaler = None
                 if args.accum_freq == 1:
                     with autocast():
                         # minimize reconstruction loss
-                        #original_output = model(images)
+                        original_output = model(images)
                         masked_output = model(masked_images)
+
+                        # minimize a loss of the pooled output
+                        pooled_cosine_loss = masked_cosine_similarity_loss(original_output[0], masked_output[0])
                         #latent_cosine_loss = masked_cosine_similarity_loss(original_output[1], masked_output[1], mask_with_cls)
                         #latent_mse_loss = masked_mse_loss(original_output[1], masked_output[1], mask_with_cls)
+
+                        # and also of the reconstruction per lead
                         reconstruction_mse_loss = masked_mse_loss(images, masked_output[2], mask)
 
                         # this is the scattering coefficient reconstruction loss
@@ -882,6 +894,7 @@ def evaluate_mlm(model, data, epoch, args, tb_writer=None, tokenizer=None):
                 #cumulative_loss += total_loss * batch_size
                 #cumulative_latent_cosine_loss += latent_cosine_loss.cpu().numpy()
                 #cumulative_latent_mse_loss += latent_mse_loss.cpu().numpy()
+                cumulative_pooled_cosine_loss += pooled_cosine_loss.cpu().numpy()
                 cumulative_reconstruction_mse_loss += reconstruction_mse_loss.cpu().numpy()
                 num_samples += batch_size
                 if is_master(args) and (i % 100) == 0:
@@ -889,6 +902,7 @@ def evaluate_mlm(model, data, epoch, args, tb_writer=None, tokenizer=None):
                         f"Eval Epoch: {epoch} [{num_samples} / {samples_per_val}]\t"
                         f"Latent Cosine Loss: {cumulative_latent_cosine_loss :.6f}\t"
                         f"Latent MSE Loss: {cumulative_latent_mse_loss :.6f}\t"
+                        f"Pooled Cosine Loss: {cumulative_pooled_cosine_loss :.6f}\t"
                         f"Reconstruction MSE Loss: {cumulative_reconstruction_mse_loss :.6f}\t"
                     )
 

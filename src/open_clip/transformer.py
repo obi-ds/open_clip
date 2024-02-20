@@ -985,52 +985,14 @@ class ScatteringTransformer(nn.Module):
             # use this to project down to transformer input width
             x = self.input_projection(x2)
 
-            # # concatenate the CLS token, and add the position tokens to each lead
-            # x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
-            # x = x + self.pos_embed
-            # x = self.pos_drop(x)
-            #
-            # # TODO verify the dimensions here
-            # x = x.permute(1, 0, 2)  # NLD -> LND
-            # x = self.transformer(x)
-            # x = x.permute(1, 0, 2)  # LND -> NLD
-
         else:
 
             # use CNN architecture
             batch_size, leads, _ = x.shape
 
-            #from IPython import embed
-            #embed()
-
-            # # TODO is the multiconv2d implemenation using channels last?
-            # x = x.unsqueeze(2)
-            # x = x.permute(0, 2, 3, 1)
-            # x = self.conv1.forward(x)
-
-            #x2 = self.conv1.forward(x)
-            # using same conv layer of all leads, but processing each lead separately
-            #x2 = [self.conv1.forward(x_) for x_ in x.transpose(0,1)]
-
             x = [layer(lead.unsqueeze(1)) for layer, lead in zip(self.cnn_layers, x.transpose(0, 1))]
             x = torch.stack(x, dim=0)
             x = x.transpose(0, 1)
-
-            #x_concat = torch.cat(x2, dim=2)
-
-            #x2 = [layer(lead) for layer, lead in zip(self.cnn_layers, x)]
-
-            # # [8, 768, 8, 10]
-            # # this is batch, dim, height, width
-            # # need [8*10, 8, 768] as input for transformer model
-            #
-            # x = x.permute(0, 2, 3, 1)  # permute to [batch, height, width, dim]
-            # new_dim = x.size(1) * x.size(2)  # joint dim size
-            #
-            # # TODO do this in one step or clean up code
-            # # Reshape the tensor to merge height and width
-            # x = x.reshape(x.size(0), new_dim, x.size(3))  # Reshaping to [8, 8*10, 768]
-            #x = self.input_projection(x)
 
         # concatenate the CLS token, and add the position tokens to each lead
         x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
@@ -1097,7 +1059,6 @@ class TokenReconstructionWrapper(nn.Module):
                 nn.Linear(hidden_features, hidden_features),
                 nn.ReLU(),
                 nn.Linear(hidden_features, output_features_per_lead)
-                #nn.Linear(token_features, output_features_per_lead)
             ) for _ in range(12)  # Assuming 12 leads in ECG
         ])
 
@@ -1105,43 +1066,13 @@ class TokenReconstructionWrapper(nn.Module):
         # Pass input through the visual model
         pooled, tokens = self.visual_model(x)
 
-        #from IPython import embed
-        #embed()
-
-        # TODO do they need to transposed?
-        # Process each token through its respective reconstruction layer
         # remove the CLS token
         reconstructions = [layer(token) for layer, token in zip(self.reconstruction_layers, tokens[:,:-1,:].transpose(0, 1))]
-        #reconstructions = [layer(token) for layer, token in zip(self.reconstruction_layers, tokens.transpose(1, 2))]
-        #reconstructions = [layer(token) for layer, token in zip(self.reconstruction_layers, tokens)]
 
         # Stack the reconstructions to form the final output
         reconstruction = torch.stack(reconstructions, dim=1)
 
         return pooled, tokens, reconstruction
-
-
-# class CPCScatteringTransformer(nn.Module):
-#     def __init__(self, scattering_transformer, prediction_steps=12):
-#         super().__init__()
-#         self.scattering_transformer = scattering_transformer
-#         self.prediction_steps = prediction_steps
-#         self.cpc_head = nn.Linear(scattering_transformer.output_dim, scattering_transformer.output_dim)
-#
-#     def forward(self, x):
-#         # Forward pass through the base transformer
-#         base_representation = self.scattering_transformer(x)
-#
-#         # CPC prediction
-#         cpc_prediction = self.cpc_head(base_representation)
-#
-#         return base_representation, cpc_prediction
-#
-#     @staticmethod
-#     def info_nce_loss(current_rep, future_rep):
-#         # Implement the InfoNCE loss function
-#         # ...
-#         return loss
 
 
 class SimpleCNN(nn.Module):

@@ -96,14 +96,14 @@ torchrun \
     --val-num-samples 12800 \
     --dataset-type icddataset \
     --workers 4 \
-    --batch-size 64 \
+    --batch-size 20 \
     --epochs 10 \
-    --lr 1e-4 \
+    --lr 1e-6 \
     --beta1 0.9 \
     --beta1 0.98 \
-    --eps 1e-5 \
+    --eps 1e-6 \
     --wd 0.01 \
-    --warmup 500 \
+    --warmup 1000 \
     --lr-scheduler="cosine" \
     --lr-cooldown-end 5e-5 \
     --coca-caption-loss-weight 1.0 \
@@ -115,6 +115,89 @@ torchrun \
     --local-loss \
     --gather-with-grad \
     --model scatter_cnn \
+    --report-to wandb \
+    --billable-probability 0.0 \
+    --top-non-probability 1.0 \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet" \
+    --time-difference-normalize 1 \
+    --max_seq_length 1024 \
+    --distance-threshold 7 30 60 120 180 365 \
+    --shuffle-bins \
+    --seed 0
+
+export CUDA_VISIBLE_DEVICES='1'
+torchrun \
+    --nnodes=1 --nproc_per_node=1 --master_addr=localhost --master_port=2126 \
+    -m pretrain_mlm \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2402/shard_{0000..0082}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2402/shard_{0000..0003}.tar"  \
+    --train-num-samples 272000 \
+    --val-num-samples 12800 \
+    --dataset-type icddataset \
+    --workers 4 \
+    --batch-size 20 \
+    --epochs 10 \
+    --lr 1e-6 \
+    --beta1 0.9 \
+    --beta1 0.98 \
+    --eps 1e-6 \
+    --wd 0.01 \
+    --warmup 1000 \
+    --lr-scheduler="cosine" \
+    --lr-cooldown-end 5e-5 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 1 \
+    --val-frequency 1 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --model scatter_base \
+    --report-to wandb \
+    --billable-probability 0.0 \
+    --top-non-probability 1.0 \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet" \
+    --time-difference-normalize 1 \
+    --max_seq_length 1024 \
+    --distance-threshold 7 30 60 120 180 365 \
+    --shuffle-bins \
+    --seed 0
+
+
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=1 --master_addr=localhost --master_port=2126 \
+    -m pretrain_mlm \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2402/shard_{0000..0082}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2402/shard_{0000..0003}.tar"  \
+    --train-num-samples 272000 \
+    --val-num-samples 12800 \
+    --dataset-type icddataset \
+    --workers 4 \
+    --batch-size 1280 \
+    --epochs 10 \
+    --lr 1e-6 \
+    --beta1 0.9 \
+    --beta1 0.98 \
+    --eps 1e-6 \
+    --wd 0.01 \
+    --warmup 1000 \
+    --lr-scheduler="cosine" \
+    --lr-cooldown-end 5e-5 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 1 \
+    --val-frequency 1 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --model scatter_base \
     --report-to wandb \
     --billable-probability 0.0 \
     --top-non-probability 1.0 \
