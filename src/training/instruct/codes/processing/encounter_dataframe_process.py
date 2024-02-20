@@ -170,11 +170,12 @@ class EncounterDataframeProcess(object):
         Returns:
             months_difference (pd.Series): Input series represented as difference in terms of days
         """
+        time_difference_days = time_difference.dt.days.astype(float)
+        time_difference_normalized = time_difference_days / time_difference_normalize
         if use_log_position:
-            time_difference = time_difference.dt.days.astype(float)
-            return time_difference.apply(get_log_value)
+            return time_difference_normalized.apply(get_log_value)
         else:
-            return time_difference.dt.days / time_difference_normalize
+            return time_difference_normalized
 
     @staticmethod
     def get_time_filter(
