@@ -1,7 +1,9 @@
 """Sampling negative codes for a patient"""
 import numpy as np
 import pandas as pd
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
+
+from .encounter_dataframe_process import EncounterDataframeProcess
 
 
 class NegativeCodeCacheSampling(object):
@@ -11,12 +13,14 @@ class NegativeCodeCacheSampling(object):
 
     def __init__(
             self,
+            encounter_dataframe_process: EncounterDataframeProcess,
             code_task_negative_cache_size: int,
             minimum_encounter_size: int,
             minimum_negatives_size: int = 10,
             source_file: Optional[str] = None,
     ):
-        self._code_task_negative_cache = {}
+        self._encounter_dataframe_process = encounter_dataframe_process
+        self._code_task_negative_cache = set()
         self._last_sampled_cache_id = None
         self._code_task_negative_cache_size = code_task_negative_cache_size
         self._minimum_encounter_size = minimum_encounter_size
@@ -29,29 +33,18 @@ class NegativeCodeCacheSampling(object):
         else:
             raise NotImplementedError('Custom source file yet to be implemented')
 
-    def update_negatives_cache(self, encounter_history: pd.DataFrame, patient_id: str):
+    def update_cache(self, patient_id: str):
         """
-        Update cache with this encounter history
+        Update cache with this patient id
 
         Args:
-            encounter_history (pd.DataFrame): The encounter history of the patient
             patient_id (str): The ID of the patient
         """
-        # If patient id is already in cache - replace the encounter history
-        if patient_id in self._code_task_negative_cache.keys():
-            self._code_task_negative_cache[patient_id] = encounter_history
-        else:
-            # If patient id is not in cache and there is space to add more,
-            # add a new entry to the cache.
-            if len(self._code_task_negative_cache) < self._code_task_negative_cache_size:
-                self._code_task_negative_cache[patient_id] = encounter_history
-            # If cache is full - remove based on counts
-            else:
-                # Remove the encounter history that has been used to sample negatives the most
-                del self._code_task_negative_cache[self._last_sampled_cache_id]
-                self._code_task_negative_cache[patient_id] = encounter_history
+        if len(self._code_task_negative_cache) >= self._code_task_negative_cache_size:
+            self._code_task_negative_cache.remove(self._last_sampled_cache_id)
+        self._code_task_negative_cache.add(patient_id)
 
-    def get_negatives_from_cache(self, patient_id) -> Optional[pd.DataFrame]:
+    def get_patient_from_cache(self, patient_id) -> Optional[str]:
         """
         Sample an encounter history from the cache - we can then sample codes
         from this and use it as negative samples for the current patient.
@@ -60,10 +53,9 @@ class NegativeCodeCacheSampling(object):
             patient_id (str): The id pf the patient
 
         Returns:
-            (pd.DataFrame): The encounter history of another patient.
-            or None - if cache is empty
+            (pd.DataFrame): The id of the cached patient
         """
-        cached_patient_ids = self._code_task_negative_cache.keys() - {patient_id}
+        cached_patient_ids = self._code_task_negative_cache - {patient_id}
         # Cache is empty - return empty cache
         if not cached_patient_ids:
             return None
@@ -72,9 +64,67 @@ class NegativeCodeCacheSampling(object):
             sample_cached_patient_id = np.random.choice(list(cached_patient_ids))
             # Keep track of which encounter history was used to sample the negatives last
             self._last_sampled_cache_id = sample_cached_patient_id
-            return self._code_task_negative_cache[sample_cached_patient_id]
+            return sample_cached_patient_id
 
-    def get_negatives_from_cache_and_process(
+    def get_encounter_negatives_from_cache_process_and_update(
+            self,
+            patient_id: str,
+            current_time: str,
+            use_log_position: bool,
+            time_difference_normalize: int,
+            exclude_codes: Sequence[str],
+            code_column: str = 'phecode',
+            position_column: str = 'position'
+    ):
+        """
+        Sample an encounter history from the cache - we can then sample codes
+        from this and use it as negative samples for the current patient.
+        Once this is done - we update the cache
+
+        Args:
+            patient_id (str): The id of the patient
+            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
+            with respect to other encounters
+            use_log_position (bool): Whether to keep time deltas in days or as log value of days
+            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
+            (e.g. 30 normalizes it to months)
+            exclude_codes (Sequence[str]): Remove these codes from the sampled encounter negatives
+            code_column (str, defaults to `phecode`): The column that contains codes
+            position_column (str, defaults to `position`): The column that contains positions
+
+        Returns:
+
+        """
+        negative_patient_id = self.get_patient_from_cache(patient_id=patient_id)
+
+        if negative_patient_id is None:
+            encounter_negatives = self.get_random_negatives(
+                exclude_codes=set(exclude_codes),
+                size=self._minimum_negatives_size,
+                code_column=code_column,
+                position_column=position_column
+            )
+        else:
+            encounter_negatives = self.get_encounter_history(
+                patient_id=negative_patient_id,
+                current_time=current_time,
+                use_log_position=use_log_position,
+                time_difference_normalize=time_difference_normalize,
+                code_column=code_column
+            )
+            encounter_negatives = self.process_negatives(
+                encounter_negatives=encounter_negatives,
+                exclude_codes=exclude_codes,
+                code_column=code_column,
+                position_column=position_column
+            )
+
+        # Update cache
+        self.update_cache(patient_id=patient_id)
+
+        return encounter_negatives
+
+    def process_negatives(
             self,
             encounter_negatives: pd.DataFrame,
             exclude_codes: Sequence[str],
@@ -86,7 +136,7 @@ class NegativeCodeCacheSampling(object):
         from this and use it as negative samples for the current patient.
 
         Args:
-            encounter_negatives (str): The negatives returned from cache
+            encounter_negatives (str): The negative encounter history
             exclude_codes (Sequence[str]): Remove these codes from the sampled encounter negatives
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
@@ -95,74 +145,63 @@ class NegativeCodeCacheSampling(object):
             (pd.DataFrame): The encounter history of another patient.
             or None - if cache is empty
         """
+        negative_positions = encounter_negatives[position_column]
         # Get encounter negatives and update cache
-        if encounter_negatives is None:
-            return self.get_random_negatives(
-                exclude_codes=set(exclude_codes),
-                size=self._minimum_negatives_size,
+        encounter_negatives = self.exclude_codes_from_dataframe(
+            encounter_dataframe=encounter_negatives,
+            exclude_codes=exclude_codes,
+            code_column=code_column
+        )
+        if encounter_negatives[code_column].nunique() < self._minimum_negatives_size:
+            size = self._minimum_negatives_size - encounter_negatives[code_column].nunique()
+            random_negatives = self.get_random_negatives(
+                exclude_codes=set(exclude_codes).union(encounter_negatives[code_column]),
+                size=size,
+                positions=negative_positions,
                 code_column=code_column,
                 position_column=position_column
             )
-        else:
-            encounter_negatives = self.exclude_codes_from_dataframe(
-                encounter_dataframe=encounter_negatives,
-                exclude_codes=exclude_codes,
-                code_column=code_column
-            )
-            if encounter_negatives[code_column].nunique() < self._minimum_negatives_size:
-                size = self._minimum_negatives_size - encounter_negatives[code_column].nunique()
-                random_negatives = self.get_random_negatives(
-                    exclude_codes=set(exclude_codes).union(encounter_negatives[code_column]),
-                    size=size,
-                    code_column=code_column,
-                    position_column=position_column
-                )
-                encounter_negatives = self.concatenate_negatives(encounter_negatives, random_negatives)
-            return encounter_negatives
+            encounter_negatives = self.concatenate_negatives(encounter_negatives, random_negatives)
+        return encounter_negatives
 
-    def get_encounter_negatives_from_cache_process_and_update(
+    def get_encounter_history(
             self,
-            encounter_history: pd.DataFrame,
-            patient_id: str,
-            exclude_codes: Sequence[str],
+            patient_id: Union[str, int],
+            current_time: str,
+            use_log_position: bool,
+            time_difference_normalize: int,
             code_column: str = 'phecode',
-            position_column: str = 'position'
-    ):
+    ) -> pd.DataFrame:
         """
-        Sample an encounter history from the cache - we can then sample codes
-        from this and use it as negative samples for the current patient.
-        Once this is done - we update the cache
+        Return the encounter history of a patient - if the patient does not have an encounter history
+        return a random history (temporary fix)
 
         Args:
-            encounter_history (pd.DataFrame): The encounter history of the patient
-            patient_id (str): The id of the patient
-            exclude_codes (Sequence[str]): Remove these codes from the sampled encounter negatives
+            patient_id (Union[str, int]): The unique id of the patient we need to process
+            current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
+            with respect to other encounters
+            use_log_position (bool): Whether to keep time deltas in days or as log value of days
+            time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
+            (e.g. 30 normalizes it to months)
             code_column (str, defaults to `phecode`): The column that contains codes
-            position_column (str, defaults to `position`): The column that contains positions
 
         Returns:
-
+            (pd.DataFrame): The encounter history
         """
-        encounter_negatives = self.get_negatives_from_cache(patient_id=patient_id)
-
-        # Get encounter negatives and update cache
-        encounter_negatives = self.get_negatives_from_cache_and_process(
-            encounter_negatives=encounter_negatives,
-            exclude_codes=exclude_codes,
-            code_column=code_column,
-            position_column=position_column
+        encounter_history = self._encounter_dataframe_process.get_patient_encounter_history_with_position(
+            patient_id=patient_id,
+            current_time=current_time,
+            use_log_position=use_log_position,
+            time_difference_normalize=time_difference_normalize
         )
-
-        # Update cache
-        if encounter_history[code_column].nunique() >= self._minimum_encounter_size:
-            self.update_negatives_cache(encounter_history=encounter_history, patient_id=patient_id)
-
-        return encounter_negatives
+        encounter_history.dropna(subset=code_column, inplace=True)
+        return encounter_history
 
     def get_random_negatives(
             self,
             exclude_codes: set,
             size: int,
+            positions: Optional = None,
             code_column: str = 'phecode',
             position_column: str = 'position'
     ):
@@ -172,6 +211,7 @@ class NegativeCodeCacheSampling(object):
         Args:
             size (int): The number of negatives to sample
             exclude_codes (Sequence[str]): Remove these codes from the sampled encounter negatives
+            positions (Optional): Use pre-defined position values
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
 
@@ -179,8 +219,16 @@ class NegativeCodeCacheSampling(object):
             (pd.DataFrame): A dataframe containing randomly sampled negatives
         """
         negatives = self._codes.difference(exclude_codes)
+
+        if positions is None:
+            position_column_value = 0
+        else:
+            position_column_value = np.random.choice(positions, size=size)
         return pd.DataFrame(
-            {code_column: np.random.choice(list(negatives), size, replace=False), position_column: 0}
+            {
+                code_column: np.random.choice(list(negatives), size, replace=False),
+                position_column: position_column_value
+            }
         )
 
     @staticmethod
