@@ -2,10 +2,8 @@
 import torch
 from typing import List
 
-from .multi_tokenizer import MultiTokenizer
 
-
-class MultiInstructTokenizer(MultiTokenizer):
+class InstructTokenizer(object):
     """
     Define functions that are used to build, tokenize and return input
     ids and labels that will be used by the model for generative tasks
@@ -21,7 +19,10 @@ class MultiInstructTokenizer(MultiTokenizer):
             max_seq_length (int): The maximum sequence length allowed by model/tokenizer
             pad_id (int): The id used for padding tokens
         """
-        super().__init__(tokenizer, max_seq_length, pad_id, ignore_index)
+        self._tokenizer = tokenizer
+        self._max_seq_length = max_seq_length
+        self._pad_id = pad_id
+        self._ignore_index = ignore_index
 
     def get_tokens(
             self,
@@ -103,6 +104,24 @@ class MultiInstructTokenizer(MultiTokenizer):
         """
         return self._tokenizer.encode(output_text)
 
+    def get_input_ids(
+            self,
+            input_tokens: List[int],
+            output_tokens: List[int],
+    ) -> List[int]:
+        """
+        Given the instruction input tokens, instruction target tokens and padding tokens,
+        concatenate them and return one tensor that will be passed to the model
+
+        Args:
+            input_tokens (List[int]): The instruction input tokens
+            output_tokens (List[int]): The instruction output tokens
+
+        Returns:
+            (List[int]): The tokens that are inputs to the model
+        """
+        return input_tokens + output_tokens
+
     def get_labels(
             self,
             input_tokens: List[int],
@@ -127,6 +146,45 @@ class MultiInstructTokenizer(MultiTokenizer):
         else:
             return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.eot_token_id]
 
+    def pad_input_tokens(self, tokens: List[int]) -> List[int]:
+        """
+        Return a tensor that contains the padding id. This will be used
+        to pad the final instruction (that contains instruction input and target)
+
+        Args:
+            tokens (List[int]): The input tokens
+
+        Returns:
+            (List[int]): Tensor containing the padding tokens
+        """
+        return self.pad_tokens_with_id(tokens=tokens, pad_id=self._pad_id)
+
+    def pad_label_tokens(self, tokens: List[int]) -> List[int]:
+        """
+        Return a tensor that contains the padding id. This will be used
+        to pad the final instruction (that contains instruction input and target)
+
+        Args:
+            tokens (List[int]): The input tokens
+
+        Returns:
+            (List[int]): Tensor containing the padding tokens
+        """
+        return self.pad_tokens_with_id(tokens=tokens, pad_id=self._ignore_index)
+
+    def pad_tokens_with_id(self, tokens: List[int], pad_id) -> List[int]:
+        """
+        Return a tensor that contains the padding id. This will be used
+        to pad the final instruction (that contains instruction input and target)
+
+        Args:
+            tokens (List[int]): The input tokens
+            pad_id (int): The ID to use for padding
+
+        Returns:
+            (List[int]): Tensor containing the padding tokens
+        """
+        return tokens + [pad_id] * (self._max_seq_length - len(tokens))
 
     def truncate_tokens(self, tokens: List[int]) -> List[int]:
         """
@@ -138,17 +196,14 @@ class MultiInstructTokenizer(MultiTokenizer):
         Returns:
             tokens (List[int]): The tokens truncated to max length if exceeded max length
         """
-        # Truncate from left side
-        # if len(tokens) > self._max_seq_length - 1:
-        #     tokens = tokens[len(tokens) - self._max_seq_length:]
-
-        # Truncate from right side
+        # -1 - for the eot token we will add at the end
         if len(tokens) > self._max_seq_length - 1:
             tokens = tokens[:self._max_seq_length - 1]
         return tokens
 
 
-class GPT2MultiInstructTokenizer(MultiInstructTokenizer):
+
+class GPT2InstructTokenizer(InstructTokenizer):
     """
     Define functions that are used to build, tokenize and return input
     ids and labels that will be used by the model for generative tasks
