@@ -23,10 +23,9 @@ def get_code_eval_arguments():
         help="The end time period of the code evaluation prompt",
     )
     parser.add_argument(
-        "--eval-time-gap",
+        "--eval-label",
         type=int,
         default=None,
-        help="A time gap between the start time of evaluation and a time delta "
-             "to the rest of the encounters occurring before it",
+        help="Evaluate a specific label",
     )
     return parser

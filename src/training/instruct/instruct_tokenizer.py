@@ -139,8 +139,12 @@ class MultiInstructTokenizer(MultiTokenizer):
             tokens (List[int]): The tokens truncated to max length if exceeded max length
         """
         # Truncate from left side
+        # if len(tokens) > self._max_seq_length - 1:
+        #     tokens = tokens[len(tokens) - self._max_seq_length:]
+
+        # Truncate from right side
         if len(tokens) > self._max_seq_length - 1:
-            tokens = tokens[len(tokens) - self._max_seq_length:]
+            tokens = tokens[:self._max_seq_length - 1]
         return tokens
 
 
