@@ -219,3 +219,6 @@ class EncounterDataframeProcess(object):
         """
         return dataframe[filter_mask]
 
+    def check_patient_id(self, patient_id):
+        return patient_id in self._encounter_dataframe.index
+
