@@ -35,12 +35,6 @@ def get_code_instruct_arguments():
         help="Threshold to use for clustering encounters into bins - can specify multiple thresholds",
     )
     parser.add_argument(
-        "--trajectory-sampling-weights",
-        type=float,
-        nargs='+',
-        help="The weights for sampling no trajectories, sampled_trajectories and full trajectory"
-    )
-    parser.add_argument(
         "--shuffle-bins",
         default=False,
         action="store_true",
