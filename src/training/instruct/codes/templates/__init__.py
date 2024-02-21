@@ -1,10 +1,4 @@
-from .code_trajectory_templates import (
-    TimeBinCodeTemplate, TimeBinPeriodTemplate, DescriptionInstructionTemplate
-)
-from .code_trajectory_instructions import CodeTrajectoryPredictionInstructions
+from .code_label_instruction_templates import CodeLabelPredictionInstructionTemplate
 __all__ = [
-    "TimeBinCodeTemplate",
-    "TimeBinPeriodTemplate",
-    "CodeTrajectoryPredictionInstructions",
-    "DescriptionInstructionTemplate"
+    "CodeLabelPredictionInstructionTemplate",
 ]

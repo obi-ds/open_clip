@@ -3,10 +3,11 @@ Define the diagnostic code status classification task - The task uses templates,
 This class will return the instruction string. It will make use of the  instruction data
 and the instruction template to create the instruction string.
 """
+import numpy as np
 from typing import Tuple, Union
 
 
-class CodeLabelPredictionInstructions(object):
+class CodeLabelPredictionInstructionTemplate(object):
     """
     Define the code trajectory prediction task. Encapsulate the templates
     inputs, outputs to build the final instruction. The instruction is built based
@@ -20,9 +21,9 @@ class CodeLabelPredictionInstructions(object):
             targets: str = '',
             inputs_prefix: str = "",
             targets_prefix: str = "",
-            x_y_delimiter: str = ":",
+            x_y_delimiter: str = " ",
             task_definition: str = '',
-            task_name: str = 'code_trajectory_prediction'
+            task_name: str = 'code_label_prediction'
     ):
         """
         Initialize the variables
@@ -39,7 +40,7 @@ class CodeLabelPredictionInstructions(object):
             task_name (str, defaults to `status_classification`): A name to define this task.
             Used to distinguish from other tasks
         """
-        self.task_name = task_name
+        self._task_name = task_name
         self._task_definition = task_definition
         self._past_input = past_input
         self._future_input = future_input
@@ -66,44 +67,45 @@ class CodeLabelPredictionInstructions(object):
         Args:
             diagnosis (str): A medical/billing diagnosis
             time (int): The time of diagnosis
-            value (Union[str, int, float]): A value to represent the diagnosis in the bin
+            value (Union[str, int, float]): A value to represent the status of the diagnosis
 
         Returns:
             (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
         """
         if time < 0:
-            instruction_input = self.get_past_instruction_input(diagnosis=diagnosis, time=time)
+            instruction_input = self.get_past_instruction_input(diagnosis=diagnosis, time=str(np.abs(time)))
         else:
-            instruction_input = self.get_future_instruction_input(diagnosis=diagnosis, time=time)
+            instruction_input = self.get_future_instruction_input(diagnosis=diagnosis, time=str(np.abs(time)))
+        instruction_input = self.fix_time_string(instruction_input, np.abs(time))
         instruction_target = self.get_instruction_target(value=value)
 
         return instruction_input, instruction_target
 
-    def get_past_instruction_input(self, diagnosis: str, time: int) -> str:
+    def get_past_instruction_input(self, diagnosis: str, time: str) -> str:
         """
         Add the diagnosis to the instruction input
 
         Args:
             diagnosis (str): A medical/billing diagnosis
-            time (int): The time of diagnosis
+            time (str): The time of diagnosis
 
         Returns:
             (str): Instruction input that contains the diagnosis
         """
         return self._inputs_prefix + self._past_input.format(diagnosis=diagnosis, time=time) + self._x_y_delimiter
 
-    def get_future_instruction_input(self, diagnosis: str, time: int) -> str:
+    def get_future_instruction_input(self, diagnosis: str, time: str) -> str:
         """
         Add the diagnosis to the instruction input
 
         Args:
             diagnosis (str): A medical/billing diagnosis
-            time (int): The time of diagnosis
+            time (str): The time of diagnosis
 
         Returns:
             (str): Instruction input that contains the diagnosis
         """
-        return self._inputs_prefix + self._past_input.format(diagnosis=diagnosis, time=time) + self._x_y_delimiter
+        return self._inputs_prefix + self._future_input.format(diagnosis=diagnosis, time=time) + self._x_y_delimiter
 
 
     def get_instruction_target(self, value: Union[str, int, float]) -> str:
@@ -119,5 +121,11 @@ class CodeLabelPredictionInstructions(object):
             (str): The instruction target with the label
         """
         return str(value)
+
+    def fix_time_string(self, instruction_input, time):
+        if time == 1:
+            return instruction_input.replace('months', 'month')
+        else:
+            return instruction_input
 
 
