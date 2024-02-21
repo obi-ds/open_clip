@@ -26,14 +26,14 @@ class InstructTokenizer(object):
 
     def get_tokens(
             self,
-            multi_task_instructions,
+            task_instructions,
             return_tensor: bool = True,
     ):
         """
         Given a list of inputs - return the tokenizer version using the tokenizer
 
         Args:
-            multi_task_instructions:
+            task_instructions:
             return_tensor:
 
         Returns:
@@ -41,7 +41,7 @@ class InstructTokenizer(object):
         """
         all_input_ids = []
         all_labels = []
-        for instruction_input, instruction_output, ignore_instruction in multi_task_instructions:
+        for instruction_input, instruction_output, ignore_instruction in task_instructions:
             # Get the tokens for the instruction input - The eos and padding tokens are removed
             input_tokens = self.get_input_tokens(input_text=instruction_input)
             # Get the tokens for the instruction target - the bos and padding tokens are removed
