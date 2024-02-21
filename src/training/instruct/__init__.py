@@ -1,10 +1,6 @@
-from .multi_instruct_trajectory import MultiInstructTrajectory
-from .multi_instruct_tokenizer import MultiInstructTokenizer, GPT2MultiInstructTokenizer
-from .multi_tokenizer import MultiTokenizer, MultiTokenizerEval, GPT2MultiTokenizer
+from .instruct_tasks import InstructTasks
+from .instruct_tokenizer import InstructTokenizer, GPT2InstructTokenizer
 __all__ = [
-    "MultiInstructTokenizer",
-    "GPT2MultiTokenizer",
-    "MultiInstructTrajectory",
-    "MultiTokenizer",
-    "MultiTokenizerEval"
+    "InstructTokenizer",
+    "InstructTasks",
 ]

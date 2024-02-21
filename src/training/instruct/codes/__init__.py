@@ -1,12 +1,10 @@
 from .code_trajectory_instruct_tasks import (
-    CodeTrajectoryPredictionTask,
+    CodeLabelPredictionTask,
+)
+from .code_trajectory_instruct_tasks_eval import (
     CodeTrajectoryPredictionTaskEvaluation,
-    CodeTrajectoryFutureLabelPredictionTask,
-    CodeTrajectoryAnyLabelPredictionTask
 )
 __all__ = [
-    "CodeTrajectoryPredictionTask",
+    "CodeLabelPredictionTask",
     "CodeTrajectoryPredictionTaskEvaluation",
-    "CodeTrajectoryFutureLabelPredictionTask",
-    "CodeTrajectoryAnyLabelPredictionTask"
 ]
