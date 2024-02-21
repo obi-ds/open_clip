@@ -22,6 +22,7 @@ class CodeLabelPredictionInstructionTemplate(object):
             inputs_prefix: str = "",
             targets_prefix: str = "",
             x_y_delimiter: str = " ",
+            example_separator: str = '\n',
             task_definition: str = '',
             task_name: str = 'code_label_prediction'
     ):
@@ -48,6 +49,7 @@ class CodeLabelPredictionInstructionTemplate(object):
         self._inputs_prefix = inputs_prefix
         self._targets_prefix = targets_prefix
         self._x_y_delimiter = x_y_delimiter
+        self._example_separator = example_separator
 
     def get_task_definition(self) -> str:
         """
@@ -127,5 +129,16 @@ class CodeLabelPredictionInstructionTemplate(object):
             return instruction_input.replace('months', 'month')
         else:
             return instruction_input
+
+    def get_example_separator_instruction(self) -> Tuple[str, str, bool]:
+        """
+        This instruction is added as a separator between instructions
+
+        Returns:
+            (List[str, str, bool]): Example separator instruction
+        """
+        # \n is the separator string, '' is the label (empty - don't train)
+        # True indicates ignore this instruction for training loss
+        return self._example_separator, '', True
 
 
