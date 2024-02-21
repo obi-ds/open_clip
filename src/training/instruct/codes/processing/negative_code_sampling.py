@@ -70,6 +70,7 @@ class NegativeCodeCacheSampling(object):
             self,
             patient_id: str,
             current_time: str,
+            update_cache: bool,
             use_log_position: bool,
             time_difference_normalize: int,
             exclude_codes: Sequence[str],
@@ -85,6 +86,7 @@ class NegativeCodeCacheSampling(object):
             patient_id (str): The id of the patient
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
             with respect to other encounters
+            update_cache (bool): Whether to update the cache with this id
             use_log_position (bool): Whether to keep time deltas in days or as log value of days
             time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
             (e.g. 30 normalizes it to months)
@@ -97,7 +99,10 @@ class NegativeCodeCacheSampling(object):
         """
         negative_patient_id = self.get_patient_from_cache(patient_id=patient_id)
 
-        if negative_patient_id is None:
+        if (
+                negative_patient_id is None
+                or not self._encounter_dataframe_process.check_patient_id(patient_id=negative_patient_id)
+        ):
             encounter_negatives = self.get_random_negatives(
                 exclude_codes=set(exclude_codes),
                 size=self._minimum_negatives_size,
@@ -119,8 +124,9 @@ class NegativeCodeCacheSampling(object):
                 position_column=position_column
             )
 
-        # Update cache
-        self.update_cache(patient_id=patient_id)
+        if update_cache:
+            # Update cache
+            self.update_cache(patient_id=patient_id)
 
         return encounter_negatives
 
