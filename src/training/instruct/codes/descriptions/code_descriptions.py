@@ -94,8 +94,7 @@ class PHEDescription(CodeDescriptions):
 
         super().__init__(codes)
 
-    @staticmethod
-    def get_codes(phe_code_df: pd.DataFrame) -> Dict[str, str]:
+    def get_codes(self, phe_code_df: pd.DataFrame) -> Dict[str, str]:
         """
         Mapping from code to code description
 
@@ -106,7 +105,12 @@ class PHEDescription(CodeDescriptions):
         Returns:
             (Dict[str, str]): Mapping between code & it's description
         """
-        return {row.phecode: row.phecode_string for row in phe_code_df.itertuples()}
+        return {row.phecode: self.clean_code(row.phecode_string) for row in phe_code_df.itertuples()}
+
+    @staticmethod
+    def clean_code(code):
+        pattern = r'^([A-Z])(?=[a-z]+($|\s|/|,|\'))|(?<=[\[\(/])([A-Z])(?=[a-z])|^([A-Z])(?=[a-z]+\-[a-z])'
+        return re.sub(pattern, lambda x: x.group(0).lower(), re.sub('\*$', '', code))
 
     def get_description(self, code: str) -> str:
         """
