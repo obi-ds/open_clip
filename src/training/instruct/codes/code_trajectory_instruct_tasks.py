@@ -378,16 +378,16 @@ class CodeLabelPredictionTask(object):
         ].itertuples(index=False):
             code, label, start_time, end_time, ignore_instruction = row[0], row[1], row[2], row[3], row[4]
             time = self.process_time_period(start_time=start_time, end_time=end_time)
-            # code_instruct_string = self._code_instructions.get_instruction(
-            #     diagnosis=self._code_convert.transform_code(code=code),
-            #     time=time,
-            #     value=label
-            # )
             code_instruct_string = self._code_instructions.get_instruction(
-                diagnosis=code,
+                diagnosis=self._code_convert.transform_code(code=code),
                 time=time,
                 value=label
             )
+            # code_instruct_string = self._code_instructions.get_instruction(
+            #     diagnosis=code,
+            #     time=time,
+            #     value=label
+            # )
             instructions.append(code_instruct_string + (ignore_instruction,))
             instructions.append(self._code_instructions.get_example_separator_instruction())
         return instructions
