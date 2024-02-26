@@ -363,6 +363,8 @@ def evaluate_instruct_basic(
         data,
         epoch,
         args,
+        eot_token_id,
+        positive_token_id,
         tb_writer=None,
         prefix='',
         ignore_index=-100,
@@ -385,7 +387,7 @@ def evaluate_instruct_basic(
         # FIXME this does not scale past small eval datasets
         # all_image_features @ all_text_features will blow up memory and compute very quickly
         cumulative_gen_loss = 0.0
-        all_predictions, all_labels = [], []
+        all_scores, all_predictions, all_labels = [], [], []
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
@@ -398,10 +400,11 @@ def evaluate_instruct_basic(
                     model_out = model(images, texts)
                     model_logits = model_out['logits']
                     model_labels = model_out['labels']
-                    mask = model_labels != ignore_index
+                    mask = (model_labels != ignore_index) & (model_labels != eot_token_id)
                     labels = model_labels[mask]
                     logits = model_logits[mask]
 
+                    all_scores.append(logits[:, positive_token_id].cpu())
                     all_predictions.append(logits.argmax(dim=-1).cpu())
                     all_labels.append(labels.cpu())
                     # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
@@ -421,6 +424,7 @@ def evaluate_instruct_basic(
                         logging.info(
                             f"{prefix} Generative Loss: {cumulative_gen_loss / num_samples:.6f}\t")
             generative_metrics = compute_generative_metrics(
+                scores=torch.cat(all_scores),
                 predictions=torch.cat(all_predictions),
                 labels=torch.cat(all_labels),
                 prefix=prefix
@@ -508,19 +512,24 @@ def get_clip_metrics(image_features, text_features, logit_scale):
 
     return metrics
 
-
 def maybe_compute_generative_loss(model_out):
     if "logits" in model_out and "labels" in model_out:
         token_logits = model_out["logits"]
         token_labels = model_out["labels"]
         return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels)
 
-def compute_generative_loss(token_logits, token_labels, ignore_index=-100):
-    return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels, ignore_index=ignore_index)
+def compute_generative_loss(token_logits, token_labels, ignore_index=-100, reduction='mean'):
+    return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels, ignore_index=ignore_index, reduction=reduction)
 
-def compute_generative_metrics(predictions, labels, prefix):
+def compute_generative_metrics(scores, predictions, labels, prefix):
 
     metrics = {
         f'{prefix}accuracy': accuracy_score(labels, predictions),
+        f'{prefix}auc': roc_auc_score(labels, scores)
     }
     return metrics
+
+def compute_probability(loss):
+    mask = loss != 0
+    loss_mean = (loss * mask).sum(dim=1) / mask.sum(dim=1)
+    return torch.exp(-loss_mean)

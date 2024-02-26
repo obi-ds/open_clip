@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import copy
 import re
 import subprocess
 import sys
@@ -427,6 +428,8 @@ def main(args):
         return
 
     loss = create_loss(args)
+    eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
+    pos_token_id = get_pos_token_id(model_name=args.model, tokenizer=tokenizer, token='yes')
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
@@ -436,7 +439,15 @@ def main(args):
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
-            evaluate_instruct_basic(model, data, completed_epoch, args, tb_writer=writer)
+            evaluate_instruct_basic(
+                model=model,
+                data=data,
+                epoch=completed_epoch, 
+                args=args,
+                eot_token_id=eos_token_id,
+                positive_token_id=pos_token_id,
+                tb_writer=writer
+            )
 
         # Saving checkpoints.
         if args.save_logs:
@@ -501,6 +512,18 @@ def copy_codebase(args):
     copytree(current_code_path, new_code_path, ignore=ignore_patterns('log', 'logs', 'wandb'))
     print("Done copying code.")
     return 1
+
+def get_eos_token_id(model_name, tokenizer):
+    if 'gpt' in model_name:
+        return tokenizer.tokenizer.eos_token_id
+    else:
+        return tokenizer.eot_token_id
+
+def get_pos_token_id(model_name, tokenizer, token):
+    if 'gpt' in model_name:
+        return tokenizer.tokenizer.convert_tokens_to_ids(token)
+    else:
+        return tokenizer.encode(token)[0]
 
 
 if __name__ == "__main__":
