@@ -15,4 +15,10 @@ def get_instruct_arguments():
         default=1,
         help="The number of instruction examples to use",
     )
+    parser.add_argument(
+        "--eval-mode",
+        default=False,
+        action="store_true",
+        help="Whether to run the main script in eval mode only"
+    )
     return parser
