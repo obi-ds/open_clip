@@ -110,9 +110,9 @@ class CodeLabelPredictionTask(object):
 
         # Get a dataframe that can be used to sample negatives
         encounter_negatives = self._negative_code_sampling.get_encounter_negatives_from_cache_process_and_update(
+            encounter_history=encounter_history,
             patient_id=sample[args.patient_id_column],
             current_time=sample[args.sample_result_date_column],
-            update_cache=encounter_history[self._code_column].nunique() >= 5,
             use_log_position=args.use_log_position,
             time_difference_normalize=args.time_difference_normalize,
             exclude_codes=self.get_exclude_codes_for_negatives(encounter_history=encounter_history),

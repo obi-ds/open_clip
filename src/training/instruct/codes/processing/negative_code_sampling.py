@@ -1,7 +1,7 @@
 """Sampling negative codes for a patient"""
 import numpy as np
 import pandas as pd
-from typing import Optional, Sequence, Union
+from typing import Optional, Union
 
 from .encounter_dataframe_process import EncounterDataframeProcess
 
@@ -14,12 +14,14 @@ class NegativeCodeCacheSampling(object):
     def __init__(
             self,
             encounter_dataframe_process: EncounterDataframeProcess,
+            negatives_type,
             code_task_negative_cache_size: int,
             minimum_encounter_size: int,
             minimum_negatives_size: int = 10,
             source_file: Optional[str] = None,
     ):
         self._encounter_dataframe_process = encounter_dataframe_process
+        self._negatives_type = negatives_type
         self._code_task_negative_cache = set()
         self._last_sampled_cache_id = None
         self._code_task_negative_cache_size = code_task_negative_cache_size
@@ -29,7 +31,7 @@ class NegativeCodeCacheSampling(object):
         if source_file is None:
             source_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
             raw_codes = pd.read_csv(source_file, encoding='ISO-8859-1').phecode
-            self._codes = set(raw_codes)
+            self._codes = pd.Series(list(set(raw_codes)))
         else:
             raise NotImplementedError('Custom source file yet to be implemented')
 
@@ -68,14 +70,14 @@ class NegativeCodeCacheSampling(object):
 
     def get_encounter_negatives_from_cache_process_and_update(
             self,
+            encounter_history: pd.DataFrame,
             patient_id: str,
             current_time: str,
-            update_cache: bool,
             use_log_position: bool,
             time_difference_normalize: int,
-            exclude_codes: Sequence[str],
+            exclude_codes: pd.Series,
             code_column: str = 'phecode',
-            position_column: str = 'position'
+            position_column: str = 'position',
     ):
         """
         Sample an encounter history from the cache - we can then sample codes
@@ -83,14 +85,14 @@ class NegativeCodeCacheSampling(object):
         Once this is done - we update the cache
 
         Args:
+            encounter_history (pd.DataFrame): The encounter history
             patient_id (str): The id of the patient
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
             with respect to other encounters
-            update_cache (bool): Whether to update the cache with this id
             use_log_position (bool): Whether to keep time deltas in days or as log value of days
             time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
             (e.g. 30 normalizes it to months)
-            exclude_codes (Sequence[str]): Remove these codes from the sampled encounter negatives
+            exclude_codes (pd.Series): Remove these codes from the sampled encounter negatives
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
 
@@ -102,12 +104,14 @@ class NegativeCodeCacheSampling(object):
         if (
                 negative_patient_id is None
                 or not self._encounter_dataframe_process.check_patient_id(patient_id=negative_patient_id)
+                or self._negatives_type == 'random'
         ):
             encounter_negatives = self.get_random_negatives(
-                exclude_codes=set(exclude_codes),
+                exclude_codes=exclude_codes,
                 size=self._minimum_negatives_size,
                 code_column=code_column,
-                position_column=position_column
+                position_column=position_column,
+                positions=encounter_history[position_column]
             )
         else:
             encounter_negatives = self.get_encounter_history(
@@ -124,7 +128,7 @@ class NegativeCodeCacheSampling(object):
                 position_column=position_column
             )
 
-        if update_cache:
+        if encounter_history[code_column].nunique() >= self._minimum_encounter_size:
             # Update cache
             self.update_cache(patient_id=patient_id)
 
@@ -133,7 +137,7 @@ class NegativeCodeCacheSampling(object):
     def process_negatives(
             self,
             encounter_negatives: pd.DataFrame,
-            exclude_codes: Sequence[str],
+            exclude_codes: pd.Series,
             code_column: str = 'phecode',
             position_column: str = 'position'
     ) -> Optional[pd.DataFrame]:
@@ -143,7 +147,7 @@ class NegativeCodeCacheSampling(object):
 
         Args:
             encounter_negatives (str): The negative encounter history
-            exclude_codes (Sequence[str]): Remove these codes from the sampled encounter negatives
+            exclude_codes (pd.Series): Remove these codes from the sampled encounter negatives
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
 
@@ -161,7 +165,7 @@ class NegativeCodeCacheSampling(object):
         if encounter_negatives[code_column].nunique() < self._minimum_negatives_size:
             size = self._minimum_negatives_size - encounter_negatives[code_column].nunique()
             random_negatives = self.get_random_negatives(
-                exclude_codes=set(exclude_codes).union(encounter_negatives[code_column]),
+                exclude_codes=pd.concat([exclude_codes, encounter_negatives[code_column]]),
                 size=size,
                 positions=negative_positions,
                 code_column=code_column,
@@ -205,7 +209,7 @@ class NegativeCodeCacheSampling(object):
 
     def get_random_negatives(
             self,
-            exclude_codes: set,
+            exclude_codes: pd.Series,
             size: int,
             positions: Optional = None,
             code_column: str = 'phecode',
@@ -216,7 +220,7 @@ class NegativeCodeCacheSampling(object):
 
         Args:
             size (int): The number of negatives to sample
-            exclude_codes (Sequence[str]): Remove these codes from the sampled encounter negatives
+            exclude_codes (pd.Series): Remove these codes from the sampled encounter negatives
             positions (Optional): Use pre-defined position values
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
@@ -224,7 +228,9 @@ class NegativeCodeCacheSampling(object):
         Returns:
             (pd.DataFrame): A dataframe containing randomly sampled negatives
         """
-        negatives = self._codes.difference(exclude_codes)
+        negatives = self.exclude_codes_from_dataframe(
+            encounter_dataframe=self._codes, exclude_codes=exclude_codes, code_column=code_column
+        )
 
         if positions is None:
             position_column_value = 0
@@ -232,15 +238,15 @@ class NegativeCodeCacheSampling(object):
             position_column_value = np.random.choice(positions, size=size)
         return pd.DataFrame(
             {
-                code_column: np.random.choice(list(negatives), size, replace=False),
+                code_column: np.random.choice(negatives, size, replace=False),
                 position_column: position_column_value
             }
         )
 
-    @staticmethod
     def exclude_codes_from_dataframe(
-            encounter_dataframe: pd.DataFrame,
-            exclude_codes: Sequence[str],
+            self,
+            encounter_dataframe: Union[pd.DataFrame, pd.Series],
+            exclude_codes: pd.Series,
             code_column: str,
     ) -> pd.DataFrame:
         """
@@ -249,13 +255,22 @@ class NegativeCodeCacheSampling(object):
         dataframe and return
         Args:
             encounter_dataframe (pd.DataFrame): The input dataframe
-            exclude_codes (Sequence[str]): The codes to exclude
+            exclude_codes ( pd.Series): The codes to exclude
             code_column (str): The column that contains the diagnostic codes
 
         Returns:
             (pd.DataFrame): Dataframe with code excluded
         """
-        return encounter_dataframe[~encounter_dataframe[code_column].isin(exclude_codes)]
+        if isinstance(encounter_dataframe, pd.DataFrame):
+            top_level_codes = self.get_top_level_codes(encounter_dataframe[code_column])
+        else:
+            top_level_codes = self.get_top_level_codes(encounter_dataframe)
+        top_level_exclude = self.get_top_level_codes(exclude_codes).unique()
+        return encounter_dataframe[~top_level_codes.isin(top_level_exclude)]
+
+    @staticmethod
+    def get_top_level_codes(codes):
+        return codes.str.split('.').str[0]
 
     @staticmethod
     def concatenate_negatives(

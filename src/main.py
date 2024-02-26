@@ -442,7 +442,7 @@ def main(args):
             evaluate_instruct_basic(
                 model=model,
                 data=data,
-                epoch=completed_epoch, 
+                epoch=completed_epoch,
                 args=args,
                 eot_token_id=eos_token_id,
                 positive_token_id=pos_token_id,
