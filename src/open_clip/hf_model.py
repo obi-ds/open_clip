@@ -115,6 +115,9 @@ class GPTTextEncoder(nn.Module):
             from_tf=bool(".ckpt" in model_name_or_path),
             config=self.config,
         )
+        # FIXME: Will this help GPT model? - The other components of coca aren't layer
+        #  normalized - the scattering/vision transformer
+        # self.transformer.ln_f = nn.Identity()
 
         self.vocab_size = getattr(self.config, 'vocab_size', 0)
         self.context_length = getattr(self.config, 'n_positions', 0)
