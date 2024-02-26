@@ -247,6 +247,8 @@ class CodeLabelPredictionTask(object):
             position_values=encounter_history[self._position_column]
         )
 
+        encounter_history[self._code_column] = encounter_history[self._code_column].astype(str)
+
         return encounter_history
 
     def get_prediction_range(self, encounter_history: pd.DataFrame) -> Tuple[int, int]:
@@ -581,11 +583,6 @@ class CodeLabelPredictionTask(object):
         Returns:
             (pd.DataFrame): A randomly generated encounter dataframe
         """
-
-        # Sample negative codes
-        codes = ['SS_819']
-        # Sample position values
-        positions = [0]
         # Use these to create and return a dataframe
         return pd.DataFrame(
             {self._code_column: [], self._position_column: []}
@@ -603,7 +600,7 @@ class CodeLabelPredictionTask(object):
         Returns:
             (pd.Series): List of codes that should not be used for negative sampling
         """
-        return encounter_history[self._code_column].unique()
+        return encounter_history[self._code_column]
 
     @staticmethod
     def get_positive_negative_sizes(max_size: int, number_of_encounters: int) -> Tuple[int, int]:
