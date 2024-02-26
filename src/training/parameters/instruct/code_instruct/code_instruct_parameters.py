@@ -40,4 +40,11 @@ def get_code_instruct_arguments():
         action="store_true",
         help="Whether to shuffle bins within a code"
     )
+    parser.add_argument(
+        '--negatives-type',
+        default=None,
+        type=str,
+        choices=['random', 'cached'],
+        help="How to sample negatives"
+    )
     return parser
