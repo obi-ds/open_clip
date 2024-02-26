@@ -152,4 +152,4 @@ src/debug
 core.*
 
 # Allow
-!src/evaluation/misc/results_dbs/*
+!src/evaluation/misc/results_dbs/*!/src/training/instruct/codes/descriptions/phe_codes_flat.csv
