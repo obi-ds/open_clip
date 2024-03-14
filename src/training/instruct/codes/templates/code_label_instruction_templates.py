@@ -16,8 +16,7 @@ class CodeLabelPredictionInstructionTemplate(object):
 
     def __init__(
             self,
-            past_input,
-            future_input,
+            inputs,
             targets: str = '',
             inputs_prefix: str = "",
             targets_prefix: str = "",
@@ -30,8 +29,7 @@ class CodeLabelPredictionInstructionTemplate(object):
         Initialize the variables
 
         Args:
-            past_input (str): The string that represents the past-time instruction input
-            future_input (str): The string that represents the future-time instruction input
+            inputs (str): The string that represents the future-time instruction input
             targets (str): The string that represents the instruction target
             inputs_prefix (str): Append this prefix to the instruction input
             targets_prefix (str): Append this prefix to the instruction target
@@ -43,24 +41,24 @@ class CodeLabelPredictionInstructionTemplate(object):
         """
         self._task_name = task_name
         self._task_definition = task_definition
-        self._past_input = past_input
-        self._future_input = future_input
+        self._inputs = inputs
         self._targets = targets
         self._inputs_prefix = inputs_prefix
         self._targets_prefix = targets_prefix
         self._x_y_delimiter = x_y_delimiter
         self._example_separator = example_separator
 
-    def get_task_definition(self) -> str:
+    def get_task_definition(self, time) -> str:
         """
         Return the task definition
 
         Returns:
             (str): String containing the definition of the task
         """
-        return self._task_definition
+        task_definition = self._task_definition.format(time=time)
+        return self.fix_time_string(task_definition, np.abs(time))
 
-    def get_instruction(self, diagnosis: str, time: int, value: Union[str, int, float]) -> Tuple[str, str]:
+    def get_instruction(self, diagnosis: str, value: Union[str, int, float]) -> Tuple[str, str]:
         """
         Given a positive diagnosis and the relative time of diagnosis
         return the instruction input and instruction target containing
@@ -68,46 +66,27 @@ class CodeLabelPredictionInstructionTemplate(object):
 
         Args:
             diagnosis (str): A medical/billing diagnosis
-            time (int): The time of diagnosis
             value (Union[str, int, float]): A value to represent the status of the diagnosis
 
         Returns:
             (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
         """
-        if time < 0:
-            instruction_input = self.get_past_instruction_input(diagnosis=diagnosis, time=str(np.abs(time)))
-        else:
-            instruction_input = self.get_future_instruction_input(diagnosis=diagnosis, time=str(np.abs(time)))
-        instruction_input = self.fix_time_string(instruction_input, np.abs(time))
+        instruction_input = self.get_instruction_input(diagnosis=diagnosis)
         instruction_target = self.get_instruction_target(value=value)
 
         return instruction_input, instruction_target
 
-    def get_past_instruction_input(self, diagnosis: str, time: str) -> str:
+    def get_instruction_input(self, diagnosis: str) -> str:
         """
         Add the diagnosis to the instruction input
 
         Args:
             diagnosis (str): A medical/billing diagnosis
-            time (str): The time of diagnosis
 
         Returns:
             (str): Instruction input that contains the diagnosis
         """
-        return self._inputs_prefix + self._past_input.format(diagnosis=diagnosis, time=time) + self._x_y_delimiter
-
-    def get_future_instruction_input(self, diagnosis: str, time: str) -> str:
-        """
-        Add the diagnosis to the instruction input
-
-        Args:
-            diagnosis (str): A medical/billing diagnosis
-            time (str): The time of diagnosis
-
-        Returns:
-            (str): Instruction input that contains the diagnosis
-        """
-        return self._inputs_prefix + self._future_input.format(diagnosis=diagnosis, time=time) + self._x_y_delimiter
+        return self._inputs_prefix + self._inputs.format(diagnosis=diagnosis) + self._x_y_delimiter
 
 
     def get_instruction_target(self, value: Union[str, int, float]) -> str:
@@ -124,7 +103,8 @@ class CodeLabelPredictionInstructionTemplate(object):
         """
         return str(value)
 
-    def fix_time_string(self, instruction_input, time):
+    @staticmethod
+    def fix_time_string(instruction_input, time):
         if time == 1:
             return instruction_input.replace('months', 'month')
         else:
