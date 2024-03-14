@@ -12,8 +12,23 @@ def get_instruct_arguments():
     parser.add_argument(
         "--number-of-instructions",
         type=int,
-        default=1,
+        nargs='+',
+        default=None,
         help="The number of instruction examples to use",
+    )
+    parser.add_argument(
+        "--k-shot",
+        type=int,
+        nargs='+',
+        default=None,
+        help="The number of k_shots to use",
+    )
+    parser.add_argument(
+        '--training-type',
+        default=None,
+        type=str,
+        choices=['all', 'single'],
+        help="Train against all codes or just a single code"
     )
     parser.add_argument(
         "--eval-mode",
