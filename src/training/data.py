@@ -25,6 +25,7 @@ from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander
 from open_clip.tokenizer import decode
 from .instruct.codes import (
     CodeLabelPredictionTask,
+    SingleCodeLabelPredictionTask,
     CodeLabelPredictionTaskEvaluation
 )
 from .instruct.codes.descriptions import ICDDescription, PHEDescription
@@ -36,7 +37,7 @@ from .instruct.codes.processing import (
     PHEConvert,
 )
 from .instruct.utils import (
-    get_code_label_prediction_instruction_template
+    get_code_label_prediction_instruction_template,
 )
 from .instruct.codes.processing.data_bins import AgglomerativeDataBins, MonthDataBins
 from .instruct import (
@@ -466,7 +467,16 @@ def get_example_separator(model_name, tokenizer):
     else:
         return decode(torch.tensor([tokenizer.eot_token_id]))
 
+def get_code_prediction_instruction_template(model_name, tokenizer, training_type):
+    if training_type == 'trajectory':
+        raise NotImplementedError()
+    else:
+        return get_code_label_prediction_instruction_template(
+            example_separator=get_example_separator(model_name=model_name, tokenizer=tokenizer)
+        )
+
 def get_code_label_prediction_task(
+        training_type,
         encounter_dataframe_process,
         negative_code_sampling,
         dataframe_sampling,
@@ -478,17 +488,34 @@ def get_code_label_prediction_task(
         position_column
 ):
 
-    return CodeLabelPredictionTask(
-        encounter_dataframe_process=encounter_dataframe_process,
-        dataframe_sampling=dataframe_sampling,
-        code_instructions=code_label_prediction_instructions,
-        time_bins=time_bins,
-        code_convert=code_convert,
-        negative_code_sampling=negative_code_sampling,
-        patient_id_column=patient_id_column,
-        code_column=code_column,
-        position_column=position_column,
-    )
+    if training_type == 'single':
+        return SingleCodeLabelPredictionTask(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_label_prediction_instructions,
+            time_bins=time_bins,
+            code_convert=code_convert,
+            negative_code_sampling=negative_code_sampling,
+            patient_id_column=patient_id_column,
+            code_column=code_column,
+            position_column=position_column,
+        )
+    elif training_type == 'all':
+        return CodeLabelPredictionTask(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_label_prediction_instructions,
+            time_bins=time_bins,
+            code_convert=code_convert,
+            negative_code_sampling=negative_code_sampling,
+            patient_id_column=patient_id_column,
+            code_column=code_column,
+            position_column=position_column,
+        )
+    elif training_type == 'trajectory':
+        raise NotImplementedError()
+    else:
+        raise ValueError('Invalid training tpe')
 
 def get_code_label_prediction_task_eval(
         encounter_dataframe_process,
@@ -563,12 +590,12 @@ def get_wds_dataset_icd_instruct(
         position_column=args.position_column,
     )
 
+    # Set these to - number_of_instructions * k_shot?
     negative_code_cache_sampling = NegativeCodeCacheSampling(
         encounter_dataframe_process=encounter_dataframe_process,
         negatives_type=args.negatives_type,
         code_task_negative_cache_size=100,
-        minimum_encounter_size=5,
-        minimum_negatives_size=5,
+        minimum_negatives_size=10,
     )
 
     time_bins = [
@@ -576,8 +603,8 @@ def get_wds_dataset_icd_instruct(
         for distance_threshold in args.distance_threshold
     ]
 
-    code_label_prediction_instructions = get_code_label_prediction_instruction_template(
-        example_separator=get_example_separator(model_name=args.model, tokenizer=tokenizer)
+    code_label_prediction_instructions = get_code_prediction_instruction_template(
+        model_name=args.model, tokenizer=tokenizer, training_type=args.training_type
     )
 
     if args.eval_mode or eval_mode:
@@ -594,6 +621,7 @@ def get_wds_dataset_icd_instruct(
         )
     else:
         code_label_prediction_task = get_code_label_prediction_task(
+            training_type=args.training_type,
             encounter_dataframe_process=encounter_dataframe_process,
             negative_code_sampling=negative_code_cache_sampling,
             dataframe_sampling=dataframe_sampling,
