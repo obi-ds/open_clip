@@ -28,10 +28,4 @@ def get_code_eval_arguments():
         default=None,
         help="Evaluate a specific label",
     )
-    parser.add_argument(
-        "--eval-strict",
-        default=False,
-        action="store_true",
-        help="Whether to run the eval with strict control over time period"
-    )
     return parser
