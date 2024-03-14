@@ -17,7 +17,6 @@ class NegativeCodeCacheSampling(object):
             encounter_dataframe_process: EncounterDataframeProcess,
             negatives_type,
             code_task_negative_cache_size: int,
-            minimum_encounter_size: int,
             minimum_negatives_size: int = 10,
             source_file: Optional[str] = None,
     ):
@@ -26,7 +25,6 @@ class NegativeCodeCacheSampling(object):
         self._code_task_negative_cache = set()
         self._last_sampled_cache_id = None
         self._code_task_negative_cache_size = code_task_negative_cache_size
-        self._minimum_encounter_size = minimum_encounter_size
         self._minimum_negatives_size = minimum_negatives_size
 
         if source_file is None:
@@ -72,7 +70,6 @@ class NegativeCodeCacheSampling(object):
 
     def get_encounter_negatives_from_cache_process_and_update(
             self,
-            encounter_history: pd.DataFrame,
             patient_id: str,
             current_time: str,
             use_log_position: bool,
@@ -87,7 +84,6 @@ class NegativeCodeCacheSampling(object):
         Once this is done - we update the cache
 
         Args:
-            encounter_history (pd.DataFrame): The encounter history
             patient_id (str): The id of the patient
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
             with respect to other encounters
@@ -113,7 +109,6 @@ class NegativeCodeCacheSampling(object):
                 size=self._minimum_negatives_size,
                 code_column=code_column,
                 position_column=position_column,
-                positions=None if encounter_history.empty else encounter_history[position_column]
             )
         else:
             encounter_negatives = self.get_encounter_history(
@@ -130,9 +125,7 @@ class NegativeCodeCacheSampling(object):
                 position_column=position_column
             )
 
-        if encounter_history[code_column].nunique() >= self._minimum_encounter_size:
-            # Update cache
-            self.update_cache(patient_id=patient_id)
+        self.update_cache(patient_id=patient_id)
 
         return encounter_negatives
 
@@ -245,38 +238,14 @@ class NegativeCodeCacheSampling(object):
         if positions is None:
             position_column_value = 0
         else:
-            position_column_value = np.random.choice(positions, size=size)
+            # position_column_value = np.random.choice(positions, size=size)
+            position_column_value = 0
         return pd.DataFrame(
             {
                 code_column: np.random.choice(negatives, size, replace=False),
                 position_column: position_column_value
             }
         )
-
-    # def exclude_codes_from_dataframe(
-    #         self,
-    #         encounter_dataframe: Union[pd.DataFrame, pd.Series],
-    #         exclude_codes: pd.Series,
-    #         code_column: str,
-    # ) -> pd.DataFrame:
-    #     """
-    #     Given an input dataframe - return the original dataframe without the
-    #     codes given in exclude codes - basically exclude these codes from the
-    #     dataframe and return
-    #     Args:
-    #         encounter_dataframe (pd.DataFrame): The input dataframe
-    #         exclude_codes ( pd.Series): The codes to exclude
-    #         code_column (str): The column that contains the diagnostic codes
-    #
-    #     Returns:
-    #         (pd.DataFrame): Dataframe with code excluded
-    #     """
-    #     if isinstance(encounter_dataframe, pd.DataFrame):
-    #         top_level_codes = self.get_top_level_codes(encounter_dataframe[code_column])
-    #     else:
-    #         top_level_codes = self.get_top_level_codes(encounter_dataframe)
-    #     top_level_exclude = self.get_top_level_codes(exclude_codes).unique()
-    #     return encounter_dataframe[~top_level_codes.isin(top_level_exclude)]
 
     def exclude_codes_from_dataframe(
             self,
@@ -306,9 +275,28 @@ class NegativeCodeCacheSampling(object):
             return encounter_dataframe[~encounter_dataframe.isin(exclude)]
 
     def get_exclude_codes_from_trie(self, code):
+        """
+        Get the codes to excludes based on the trie.
+        Exclude parents and children but not siblings
+
+        Args:
+            code:
+
+        Returns:
+
+        """
         return list(self._trie[code:]) + [code_obj[1] for code_obj in self._trie.prefixes(code)]
 
     def build_trie(self, codes):
+        """
+        Build the trie datastructure
+
+        Args:
+            codes:
+
+        Returns:
+
+        """
         trie = pygtrie.StringTrie()
         for code in codes:
             key = '/'.join(self.get_parent_codes(code))
@@ -317,6 +305,16 @@ class NegativeCodeCacheSampling(object):
 
     @staticmethod
     def get_parent_codes(code):
+        """
+        Given a code - get it's trie representation - this would consist of it's parents
+        all combined in string form
+
+        Args:
+            code:
+
+        Returns:
+
+        """
         split_code = code.split('.')
         top_code = split_code[0]
         sub_code_string = ''
@@ -327,10 +325,6 @@ class NegativeCodeCacheSampling(object):
             sub_code_string += char
             exclude.append(top_code + '.' + sub_code_string)
         return exclude
-
-    @staticmethod
-    def get_top_level_codes(codes):
-        return codes.str.split('.').str[0]
 
     @staticmethod
     def concatenate_negatives(
