@@ -219,6 +219,15 @@ class EncounterDataframeProcess(object):
         """
         return dataframe[filter_mask]
 
-    def check_patient_id(self, patient_id):
+    def check_patient_id(self, patient_id: str) -> bool:
+        """
+        Check if patient id exists in encounter dataframe
+
+        Args:
+            patient_id (str): The id of the patient
+
+        Returns:
+            (bool): True if patient id exists, false otherwise
+        """
         return patient_id in self._encounter_dataframe.index
 
