@@ -7,6 +7,11 @@ from sklearn.metrics import (
 )
 
 
+
+# TODO: Evaluate sign
+# TODO: Evaluate number
+
+
 def parse_t2e_text(text):
     if 'inf' in text:
         return 'inf'

@@ -1,4 +1,5 @@
 """Sampling negative codes for a patient"""
+import pygtrie
 import numpy as np
 import pandas as pd
 from typing import Optional, Union
@@ -32,6 +33,7 @@ class NegativeCodeCacheSampling(object):
             source_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
             raw_codes = pd.read_csv(source_file, encoding='ISO-8859-1').phecode
             self._codes = pd.Series(list(set(raw_codes)))
+            self._trie = self.build_trie(codes=self._codes)
         else:
             raise NotImplementedError('Custom source file yet to be implemented')
 
@@ -111,7 +113,7 @@ class NegativeCodeCacheSampling(object):
                 size=self._minimum_negatives_size,
                 code_column=code_column,
                 position_column=position_column,
-                positions=encounter_history[position_column]
+                positions=None if encounter_history.empty else encounter_history[position_column]
             )
         else:
             encounter_negatives = self.get_encounter_history(
@@ -162,16 +164,24 @@ class NegativeCodeCacheSampling(object):
             exclude_codes=exclude_codes,
             code_column=code_column
         )
-        if encounter_negatives[code_column].nunique() < self._minimum_negatives_size:
-            size = self._minimum_negatives_size - encounter_negatives[code_column].nunique()
-            random_negatives = self.get_random_negatives(
-                exclude_codes=pd.concat([exclude_codes, encounter_negatives[code_column]]),
-                size=size,
-                positions=negative_positions,
-                code_column=code_column,
-                position_column=position_column
-            )
-            encounter_negatives = self.concatenate_negatives(encounter_negatives, random_negatives)
+        number_unique = encounter_negatives[code_column].nunique()
+
+        if self._negatives_type == 'random_cached':
+            size = max(number_unique, self._minimum_negatives_size - number_unique)
+        elif self._negatives_type == 'cached':
+            size = max(0, self._minimum_negatives_size - number_unique)
+        else:
+            raise ValueError('Invalid negatives type')
+        if size == 0:
+            return encounter_negatives
+        random_negatives = self.get_random_negatives(
+            exclude_codes=pd.concat([exclude_codes, encounter_negatives[code_column]]),
+            size=size,
+            positions=negative_positions,
+            code_column=code_column,
+            position_column=position_column
+        )
+        encounter_negatives = self.concatenate_negatives(encounter_negatives, random_negatives)
         return encounter_negatives
 
     def get_encounter_history(
@@ -243,6 +253,31 @@ class NegativeCodeCacheSampling(object):
             }
         )
 
+    # def exclude_codes_from_dataframe(
+    #         self,
+    #         encounter_dataframe: Union[pd.DataFrame, pd.Series],
+    #         exclude_codes: pd.Series,
+    #         code_column: str,
+    # ) -> pd.DataFrame:
+    #     """
+    #     Given an input dataframe - return the original dataframe without the
+    #     codes given in exclude codes - basically exclude these codes from the
+    #     dataframe and return
+    #     Args:
+    #         encounter_dataframe (pd.DataFrame): The input dataframe
+    #         exclude_codes ( pd.Series): The codes to exclude
+    #         code_column (str): The column that contains the diagnostic codes
+    #
+    #     Returns:
+    #         (pd.DataFrame): Dataframe with code excluded
+    #     """
+    #     if isinstance(encounter_dataframe, pd.DataFrame):
+    #         top_level_codes = self.get_top_level_codes(encounter_dataframe[code_column])
+    #     else:
+    #         top_level_codes = self.get_top_level_codes(encounter_dataframe)
+    #     top_level_exclude = self.get_top_level_codes(exclude_codes).unique()
+    #     return encounter_dataframe[~top_level_codes.isin(top_level_exclude)]
+
     def exclude_codes_from_dataframe(
             self,
             encounter_dataframe: Union[pd.DataFrame, pd.Series],
@@ -261,12 +296,37 @@ class NegativeCodeCacheSampling(object):
         Returns:
             (pd.DataFrame): Dataframe with code excluded
         """
+        exclude = list()
+        for code in exclude_codes:
+            key = '/'.join(self.get_parent_codes(code))
+            exclude.extend(self.get_exclude_codes_from_trie(key))
         if isinstance(encounter_dataframe, pd.DataFrame):
-            top_level_codes = self.get_top_level_codes(encounter_dataframe[code_column])
+            return encounter_dataframe[~encounter_dataframe[code_column].isin(exclude)]
         else:
-            top_level_codes = self.get_top_level_codes(encounter_dataframe)
-        top_level_exclude = self.get_top_level_codes(exclude_codes).unique()
-        return encounter_dataframe[~top_level_codes.isin(top_level_exclude)]
+            return encounter_dataframe[~encounter_dataframe.isin(exclude)]
+
+    def get_exclude_codes_from_trie(self, code):
+        return list(self._trie[code:]) + [code_obj[1] for code_obj in self._trie.prefixes(code)]
+
+    def build_trie(self, codes):
+        trie = pygtrie.StringTrie()
+        for code in codes:
+            key = '/'.join(self.get_parent_codes(code))
+            trie[key] = code
+        return trie
+
+    @staticmethod
+    def get_parent_codes(code):
+        split_code = code.split('.')
+        top_code = split_code[0]
+        sub_code_string = ''
+        exclude = [top_code]
+        if len(split_code) == 1:
+            return exclude
+        for char in split_code[1]:
+            sub_code_string += char
+            exclude.append(top_code + '.' + sub_code_string)
+        return exclude
 
     @staticmethod
     def get_top_level_codes(codes):
