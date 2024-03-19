@@ -88,7 +88,8 @@ class PHEDescription(CodeDescriptions):
         """
         if source_file is None:
             source_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
-            codes = self.get_codes(phe_code_df=pd.read_csv(source_file, encoding='ISO-8859-1'))
+            phe_code_df = pd.read_csv(source_file, encoding='ISO-8859-1')
+            codes = {**self.get_codes(phe_code_df=phe_code_df), **self.get_root_codes(phe_code_df=phe_code_df)}
         else:
             raise NotImplementedError('Custom icd source files are not supported yet')
 
@@ -108,9 +109,31 @@ class PHEDescription(CodeDescriptions):
         return {row.phecode: self.clean_code(row.phecode_string) for row in phe_code_df.itertuples()}
 
     @staticmethod
+    def get_root_codes(phe_code_df: pd.DataFrame) -> Dict[str, str]:
+        """
+        Mapping from root code to description
+
+        Args:
+            phe_code_df (pd.DataFrame): The dataframe that contains phe codes
+            and their textual descriptions
+
+        Returns:
+            (Dict[str, str]): Mapping between root code & it's description
+        """
+        return {row.phecode.split('_')[0]: row.category for row in phe_code_df.itertuples()}
+
+    @staticmethod
     def clean_code(code):
+        """
+        Clean the description of the code
+        Args:
+            code:
+
+        Returns:
+
+        """
         pattern = r'^([A-Z])(?=[a-z]+($|\s|/|,|\'))|(?<=[\[\(/])([A-Z])(?=[a-z])|^([A-Z])(?=[a-z]+\-[a-z])'
-        return re.sub(pattern, lambda x: x.group(0).lower(), re.sub('\*$', '', code))
+        return re.sub(pattern, lambda x: x.group(0), re.sub('\*$', '', code))
 
     def get_description(self, code: str) -> str:
         """
@@ -126,3 +149,4 @@ class PHEDescription(CodeDescriptions):
         if not re.search(r'\w+', description):
             raise ValueError('Did not find description of PHE code')
         return description
+
