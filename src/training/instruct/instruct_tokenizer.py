@@ -271,4 +271,4 @@ class GPT2InstructTokenizer(InstructTokenizer):
         if ignore_instruction:
             return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
         else:
-            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.tokenizer.eos_token_id]
+            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._ignore_index]
