@@ -459,21 +459,9 @@ def get_instruct_tokenizer(model_name, tokenizer, pad_id, max_seq_length, ignore
             tokenizer=tokenizer, pad_id=pad_id, max_seq_length=max_seq_length, ignore_index=ignore_index
         )
 
-def get_example_separator(model_name, tokenizer):
-    if tokenizer is None:
-        return '\n'
-    if 'gpt' in model_name:
-        return tokenizer.tokenizer.eos_token
-    else:
-        return decode(torch.tensor([tokenizer.eot_token_id]))
 
-def get_code_prediction_instruction_template(model_name, tokenizer, training_type):
-    if training_type == 'trajectory':
-        raise NotImplementedError()
-    else:
-        return get_code_label_prediction_instruction_template(
-            example_separator=get_example_separator(model_name=model_name, tokenizer=tokenizer)
-        )
+def get_code_prediction_instruction_template():
+    return get_code_label_prediction_instruction_template()
 
 def get_code_label_prediction_task(
         training_type,
@@ -603,9 +591,7 @@ def get_wds_dataset_icd_instruct(
         for distance_threshold in args.distance_threshold
     ]
 
-    code_label_prediction_instructions = get_code_prediction_instruction_template(
-        model_name=args.model, tokenizer=tokenizer, training_type=args.training_type
-    )
+    code_label_prediction_instructions = get_code_prediction_instruction_template()
 
     if args.eval_mode or eval_mode:
         code_label_prediction_task = get_code_label_prediction_task_eval(
