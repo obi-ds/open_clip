@@ -2,6 +2,7 @@
 import pygtrie
 import numpy as np
 import pandas as pd
+from treelib import Node, Tree
 from typing import Optional, Union
 
 from .encounter_dataframe_process import EncounterDataframeProcess
@@ -31,42 +32,11 @@ class NegativeCodeCacheSampling(object):
             source_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
             raw_codes = pd.read_csv(source_file, encoding='ISO-8859-1').phecode
             self._codes = pd.Series(list(set(raw_codes)))
-            self._trie = self.build_trie(codes=self._codes)
         else:
             raise NotImplementedError('Custom source file yet to be implemented')
 
-    def update_cache(self, patient_id: str):
-        """
-        Update cache with this patient id
-
-        Args:
-            patient_id (str): The ID of the patient
-        """
-        if len(self._code_task_negative_cache) >= self._code_task_negative_cache_size:
-            self._code_task_negative_cache.remove(self._last_sampled_cache_id)
-        self._code_task_negative_cache.add(patient_id)
-
-    def get_patient_from_cache(self, patient_id) -> Optional[str]:
-        """
-        Sample an encounter history from the cache - we can then sample codes
-        from this and use it as negative samples for the current patient.
-
-        Args:
-            patient_id (str): The id pf the patient
-
-        Returns:
-            (pd.DataFrame): The id of the cached patient
-        """
-        cached_patient_ids = self._code_task_negative_cache - {patient_id}
-        # Cache is empty - return empty cache
-        if not cached_patient_ids:
-            return None
-        else:
-            # Sample from cache
-            sample_cached_patient_id = np.random.choice(list(cached_patient_ids))
-            # Keep track of which encounter history was used to sample the negatives last
-            self._last_sampled_cache_id = sample_cached_patient_id
-            return sample_cached_patient_id
+        self._trie = self.build_trie(codes=self._codes)
+        self._tree = self.build_tree(codes=self._codes)
 
     def get_encounter_negatives_from_cache_process_and_update(
             self,
@@ -97,8 +67,11 @@ class NegativeCodeCacheSampling(object):
         Returns:
 
         """
+        # Retrieve one of the cached patients
         negative_patient_id = self.get_patient_from_cache(patient_id=patient_id)
 
+        # If cache is empty, or if the cached id does not have any encounter data or  if
+        # we only want to sample random negatives
         if (
                 negative_patient_id is None
                 or not self._encounter_dataframe_process.check_patient_id(patient_id=negative_patient_id)
@@ -107,9 +80,11 @@ class NegativeCodeCacheSampling(object):
             encounter_negatives = self.get_random_negatives(
                 exclude_codes=exclude_codes,
                 size=self._minimum_negatives_size,
+                positions=None,
                 code_column=code_column,
                 position_column=position_column,
             )
+        # Get negatives from the encounter history of the cached patient id
         else:
             encounter_negatives = self.get_encounter_history(
                 patient_id=negative_patient_id,
@@ -118,6 +93,10 @@ class NegativeCodeCacheSampling(object):
                 time_difference_normalize=time_difference_normalize,
                 code_column=code_column
             )
+            # Once we have the encounter negatives - we compute position values and
+            # also exclude codes from the encounter history. If the negatives is to
+            # small we add some random negatives to it. We try and return a set
+            # that consists of random and cached negatives of equal numbers.
             encounter_negatives = self.process_negatives(
                 encounter_negatives=encounter_negatives,
                 exclude_codes=exclude_codes,
@@ -125,9 +104,124 @@ class NegativeCodeCacheSampling(object):
                 position_column=position_column
             )
 
-        self.update_cache(patient_id=patient_id)
+        # Add the current patient id to cache
+        if self._encounter_dataframe_process.check_patient_id(patient_id=patient_id):
+            self.update_cache(patient_id=patient_id)
 
         return encounter_negatives
+
+    def build_trie(self, codes):
+        """
+        Build the trie datastructure
+
+        Args:
+            codes:
+
+        Returns:
+
+        """
+        trie = pygtrie.StringTrie()
+        # Add root codes to trie (e.g. CV, DE etc)
+        for code in codes.str.split('_').str[0].unique():
+            trie[code] = code
+        # Add all other codes
+        for code in codes:
+            # Representation essentially contains the path to get to the code
+            key = '/'.join(self.get_code_representation(code))
+            trie[key] = code
+        return trie
+
+    def build_tree(self, codes):
+        """
+        Build the tree datastructure - useful when we want parent child relations
+
+        Args:
+            codes:
+
+        Returns:
+
+        """
+        tree = Tree()
+        # Create the root node - the next level will have
+        # different disease categories - e.g. cardiology, neurological etc.
+        tree.create_node("Codes", "root")
+        # Add root codes to trie (e.g. CV, DE etc)
+        for code in codes.str.split('_').str[0].unique():
+            tree.create_node(code, code, parent='root')
+        # Now add all the children
+        for code in codes:
+            # Representation essentially contains the path to get to the code
+            keys = self.get_code_representation(code)
+            # For every code - get all it's ancestors - parents, grandparents ...
+            # We check if the ancestors are added before adding the code
+            for index, key in enumerate(keys[1:]):
+                if tree.contains(key):
+                    continue
+                # The parent is index - 1 - the code_representation object
+                # returns ancestors in order
+                tree.create_node(key, key, parent=keys[index])
+        return tree
+
+    def get_patient_from_cache(self, patient_id) -> Optional[str]:
+        """
+        Sample an encounter history from the cache - we can then sample codes
+        from this and use it as negative samples for the current patient.
+
+        Args:
+            patient_id (str): The id pf the patient
+
+        Returns:
+            (pd.DataFrame): The id of the cached patient
+        """
+        cached_patient_ids = self._code_task_negative_cache - {patient_id}
+        # Cache is empty - return empty cache
+        if not cached_patient_ids:
+            return None
+        else:
+            # Sample from cache
+            sample_cached_patient_id = np.random.choice(list(cached_patient_ids))
+            # Keep track of which encounter history was used to sample the negatives last
+            self._last_sampled_cache_id = sample_cached_patient_id
+            return sample_cached_patient_id
+
+    def get_random_negatives(
+            self,
+            exclude_codes: pd.Series,
+            size: int,
+            positions: Optional[pd.Series],
+            code_column: str = 'phecode',
+            position_column: str = 'position'
+    ):
+        """
+        Sample negatives randomly. Also exclude any codes that we don't want as negatives
+
+        Args:
+            size (int): The number of negatives to sample
+            exclude_codes (pd.Series): Remove these codes from the sampled encounter negatives
+            positions (Optional): Use pre-defined position values
+            code_column (str, defaults to `phecode`): The column that contains codes
+            position_column (str, defaults to `position`): The column that contains positions
+
+        Returns:
+            (pd.DataFrame): A dataframe containing randomly sampled negatives
+        """
+        # From the list of possible codes - exclude ancestors and children of the given code
+        negatives = self.exclude_codes_from_dataframe(
+            encounter_dataframe=self._codes,
+            exclude_codes=exclude_codes,
+            code_column=code_column
+        )
+
+        if positions is None:
+            position_column_value = 0
+        else:
+            position_column_value = np.random.choice(positions, size=size)
+        return pd.DataFrame(
+            {
+                code_column: np.random.choice(negatives, size, replace=False),
+                position_column: position_column_value
+            }
+        )
 
     def process_negatives(
             self,
@@ -150,8 +244,9 @@ class NegativeCodeCacheSampling(object):
             (pd.DataFrame): The encounter history of another patient.
             or None - if cache is empty
         """
-        negative_positions = encounter_negatives[position_column]
-        # Get encounter negatives and update cache
+        # negative_positions = encounter_negatives[position_column]
+        # From the list of codes in the negative patient - exclude ancestors
+        # and children of the given code
         encounter_negatives = self.exclude_codes_from_dataframe(
             encounter_dataframe=encounter_negatives,
             exclude_codes=exclude_codes,
@@ -159,23 +254,113 @@ class NegativeCodeCacheSampling(object):
         )
         number_unique = encounter_negatives[code_column].nunique()
 
+        # We are essentially calculating the number of random negatives we want
         if self._negatives_type == 'random_cached':
+            # Set size such that we have equal number of encounter negatives and random
+            # negatives
             size = max(number_unique, self._minimum_negatives_size - number_unique)
         elif self._negatives_type == 'cached':
+            # Use only cached negatives - but if the number is too small
+            # then add random negatives
             size = max(0, self._minimum_negatives_size - number_unique)
         else:
             raise ValueError('Invalid negatives type')
         if size == 0:
             return encounter_negatives
+        # Get random negatives - exclude codes and the ones already present in the negatives
         random_negatives = self.get_random_negatives(
             exclude_codes=pd.concat([exclude_codes, encounter_negatives[code_column]]),
             size=size,
-            positions=negative_positions,
+            positions=None,
             code_column=code_column,
             position_column=position_column
         )
         encounter_negatives = self.concatenate_negatives(encounter_negatives, random_negatives)
         return encounter_negatives
+
+    def update_cache(self, patient_id: str):
+        """
+        Update cache with this patient id
+
+        Args:
+            patient_id (str): The ID of the patient
+        """
+        if len(self._code_task_negative_cache) >= self._code_task_negative_cache_size:
+            self._code_task_negative_cache.remove(self._last_sampled_cache_id)
+        self._code_task_negative_cache.add(patient_id)
+
+    @staticmethod
+    def get_code_representation(code):
+        """
+        Given a code - get it's trie representation - this would consist of it's parents
+        all combined in string form
+
+        Args:
+            code:
+
+        Returns:
+
+        """
+        if '_' not in code:
+            return [code]
+        root_split = code.split('_')
+        parent_split = code.split('.')
+        ancestors = [root_split[0], parent_split[0]]
+        if len(parent_split) == 1:
+            return ancestors
+        sub_code_string = ''
+        for char in parent_split[1]:
+            sub_code_string += char
+            ancestors.append(parent_split[0] + '.' + sub_code_string)
+        return ancestors
+
+    def exclude_codes_from_dataframe(
+            self,
+            encounter_dataframe: Union[pd.DataFrame, pd.Series],
+            exclude_codes: pd.Series,
+            code_column: str,
+    ) -> pd.DataFrame:
+        """
+        Given an input dataframe - return the original dataframe without the
+        codes given in exclude codes - basically exclude these codes from the
+        dataframe and return. We exclude such that the ancestors of the given code
+        are excluded, but not it's siblings. We also exclude the children of the
+        given code
+
+        Args:
+            encounter_dataframe (pd.DataFrame): The input dataframe
+            exclude_codes ( pd.Series): The codes to exclude
+            code_column (str): The column that contains the diagnostic codes
+
+        Returns:
+            (pd.DataFrame): Dataframe with code excluded
+        """
+        exclude = list()
+        for code in exclude_codes:
+            # This will return the ancestors for a given code
+            key = '/'.join(self.get_code_representation(code))
+            # We then exclude all the ancestors
+            exclude.extend(self.get_exclude_codes_from_trie(key))
+        # Remove rows that contains this expanded set of codes
+        if isinstance(encounter_dataframe, pd.DataFrame):
+            return encounter_dataframe[~encounter_dataframe[code_column].isin(exclude)]
+        else:
+            return encounter_dataframe[~encounter_dataframe.isin(exclude)]
+
+    def get_exclude_codes_from_trie(self, code):
+        """
+        Get the codes to excludes based on the trie.
+        Exclude parents and children but not siblings
+
+        Args:
+            code:
+
+        Returns:
+
+        """
+        # The first part excludes the children, the second part excludes the ancestors
+        # Prefixes essentially contains the path to get to the code
+        return list(self._trie[code:]) + [code_obj[1] for code_obj in self._trie.prefixes(code)]
 
     def get_encounter_history(
             self,
@@ -210,121 +395,32 @@ class NegativeCodeCacheSampling(object):
         encounter_history.dropna(subset=code_column, inplace=True)
         return encounter_history
 
-    def get_random_negatives(
-            self,
-            exclude_codes: pd.Series,
-            size: int,
-            positions: Optional = None,
-            code_column: str = 'phecode',
-            position_column: str = 'position'
-    ):
+    def get_trie(self):
         """
-        Sample negatives randomly
-
-        Args:
-            size (int): The number of negatives to sample
-            exclude_codes (pd.Series): Remove these codes from the sampled encounter negatives
-            positions (Optional): Use pre-defined position values
-            code_column (str, defaults to `phecode`): The column that contains codes
-            position_column (str, defaults to `position`): The column that contains positions
-
-        Returns:
-            (pd.DataFrame): A dataframe containing randomly sampled negatives
-        """
-        negatives = self.exclude_codes_from_dataframe(
-            encounter_dataframe=self._codes, exclude_codes=exclude_codes, code_column=code_column
-        )
-
-        if positions is None:
-            position_column_value = 0
-        else:
-            # position_column_value = np.random.choice(positions, size=size)
-            position_column_value = 0
-        return pd.DataFrame(
-            {
-                code_column: np.random.choice(negatives, size, replace=False),
-                position_column: position_column_value
-            }
-        )
-
-    def exclude_codes_from_dataframe(
-            self,
-            encounter_dataframe: Union[pd.DataFrame, pd.Series],
-            exclude_codes: pd.Series,
-            code_column: str,
-    ) -> pd.DataFrame:
-        """
-        Given an input dataframe - return the original dataframe without the
-        codes given in exclude codes - basically exclude these codes from the
-        dataframe and return
-        Args:
-            encounter_dataframe (pd.DataFrame): The input dataframe
-            exclude_codes ( pd.Series): The codes to exclude
-            code_column (str): The column that contains the diagnostic codes
-
-        Returns:
-            (pd.DataFrame): Dataframe with code excluded
-        """
-        exclude = list()
-        for code in exclude_codes:
-            key = '/'.join(self.get_parent_codes(code))
-            exclude.extend(self.get_exclude_codes_from_trie(key))
-        if isinstance(encounter_dataframe, pd.DataFrame):
-            return encounter_dataframe[~encounter_dataframe[code_column].isin(exclude)]
-        else:
-            return encounter_dataframe[~encounter_dataframe.isin(exclude)]
-
-    def get_exclude_codes_from_trie(self, code):
-        """
-        Get the codes to excludes based on the trie.
-        Exclude parents and children but not siblings
-
-        Args:
-            code:
+        Return trie datastructure
 
         Returns:
 
         """
-        return list(self._trie[code:]) + [code_obj[1] for code_obj in self._trie.prefixes(code)]
+        return self._trie
 
-    def build_trie(self, codes):
+    def get_tree(self):
         """
-        Build the trie datastructure
-
-        Args:
-            codes:
+        Return tree datastructure
 
         Returns:
 
         """
-        trie = pygtrie.StringTrie()
-        for code in codes:
-            key = '/'.join(self.get_parent_codes(code))
-            trie[key] = code
-        return trie
+        return self._tree
 
-    @staticmethod
-    def get_parent_codes(code):
+    def get_codes(self):
         """
-        Given a code - get it's trie representation - this would consist of it's parents
-        all combined in string form
-
-        Args:
-            code:
+        Return the set of all codes
 
         Returns:
 
         """
-        split_code = code.split('.')
-        top_code = split_code[0]
-        sub_code_string = ''
-        exclude = [top_code]
-        if len(split_code) == 1:
-            return exclude
-        for char in split_code[1]:
-            sub_code_string += char
-            exclude.append(top_code + '.' + sub_code_string)
-        return exclude
+        return self._codes
 
     @staticmethod
     def concatenate_negatives(
