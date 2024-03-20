@@ -12,5 +12,5 @@ __all__ = [
     "GroupBySampling",
     "EncounterDataframeProcess",
     "NegativeCodeCacheSampling",
-    "MonthDataBins"
+    "MonthDataBins",
 ]
