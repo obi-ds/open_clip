@@ -56,7 +56,7 @@ class CodeLabelPredictionInstructionTemplate(object):
             (str): String containing the definition of the task
         """
         task_definition = self._task_definition.format(time=time)
-        return self.fix_time_string(task_definition, np.abs(time))
+        return self.fix_time_string(task_definition, np.abs(time)) + self._example_separator
 
     def get_instruction(self, diagnosis: str, value: Union[str, int, float]) -> Tuple[str, str]:
         """
@@ -101,7 +101,7 @@ class CodeLabelPredictionInstructionTemplate(object):
         Returns:
             (str): The instruction target with the label
         """
-        return str(value)
+        return str(value) + self._example_separator
 
     @staticmethod
     def fix_time_string(instruction_input, time):
