@@ -1,7 +1,6 @@
 """Make training data"""
 import numpy as np
-import pandas as pd
-from typing import Union, Sequence, Tuple
+from typing import Union, Sequence
 
 from .processing.code_convert import ICDConvert, PHEConvert
 from .processing.encounter_dataframe_process import EncounterDataframeProcess
@@ -108,6 +107,13 @@ class CodeLabelPredictionTaskEvaluation(SingleCodeLabelPredictionTask):
             time_difference_normalize=args.time_difference_normalize
         )
 
+        # If for some reason we don't have encounter data for this person - we ignore training
+        # on this person
+        if self._encounter_dataframe_process.check_patient_id(patient_id=sample[args.patient_id_column]):
+            ignore_instruction = False
+        else:
+            ignore_instruction = True
+
         encounter_history = self.transform_encounter_history_for_task(
             encounter_history=encounter_history,
             past_time_delta=args.past_time_delta,
@@ -117,57 +123,36 @@ class CodeLabelPredictionTaskEvaluation(SingleCodeLabelPredictionTask):
         #  Get the bin period we will be making predictions for
         prediction_range = eval_start_time, eval_end_time
 
+        # Store all the prompt elements (input, output)
+        all_instructions = list()
+
+        # Get the task instruction - which should indicate we are making prediction for a given
+        # time range
+        all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
+
         # Get dataframe that contain encounter in the past, current and future time periods
         current_time_period = self.get_current_time_period(
             encounter_history=encounter_history, prediction_range=prediction_range
         )
-
-        prompt_code, true_label = self.get_prompt_code_and_label(
-            encounter_history=current_time_period,
-            code=eval_code,
-            regex=regex
+        current_code_occurrences = self.get_code_occurrences(
+            encounter_history=current_time_period, code=eval_code, regex=regex
         )
 
-        ignore_instruction = self.get_eval_ignore_instruction()
+        label = self.get_label(code_occurrences=current_code_occurrences)
 
         eval_sample = self.get_code_sample(
-            code=prompt_code,
-            start_time=eval_start_time,
-            end_time=eval_end_time,
-            label=self.get_true_label_string(true_label=true_label),
+            code=eval_code,
+            start_time=prediction_range[0],
+            end_time=prediction_range[1],
+            label=self.get_true_label_string(label=label),
             ignore_instruction=ignore_instruction
         )
 
-        return self.convert_samples_to_instructions(eval_sample, prediction_range)
+        # Convert samples to text instructions (prompt)
+        all_instructions.extend(
+            self.convert_samples_to_instructions(
+                instruction_samples=eval_sample,
+            )
+        )
 
-    def get_prompt_code_and_label(
-            self,
-            encounter_history: pd.DataFrame,
-            code: str,
-            regex: bool
-    ) -> Tuple[str, bool]:
-        """
-        Check if a given code exists in a given encounter history
-        Args:
-            encounter_history (pd.DataFrame): The encounter history
-            code (str): A given diagnostic code
-            regex (bool): Whether to perform regex match or not
-
-        Returns:
-            (str): The input code or sub code
-            (bool): Whether the code or it's sub code is in the encounter history
-        """
-        matched_codes = encounter_history[
-            self.check_code_exists(encounter_history=encounter_history, code=code, regex=regex)
-        ]
-        return code, len(matched_codes) > 0
-
-    def get_eval_ignore_instruction(self):
-        """
-        Ignore instruction - ignores the loss on this instruction. Don't include this
-        in any evaluation metrics
-
-        Returns:
-
-        """
-        return False
+        return all_instructions
