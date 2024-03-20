@@ -3,7 +3,7 @@ import pygtrie
 import numpy as np
 import pandas as pd
 from treelib import Node, Tree
-from typing import Optional, Union
+from typing import Optional, Union, Tuple
 
 from .encounter_dataframe_process import EncounterDataframeProcess
 
@@ -42,6 +42,7 @@ class NegativeCodeCacheSampling(object):
             self,
             patient_id: str,
             current_time: str,
+            prediction_range: Tuple[int, int],
             use_log_position: bool,
             time_difference_normalize: int,
             exclude_codes: pd.Series,
@@ -57,6 +58,7 @@ class NegativeCodeCacheSampling(object):
             patient_id (str): The id of the patient
             current_time (str): The timestamp of the sample we are processing - used to calculate time deltas
             with respect to other encounters
+            prediction_range (Tuple[int, int]): The range we are making prediction in
             use_log_position (bool): Whether to keep time deltas in days or as log value of days
             time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
             (e.g. 30 normalizes it to months)
@@ -80,7 +82,7 @@ class NegativeCodeCacheSampling(object):
             encounter_negatives = self.get_random_negatives(
                 exclude_codes=exclude_codes,
                 size=self._minimum_negatives_size,
-                positions=None,
+                prediction_range=prediction_range,
                 code_column=code_column,
                 position_column=position_column,
             )
@@ -100,6 +102,7 @@ class NegativeCodeCacheSampling(object):
             encounter_negatives = self.process_negatives(
                 encounter_negatives=encounter_negatives,
                 exclude_codes=exclude_codes,
+                prediction_range=prediction_range,
                 code_column=code_column,
                 position_column=position_column
             )
@@ -188,7 +191,7 @@ class NegativeCodeCacheSampling(object):
             self,
             exclude_codes: pd.Series,
             size: int,
-            positions: Optional[pd.Series],
+            prediction_range: Tuple[int, int],
             code_column: str = 'phecode',
             position_column: str = 'position'
     ):
@@ -198,7 +201,7 @@ class NegativeCodeCacheSampling(object):
         Args:
             size (int): The number of negatives to sample
             exclude_codes (pd.Series): Remove these codes from the sampled encounter negatives
-            positions (Optional): Use pre-defined position values
+            prediction_range (Tuple[int, int]): The range we are making prediction in
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
 
@@ -212,14 +215,14 @@ class NegativeCodeCacheSampling(object):
             code_column=code_column
         )
 
-        if positions is None:
-            position_column_value = 0
-        else:
-            position_column_value = np.random.choice(positions, size=size)
+        positions = np.random.choice(
+            np.arange(prediction_range[0], prediction_range[1] + 1, 30), size, replace=True
+        )
+
         return pd.DataFrame(
             {
                 code_column: np.random.choice(negatives, size, replace=False),
-                position_column: position_column_value
+                position_column: positions
             }
         )
 
@@ -227,6 +230,7 @@ class NegativeCodeCacheSampling(object):
             self,
             encounter_negatives: pd.DataFrame,
             exclude_codes: pd.Series,
+            prediction_range: Tuple[int, int],
             code_column: str = 'phecode',
             position_column: str = 'position'
     ) -> Optional[pd.DataFrame]:
@@ -237,6 +241,7 @@ class NegativeCodeCacheSampling(object):
         Args:
             encounter_negatives (str): The negative encounter history
             exclude_codes (pd.Series): Remove these codes from the sampled encounter negatives
+            prediction_range (Tuple[int, int]): The range we are making prediction in
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
 
@@ -244,7 +249,6 @@ class NegativeCodeCacheSampling(object):
             (pd.DataFrame): The encounter history of another patient.
             or None - if cache is empty
         """
-        # negative_positions = encounter_negatives[position_column]
         # From the list of codes in the negative patient - exclude ancestors
         # and children of the given code
         encounter_negatives = self.exclude_codes_from_dataframe(
@@ -271,7 +275,7 @@ class NegativeCodeCacheSampling(object):
         random_negatives = self.get_random_negatives(
             exclude_codes=pd.concat([exclude_codes, encounter_negatives[code_column]]),
             size=size,
-            positions=None,
+            prediction_range=prediction_range,
             code_column=code_column,
             position_column=position_column
         )
@@ -444,3 +448,5 @@ class NegativeCodeCacheSampling(object):
             return encounter_negatives
         else:
             raise ValueError('Both dataframes are empty')
+
+
