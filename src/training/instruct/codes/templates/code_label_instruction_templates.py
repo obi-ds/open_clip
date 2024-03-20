@@ -50,7 +50,7 @@ class CodeLabelPredictionInstructionTemplate(object):
 
     def get_task_definition(self, time) -> str:
         """
-        Return the task definition
+        Return the task definition - add the time object to task
 
         Returns:
             (str): String containing the definition of the task
@@ -92,7 +92,7 @@ class CodeLabelPredictionInstructionTemplate(object):
     def get_instruction_target(self, value: Union[str, int, float]) -> str:
         """
         Return the code value - which represents some function of the code
-        in the time bin
+        in the time bin - present or absent
 
         Args:
             value (Union[str, int, float]): A value associated with the diagnosis
@@ -105,20 +105,28 @@ class CodeLabelPredictionInstructionTemplate(object):
 
     @staticmethod
     def fix_time_string(instruction_input, time):
+        """
+        When time is 1, use the singular form of the word month
+
+        Args:
+            instruction_input:
+            time:
+
+        Returns:
+
+        """
         if time == 1:
             return instruction_input.replace('months', 'month')
         else:
             return instruction_input
 
-    def get_example_separator_instruction(self) -> Tuple[str, str, bool]:
+    def get_example_separator(self) -> str:
         """
         This instruction is added as a separator between instructions
 
         Returns:
-            (List[str, str, bool]): Example separator instruction
+            (str): Example separator string
         """
         # \n is the separator string, '' is the label (empty - don't train)
         # True indicates ignore this instruction for training loss
-        return self._example_separator, '', True
-
-
+        return self._example_separator
