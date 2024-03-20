@@ -144,7 +144,7 @@ class InstructTokenizer(object):
         if ignore_instruction:
             return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
         else:
-            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._ignore_index]
+            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.eot_token_id]
 
     def pad_input_tokens(self, tokens: List[int]) -> List[int]:
         """
@@ -248,3 +248,27 @@ class GPT2InstructTokenizer(InstructTokenizer):
             (List[int]): Return tokenized input
         """
         return self._tokenizer.tokenizer(output_text)['input_ids']
+
+    def get_labels(
+            self,
+            input_tokens: List[int],
+            output_tokens: List[int],
+            ignore_instruction: bool = False
+    ) -> List[int]:
+        """
+        Given the instruction input tokens, instruction target tokens and padding tokens,
+        return a tensor that contains 0 (ignore_index) values in positions that correspond
+        to input and padding tokens, and output token values are left as is. We are creating
+        a label mask essentially.
+        Args:
+            input_tokens (List[int]): The instruction input tokens
+            output_tokens (List[int]): The instruction output tokens
+            ignore_instruction (bool, defaults to `False`): Boolean whether to ignore the output of this instruction
+
+        Returns:
+            (List[int]): The label ids the model will be trained on
+        """
+        if ignore_instruction:
+            return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
+        else:
+            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.tokenizer.eos_token_id]
