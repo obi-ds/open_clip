@@ -27,7 +27,7 @@ def get_instruct_arguments():
         '--training-type',
         default=None,
         type=str,
-        choices=['all', 'single'],
+        choices=['all', 'single', 'tree'],
         help="Train against all codes or just a single code"
     )
     parser.add_argument(

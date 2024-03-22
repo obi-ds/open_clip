@@ -26,7 +26,8 @@ from open_clip.tokenizer import decode
 from .instruct.codes import (
     CodeLabelPredictionTask,
     SingleCodeLabelPredictionTask,
-    CodeLabelPredictionTaskEvaluation
+    CodeLabelPredictionTaskEvaluation,
+    HierarchicalCodeLabelPredictionTask
 )
 from .instruct.codes.descriptions import ICDDescription, PHEDescription
 from .instruct.codes.processing import (
@@ -490,6 +491,18 @@ def get_code_label_prediction_task(
         )
     elif training_type == 'all':
         return CodeLabelPredictionTask(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_label_prediction_instructions,
+            time_bins=time_bins,
+            code_convert=code_convert,
+            negative_code_sampling=negative_code_sampling,
+            patient_id_column=patient_id_column,
+            code_column=code_column,
+            position_column=position_column,
+        )
+    elif training_type == 'tree':
+        return HierarchicalCodeLabelPredictionTask(
             encounter_dataframe_process=encounter_dataframe_process,
             dataframe_sampling=dataframe_sampling,
             code_instructions=code_label_prediction_instructions,
