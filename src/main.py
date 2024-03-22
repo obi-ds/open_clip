@@ -515,7 +515,8 @@ def copy_codebase(args):
 
 def get_eos_token_id(model_name, tokenizer):
     if 'gpt' in model_name:
-        return tokenizer.tokenizer.eos_token_id
+        return tokenizer.tokenizer.encode('\n')[0]
+        # return tokenizer.tokenizer.eos_token_id
     else:
         return tokenizer.eot_token_id
 
