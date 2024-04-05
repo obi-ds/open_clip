@@ -60,9 +60,34 @@ def get_code_instruct_arguments():
         help="Whether to only make predictions for future time periods"
     )
     parser.add_argument(
+        "--past-only-labs",
+        default=False,
+        action="store_true",
+        help="Whether to only make predictions for future time periods"
+    )
+    parser.add_argument(
+        "--fixed-position-range",
+        default=False,
+        action="store_true",
+        help="Use position ranges - 1, 3, 6, 12"
+    )
+    parser.add_argument(
+        "--include-reference-range",
+        default=False,
+        action="store_true",
+        help="Include reference ranges for lab values"
+    )
+    parser.add_argument(
+        "--time-negatives-buffer",
+        default=None,
+        type=int,
+        help="Make negatives stricter - a code is a negative if it does not occur in the prediction range +- this buffer"
+    )
+    parser.add_argument(
         "--fine-tune-code",
         type=str,
         default=None,
         help="The code to fine tune when training type is single"
     )
+
     return parser
