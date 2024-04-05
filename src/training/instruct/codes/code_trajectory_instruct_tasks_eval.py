@@ -1,6 +1,6 @@
 """Make training data"""
 import numpy as np
-from typing import Union, Sequence
+from typing import Union, Sequence, Tuple
 
 from .processing.code_convert import ICDConvert, PHEConvert
 from .processing.encounter_dataframe_process import EncounterDataframeProcess
@@ -79,7 +79,8 @@ class CodeLabelPredictionTaskEvaluation(SingleCodeLabelPredictionTask):
             ignore_instruction_column=ignore_instruction_column,
             position_range_column=position_range_column,
             current_bin_value=current_bin_value,
-            prediction_range_limit=prediction_range_limit
+            prediction_range_limit=prediction_range_limit,
+            fixed_position_range=False
         )
 
     def process_sample(self, sample, args):
@@ -156,3 +157,108 @@ class CodeLabelPredictionTaskEvaluation(SingleCodeLabelPredictionTask):
         )
 
         return all_instructions
+
+class HierarchicalCodeLabelPredictionTaskEvaluation(CodeLabelPredictionTaskEvaluation):
+    """
+    Make instruction tuning training data from diagnostic codes
+    """
+
+    def __init__(
+            self,
+            encounter_dataframe_process: EncounterDataframeProcess,
+            dataframe_sampling: GroupBySampling,
+            code_instructions: CodeLabelPredictionInstructionTemplate,
+            code_convert: Union[ICDConvert, PHEConvert],
+            time_bins: Union[AgglomerativeDataBins, Sequence[AgglomerativeDataBins]],
+            negative_code_sampling: NegativeCodeCacheSampling,
+            patient_id_column: str = 'PatientID',
+            code_column: str = 'phecode',
+            position_column: str = 'position',
+            bins_column: str = 'bins',
+            bin_start_column: str = 'min',
+            bin_end_column: str = 'max',
+            label_column: str = 'label',
+            ignore_instruction_column: str = 'ignore_instruction',
+            position_range_column: str = 'position_range',
+            current_bin_value: int = -100,
+            prediction_range_limit: int = None
+    ):
+        """
+        Initialize variables
+
+        Args:
+            encounter_dataframe_process (EncounterDataframeProcess): Dataframe processing object
+            dataframe_sampling (GroupBySampling): Dataframe sampling object
+            code_instructions (Any): A list of code instruction tasks. At any point one of these
+            tasks is randomly chosen and trained on
+            code_convert (Union[ICDConvert, PHEConvert]): The object to map codes to other codes in hierarchy and
+            their textual descriptions.
+            patient_id_column (str, defaults to `PatientID`): The column name for the patient id
+            code_column (str, defaults to `phecode`): The column that contains the codes
+            position_column (str, defaults to `positions`): The column where position values
+            (e.g. time difference in days or log days) will be stored
+            bins_column (str, defaults to `bins`): Column that stores the assigned bin
+            bin_start_column (str, defaults to `min`): Column that stores the start position of each bin
+            bin_end_column (str, defaults to `max`): Column that stores the end position of each bin
+            label_column (str, defaults to `count`): The column that stores some value that represents
+            the code in a time bin
+            ignore_instruction_column (str, defaults to `ignore_instruction`): Column that stores whether
+            to ignore the instruction in that row
+        """
+        super().__init__(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_instructions,
+            code_convert=code_convert,
+            time_bins=time_bins,
+            negative_code_sampling=negative_code_sampling,
+            patient_id_column=patient_id_column,
+            code_column=code_column,
+            position_column=position_column,
+            bins_column=bins_column,
+            bin_start_column=bin_start_column,
+            bin_end_column=bin_end_column,
+            label_column=label_column,
+            ignore_instruction_column=ignore_instruction_column,
+            position_range_column=position_range_column,
+            current_bin_value=current_bin_value,
+            prediction_range_limit=prediction_range_limit
+        )
+        self._tree = negative_code_sampling.get_tree()
+
+    def process_sample(self, sample, args):
+        """
+        Process sample
+
+        Args:
+            sample:
+            args:
+
+        Returns:
+
+        """
+        eval_code = args.eval_code
+        all_instructions = super().process_sample(sample=sample, args=args)
+
+    def get_level(self, code):
+        """
+        Get the level of the code in the tree
+        Args:
+            code:
+
+        Returns:
+
+        """
+        return self._tree.depth(code)
+
+    @staticmethod
+    def get_level_instruction(level) -> Tuple[str, str, bool]:
+        """
+        This instruction is added as a separator between instructions
+
+        Returns:
+            (List[str, str, bool]): Example separator instruction
+        """
+        # \n is the separator string, '' is the label (empty - don't train)
+        # True indicates ignore this instruction for training loss
+        return f'Level {level}\n', '', True
