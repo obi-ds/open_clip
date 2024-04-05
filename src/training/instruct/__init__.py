@@ -3,4 +3,5 @@ from .instruct_tokenizer import InstructTokenizer, GPT2InstructTokenizer
 __all__ = [
     "InstructTokenizer",
     "InstructTasks",
+    "GPT2InstructTokenizer"
 ]
