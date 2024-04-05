@@ -3,7 +3,6 @@ import random
 import itertools
 import numpy as np
 import pandas as pd
-from collections import Counter
 from typing import Union, Tuple, List, Optional, Sequence
 
 from .processing.code_convert import ICDConvert, PHEConvert
@@ -29,6 +28,7 @@ class CodeLabelPredictionTask(object):
             code_convert: Union[ICDConvert, PHEConvert],
             time_bins: Union[AgglomerativeDataBins, Sequence[AgglomerativeDataBins]],
             negative_code_sampling: NegativeCodeCacheSampling,
+            fixed_position_range: bool,
             patient_id_column: str = 'PatientID',
             code_column: str = 'phecode',
             position_column: str = 'position',
@@ -36,6 +36,9 @@ class CodeLabelPredictionTask(object):
             bin_start_column: str = 'min',
             bin_end_column: str = 'max',
             label_column: str = 'label',
+            idf_column: str = 'idf',
+            tf_column: str = 'tf',
+            weights_column: str = 'weights',
             ignore_instruction_column: str = 'ignore_instruction',
             position_range_column: str = 'position_range',
             current_bin_value: int = -100,
@@ -60,6 +63,7 @@ class CodeLabelPredictionTask(object):
             bin_end_column (str, defaults to `max`): Column that stores the end position of each bin
             label_column (str, defaults to `count`): The column that stores some value that represents
             the code in a time bin
+            fixed_position_range (bool): Use position ranges - 1, 3, 6, 12
             ignore_instruction_column (str, defaults to `ignore_instruction`): Column that stores whether
             to ignore the instruction in that row
         """
@@ -79,11 +83,24 @@ class CodeLabelPredictionTask(object):
         self._negative_code_sampling = negative_code_sampling
         self._position_range_column = position_range_column
         self._current_bin_value = current_bin_value
-        self._position_ranges = [
-            (-1, 30), (30, 60), (60, 90), (90, 120), (120, 150), (150, 180),
-            (180, 210), (210, 240), (240, 270), (270, 300), (300, 330),
-            (330, 360), (360, np.inf)
-        ]
+        self._idf_column = idf_column
+        self._tf_column = tf_column
+        self._weights_column = weights_column
+
+        if fixed_position_range:
+            # self._position_ranges = [
+            #     (-1, 30), (30, 90), (90, 180),
+            #     (180, 360), (360, np.inf)
+            # ]
+            self._position_ranges = [
+                (-7, 180), (180, np.inf)
+            ]
+        else:
+            self._position_ranges = [
+                (-1, 30), (30, 60), (60, 90), (90, 120), (120, 150), (150, 180),
+                (180, 210), (210, 240), (240, 270), (270, 300), (300, 330),
+                (330, 360), (360, np.inf)
+            ]
         # We mainly use this to exclude any codes or encounters occurring in the (360, inf) time period
         if prediction_range_limit is None:
             self._prediction_range_limit = len(self._position_ranges)
@@ -130,7 +147,6 @@ class CodeLabelPredictionTask(object):
         # The list can contain multiple elements - we can make prediction for
         # multiple time bins
         prediction_ranges = self.get_prediction_ranges(
-            encounter_history,
             future_only=args.future_only,
             number_of_ranges=self.sample_from_list(args.number_of_instructions),
             fixed_range=args.time_period_range
@@ -141,6 +157,8 @@ class CodeLabelPredictionTask(object):
 
         for prediction_range in prediction_ranges:
 
+            k_shot = self.sample_from_list(args.k_shot)
+
             # Get the task instruction - which should indicate we are making prediction for a given
             # time range
             all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
@@ -148,6 +166,19 @@ class CodeLabelPredictionTask(object):
             # Get dataframe that contain encounter in the current time period
             current_time_period = self.get_current_time_period(
                 encounter_history=encounter_history, prediction_range=prediction_range
+            )
+
+            # Sample counts for negatives and positives
+            # K shot will give how many samples we want for a given prediction range
+            sample_counts = self.get_sample_sizes(
+                max_size=k_shot,
+                sample_limits=[k_shot, current_time_period[self._code_column].nunique()],
+            )
+
+            exclude_codes_for_negatives = self.get_exclude_codes_for_negatives(
+                encounter_history=encounter_history,
+                prediction_range=prediction_range,
+                time_negatives_buffer=args.time_negatives_buffer
             )
 
             # Get a dataframe that can be used to sample negatives
@@ -160,9 +191,8 @@ class CodeLabelPredictionTask(object):
                 prediction_range=prediction_range,
                 use_log_position=args.use_log_position,
                 time_difference_normalize=args.time_difference_normalize,
-                exclude_codes=self.get_exclude_codes_for_negatives(
-                    encounter_history=encounter_history, current_time_period=current_time_period
-                ),
+                exclude_codes=exclude_codes_for_negatives,
+                minimum_negatives_size=sample_counts[0],
                 code_column=self._code_column,
                 position_column=self._position_column
             )
@@ -184,18 +214,10 @@ class CodeLabelPredictionTask(object):
             negatives = self.get_current_time_period(
                 encounter_history=encounter_negatives, prediction_range=prediction_range
             )
+            if len(negatives) < sample_counts[0]:
+                negatives = encounter_negatives
 
-            # TODO - compute counts and first and last visit for each code - Future work
             histories = [negatives, current_time_period]
-            # Get only the unique codes - keep only the earliest occurrences of each code basically
-            histories_unique = [self.get_unique_codes(history) for history in histories]
-
-            # Sample counts for negatives and positives
-            # K shot will give how many samples we want for a given prediction range
-            sample_counts = self.get_sample_sizes(
-                max_size=self.sample_from_list(args.k_shot),
-                sample_limits=[len(dataframe) for dataframe in histories_unique],
-            )
 
             # Now that we have sizes - we move on to sampling the codes
             # We try and sample such that we get codes spread across the time range
@@ -203,7 +225,7 @@ class CodeLabelPredictionTask(object):
             # positives and negatives
             sampled_codes = [
                 self.sample_codes(encounter_history=encounter_history, max_limit=counts)
-                for encounter_history, counts in zip(histories_unique, sample_counts)
+                for encounter_history, counts in zip(histories, sample_counts)
             ]
 
             label_samples = [
@@ -250,19 +272,14 @@ class CodeLabelPredictionTask(object):
         Returns:
             (pd.DataFrame): The encounter history
         """
-        try:
-            encounter_history = self._encounter_dataframe_process.get_patient_encounter_history_with_position(
-                patient_id=patient_id,
-                current_time=current_time,
-                use_log_position=use_log_position,
-                time_difference_normalize=time_difference_normalize
-            )
-            encounter_history.dropna(subset=self._code_column, inplace=True)
-            return encounter_history
-        except KeyError:
-            # FIXME: A fix for now - because we have missing data - ideally we should not have missing data
-            # Sample codes and create a random encounter dataframe
-            return self.get_random_encounters()
+        encounter_history = self._encounter_dataframe_process.get_patient_encounter_history_with_position(
+            patient_id=patient_id,
+            current_time=current_time,
+            use_log_position=use_log_position,
+            time_difference_normalize=time_difference_normalize
+        )
+        encounter_history.dropna(subset=self._code_column, inplace=True)
+        return encounter_history
 
     def transform_encounter_history_for_task(
             self,
@@ -311,7 +328,6 @@ class CodeLabelPredictionTask(object):
 
     def get_prediction_ranges(
             self,
-            encounter_history: pd.DataFrame,
             future_only: bool,
             number_of_ranges: int,
             fixed_range: Tuple[int, int] = None
@@ -322,7 +338,6 @@ class CodeLabelPredictionTask(object):
         will make predictions for.
 
         Args:
-            encounter_history (pd.DataFrame): The encounter history of the patient
             fixed_range (Tuple[int, int], defaults to `None`): Return the fixed range
             future_only (bool): Use ranges occurring only in the future
             number_of_ranges (int): The number of prediction ranges to sample
@@ -335,28 +350,19 @@ class CodeLabelPredictionTask(object):
         if fixed_range is not None:
             return [fixed_range]
 
-        # We sample the position ranges where encounter actually occurred - so we can sample
-        # positive occurrences of a code
-        position_ranges = self.get_ranges_for_prediction(
-            position_ranges=encounter_history[self._position_range_column],
-            future_only=future_only
-        )
-
-        # If this patient has no valid position range - return a random position range
-        # We can use it to train negatives
-        if len(position_ranges) == 0:
-            sampled_range_periods = random.choices(self._position_ranges[:-1], k=1)
-            # Randomly choose whether this period will be in the past or future
-            prediction_ranges = [
-                self.create_range_period(sampled_range_period=sampled_range_period, future_only=future_only)
-                for sampled_range_period in sampled_range_periods
-            ]
-            return prediction_ranges
-
-        # Of the position ranges that the patient has data for, sample a desired amount from them
         prediction_ranges = list()
+
+        past = np.arange(-self._prediction_range_limit + 1, 0)
+        future = np.arange(1, self._prediction_range_limit)
+        if future_only:
+            position_ranges = future
+        else:
+            position_ranges = np.append(past, future)
+
         sampled_position_ranges = np.random.choice(
-            position_ranges, size=min(len(position_ranges), number_of_ranges), replace=False
+            position_ranges,
+            size=min(len(position_ranges), number_of_ranges),
+            replace=False
         )
 
         # Convert the position range to an actual range tuple that consists of start and end time
@@ -381,45 +387,49 @@ class CodeLabelPredictionTask(object):
         Returns:
 
         """
-        return (
-            encounter_history[
-                (encounter_history[self._position_column] >= prediction_range[0])
-                & (encounter_history[self._position_column] <= prediction_range[1])
-                ]
-        )
+        if prediction_range[1] <= 0:
+            position_range_filter = (encounter_history[self._position_range_column] < 0)
+        else:
+            position_range_filter = (encounter_history[self._position_range_column] > 0)
+
+        current_time_period = encounter_history[
+            (encounter_history[self._position_column] >= prediction_range[0]) &
+            (encounter_history[self._position_column] <= prediction_range[1]) &
+            position_range_filter
+            ]
+        bins = current_time_period[self._bins_column].unique()
+        return encounter_history[encounter_history[self._bins_column].isin(bins)]
 
     def get_exclude_codes_for_negatives(
             self,
             encounter_history: pd.DataFrame,
-            current_time_period: pd.DataFrame
+            prediction_range: Tuple[int, int],
+            time_negatives_buffer: bool
     ) -> pd.Series:
         """
         Return a list of codes that should not be sampled when sampling negatives
 
         Args:
             encounter_history (pd.Dataframe): The encounter history of the patient
-            current_time_period (pd.DataFrame): The encounters in a given time range
+            prediction_range (Tuple[int, int]): The current prediction range
+            time_negatives_buffer (bool): Make negatives stricter - a code is a negative if it does not occur in the
+            prediction range
 
         Returns:
             (pd.Series): List of codes that should not be used for negative sampling
         """
-        bins = current_time_period[self._bins_column].unique()
-        # In case there is any code that is i not in the current time period but is part of the bin that is in the
-        # current time period - basically if the bin spans over two months - don't sample codes from this
-        # bin as negatives
-        return encounter_history[encounter_history[self._bins_column].isin(bins)][self._code_column]
-
-    def get_unique_codes(self, encounter_history):
-        """
-        Return the unique codes from the dataframe
-        Args:
-            encounter_history:
-
-        Returns:
-
-        """
-        # Keep the first to keep the first occurrence of the code
-        return encounter_history.drop_duplicates(self._code_column, keep='first')
+        if time_negatives_buffer is not None:
+            buffered_range = prediction_range[0] - time_negatives_buffer, prediction_range[1] + time_negatives_buffer
+            buffered_time_period = self.get_current_time_period(
+                encounter_history=encounter_history, prediction_range=buffered_range
+            )
+            bins = buffered_time_period[self._bins_column].unique()
+            # In case there is any code that is i not in the current time period but is part of the bin that is in the
+            # current time period - basically if the bin spans over two months - don't sample codes from this
+            # bin as negatives
+            return encounter_history[encounter_history[self._bins_column].isin(bins)][self._code_column]
+        else:
+            return encounter_history[self._code_column]
 
     def get_sample_sizes(
             self,
@@ -466,32 +476,31 @@ class CodeLabelPredictionTask(object):
         Returns:
 
         """
-        # Get the maximum number of codes you can sample from each sub range
-        # A sub range is like (0, 30), (60, 90) ...
-        range_count_limits = (
-            encounter_history
-            .groupby(self._position_range_column)[self._position_range_column]
-            .count()
-            .to_dict()
-        )
-        # Max limit represents the total number of codes we can sample
-        max_limit = min(sum(range_count_limits.values()), max_limit)
-        # Get all the unique position ranges - we will use this to sample codes such that
-        # they are spread uniformly across many position ranges
-        position_ranges = encounter_history[self._position_range_column].unique()
-        # Get how many codes we are going to sample from each range
-        range_counts = self.get_position_range_counts(
-            position_ranges=position_ranges,
-            range_count_limits=range_count_limits,
-            max_limit=max_limit
-        )
-        # The sample quantity n is based on the range counts
+        tf_idf = self.get_tf_idf(encounter_history=encounter_history)
         return (
-            encounter_history
-            .groupby(self._position_range_column)
-            .apply(lambda x: x.sample(n=range_counts[x.name]))
-            .reset_index(drop=True)
+            tf_idf
+            .sample(n=max_limit, weights=tf_idf[self._weights_column] if not tf_idf.empty else None)
         )
+
+    def get_tf_idf(self, encounter_history):
+        """
+        Get tf idf scores
+
+        Args:
+            encounter_history:
+
+        Returns:
+
+        """
+        tf_idf = (
+            encounter_history
+            .groupby(self._code_column)
+            .agg({self._code_column: 'count', self._idf_column: 'first'})
+            .rename(columns={self._code_column: 'count'})
+            .reset_index()
+        )
+        tf_idf[self._weights_column] = tf_idf['count'] * tf_idf[self._idf_column]
+        return tf_idf
 
     def prepare_sampled_codes(
             self, codes, label_string, prediction_range, ignore_instruction
@@ -554,7 +563,7 @@ class CodeLabelPredictionTask(object):
         """
         # Use these to create and return a dataframe
         return pd.DataFrame(
-            {self._code_column: [], self._position_column: []}
+            {self._code_column: [], self._position_column: [], self._idf_column: []}
         )
 
     def filter_time_encounter_dataframe(
@@ -710,36 +719,6 @@ class CodeLabelPredictionTask(object):
         return probabilities
 
     @staticmethod
-    def get_position_range_counts(position_ranges, range_count_limits, max_limit):
-        """
-        Return the number of codes to sample from each sub range - each range should
-        get about a similar number of counts - but should also not exceed
-        the range limits
-
-        Args:
-            position_ranges:
-            range_count_limits:
-            max_limit:
-
-        Returns:
-
-        """
-        range_counts = Counter()
-        total_count = 0
-        while total_count < max_limit:
-            # We shuffle here - so that we can get a good spread
-            # Assign counts evenly to all ranges
-            np.random.shuffle(position_ranges)
-            for position_range in position_ranges:
-                # If there are codes in this range - we increase the count of sampling from that range
-                if range_counts[position_range] < range_count_limits[position_range]:
-                    range_counts[position_range] += 1
-                    total_count += 1
-                    if total_count == max_limit:
-                        return range_counts
-        return range_counts
-
-    @staticmethod
     def __get_probability(weights):
         """
         Given a set of weights return the probability
@@ -838,6 +817,7 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             code_convert: Union[ICDConvert, PHEConvert],
             time_bins: Union[AgglomerativeDataBins, Sequence[AgglomerativeDataBins]],
             negative_code_sampling: NegativeCodeCacheSampling,
+            fixed_position_range: bool,
             patient_id_column: str = 'PatientID',
             code_column: str = 'phecode',
             position_column: str = 'position',
@@ -890,7 +870,8 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             ignore_instruction_column=ignore_instruction_column,
             position_range_column=position_range_column,
             current_bin_value=current_bin_value,
-            prediction_range_limit=prediction_range_limit
+            prediction_range_limit=prediction_range_limit,
+            fixed_position_range=fixed_position_range
         )
         self._trie = negative_code_sampling.get_trie()
         self._tree = negative_code_sampling.get_tree()
@@ -931,7 +912,6 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
 
         #  Get the bin period we will be making predictions for
         prediction_ranges = self.get_prediction_ranges(
-            encounter_history,
             future_only=args.future_only,
             number_of_ranges=self.sample_from_list(args.number_of_instructions),
             fixed_range=args.time_period_range
@@ -950,7 +930,9 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
                 encounter_history=encounter_history, prediction_range=prediction_range
             )
             # Get only the unique codes - keep only the earliest occurrences of each code basically
-            current_time_period_unique = self.get_unique_codes(current_time_period)
+            # FIXME
+            # current_time_period_unique = self.get_unique_codes(current_time_period)
+            current_time_period_unique = current_time_period
 
             # Positive hash should contain a set of codes. It should contain all the ancestors for a given
             # code - but not their siblings. The ignore_hash is used when the note is labeled with a non leaf
@@ -1836,6 +1818,7 @@ class SingleCodeLabelPredictionTask(CodeLabelPredictionTask):
             code_convert: Union[ICDConvert, PHEConvert],
             time_bins: Union[AgglomerativeDataBins, Sequence[AgglomerativeDataBins]],
             negative_code_sampling: NegativeCodeCacheSampling,
+            fixed_position_range: bool,
             patient_id_column: str = 'PatientID',
             code_column: str = 'phecode',
             position_column: str = 'position',
@@ -1887,7 +1870,8 @@ class SingleCodeLabelPredictionTask(CodeLabelPredictionTask):
             ignore_instruction_column=ignore_instruction_column,
             position_range_column=position_range_column,
             current_bin_value=current_bin_value,
-            prediction_range_limit=prediction_range_limit
+            prediction_range_limit=prediction_range_limit,
+            fixed_position_range=fixed_position_range
         )
 
     def process_sample(self, sample, args):
@@ -1934,7 +1918,6 @@ class SingleCodeLabelPredictionTask(CodeLabelPredictionTask):
         # The list can contain multiple elements - we can make prediction for
         # multiple time bins
         prediction_ranges = self.get_prediction_ranges(
-            encounter_history,
             future_only=args.future_only,
             number_of_ranges=self.sample_from_list(args.number_of_instructions),
             fixed_range=args.time_period_range,
@@ -1995,7 +1978,6 @@ class SingleCodeLabelPredictionTask(CodeLabelPredictionTask):
 
     def get_prediction_ranges(
             self,
-            encounter_history: pd.DataFrame,
             future_only: bool,
             number_of_ranges: int,
             fixed_range: Tuple[int, int] = None,
@@ -2007,7 +1989,6 @@ class SingleCodeLabelPredictionTask(CodeLabelPredictionTask):
         will make predictions for.
 
         Args:
-            encounter_history (pd.DataFrame): The encounter history of the patient
             fixed_range (Tuple[int, int], defaults to `None`): Return the fixed range
             future_only (bool): Use ranges occurring only in the future
             number_of_ranges (int): The number of prediction ranges to sample
@@ -2020,14 +2001,12 @@ class SingleCodeLabelPredictionTask(CodeLabelPredictionTask):
         # TODO: Remove position ranges where any code from hierarchy is present
         if code_occurrences.empty:
             return super().get_prediction_ranges(
-                encounter_history=encounter_history,
                 future_only=future_only,
                 fixed_range=fixed_range,
                 number_of_ranges=number_of_ranges
             )
         else:
             return super().get_prediction_ranges(
-                encounter_history=code_occurrences,
                 future_only=future_only,
                 fixed_range=fixed_range,
                 number_of_ranges=number_of_ranges
