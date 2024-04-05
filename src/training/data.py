@@ -23,28 +23,18 @@ from webdataset.filters import _shuffle
 from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander, valid_sample
 
 from open_clip.tokenizer import decode
-from .instruct.codes import (
-    CodeLabelPredictionTask,
-    SingleCodeLabelPredictionTask,
-    CodeLabelPredictionTaskEvaluation,
-    HierarchicalCodeLabelPredictionTask
-)
-from .instruct.codes.descriptions import ICDDescription, PHEDescription
-from .instruct.codes.processing import (
-    EncounterDataframeProcess,
-    NegativeCodeCacheSampling,
-    GroupBySampling,
-    ICDConvert,
-    PHEConvert,
-)
-from .instruct.utils import (
-    get_code_label_prediction_instruction_template,
-)
-from .instruct.codes.processing.data_bins import AgglomerativeDataBins, MonthDataBins
+
 from .instruct import (
     InstructTasks,
-    GPT2InstructTokenizer,
-    InstructTokenizer
+)
+from .data_utils import (
+    get_tree_code_label_prediction_task,
+    get_single_code_label_prediction_task,
+    get_all_code_label_prediction_task,
+    get_code_label_prediction_task_eval,
+    get_demographic_task,
+    get_lab_task,
+    get_instruct_tokenizer
 )
 
 try:
@@ -450,119 +440,6 @@ def get_synthetic_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None
 
     return DataInfo(dataloader, sampler)
 
-def get_instruct_tokenizer(model_name, tokenizer, pad_id, max_seq_length, ignore_index):
-    if 'gpt' in model_name:
-        return GPT2InstructTokenizer(
-            tokenizer=tokenizer, pad_id=pad_id, max_seq_length=max_seq_length, ignore_index=ignore_index
-        )
-    else:
-        return InstructTokenizer(
-            tokenizer=tokenizer, pad_id=pad_id, max_seq_length=max_seq_length, ignore_index=ignore_index
-        )
-
-
-def get_code_prediction_instruction_template():
-    return get_code_label_prediction_instruction_template()
-
-def get_code_label_prediction_task(
-        training_type,
-        encounter_dataframe_process,
-        negative_code_sampling,
-        dataframe_sampling,
-        code_label_prediction_instructions,
-        time_bins,
-        code_convert,
-        patient_id_column,
-        code_column,
-        position_column
-):
-
-    if training_type == 'single':
-        return SingleCodeLabelPredictionTask(
-            encounter_dataframe_process=encounter_dataframe_process,
-            dataframe_sampling=dataframe_sampling,
-            code_instructions=code_label_prediction_instructions,
-            time_bins=time_bins,
-            code_convert=code_convert,
-            negative_code_sampling=negative_code_sampling,
-            patient_id_column=patient_id_column,
-            code_column=code_column,
-            position_column=position_column,
-        )
-    elif training_type == 'all':
-        return CodeLabelPredictionTask(
-            encounter_dataframe_process=encounter_dataframe_process,
-            dataframe_sampling=dataframe_sampling,
-            code_instructions=code_label_prediction_instructions,
-            time_bins=time_bins,
-            code_convert=code_convert,
-            negative_code_sampling=negative_code_sampling,
-            patient_id_column=patient_id_column,
-            code_column=code_column,
-            position_column=position_column,
-        )
-    elif training_type == 'tree':
-        return HierarchicalCodeLabelPredictionTask(
-            encounter_dataframe_process=encounter_dataframe_process,
-            dataframe_sampling=dataframe_sampling,
-            code_instructions=code_label_prediction_instructions,
-            time_bins=time_bins,
-            code_convert=code_convert,
-            negative_code_sampling=negative_code_sampling,
-            patient_id_column=patient_id_column,
-            code_column=code_column,
-            position_column=position_column,
-        )
-    elif training_type == 'trajectory':
-        raise NotImplementedError()
-    else:
-        raise ValueError('Invalid training tpe')
-
-def get_code_label_prediction_task_eval(
-        encounter_dataframe_process,
-        negative_code_sampling,
-        dataframe_sampling,
-        code_label_prediction_instructions,
-        time_bins,
-        code_convert,
-        patient_id_column,
-        code_column,
-        position_column
-):
-
-    return CodeLabelPredictionTaskEvaluation(
-        encounter_dataframe_process=encounter_dataframe_process,
-        dataframe_sampling=dataframe_sampling,
-        code_instructions=code_label_prediction_instructions,
-        time_bins=time_bins,
-        code_convert=code_convert,
-        negative_code_sampling=negative_code_sampling,
-        patient_id_column=patient_id_column,
-        code_column=code_column,
-        position_column=position_column,
-    )
-
-
-def get_code_convert(args):
-    if 'phe' in args.code_column:
-        return PHEConvert(
-            descriptions=PHEDescription(),
-            lowercase=False
-        )
-    else:
-        return ICDConvert(
-            descriptions=ICDDescription(),
-            billable_probability=args.billable_probability,
-            top_non_probability=args.top_non_probability,
-            mixed_non_probability=args.mixed_non_probability,
-            lowercase=False
-        )
-
-def get_encounter_dataframe(encounter_file):
-    return pd.read_parquet(
-        encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
-    )
-
 def get_wds_dataset_icd_instruct(
         args,
         preprocess_img,
@@ -572,79 +449,36 @@ def get_wds_dataset_icd_instruct(
         tokenizer=None,
         return_sample=False,
         eval_mode=False,
-        encounter_dataframe=None
 ):
+    task_list = list()
 
-    if encounter_dataframe is None:
-        encounter_dataframe = get_encounter_dataframe(encounter_file=args.encounter_file)
-
-    dataframe_sampling = GroupBySampling()
-
-    code_convert = get_code_convert(args=args)
-
-    encounter_dataframe_process = EncounterDataframeProcess(
-        encounter_dataframe=encounter_dataframe,
-        patient_id_column=args.patient_id_column,
-        contact_date_column=args.contact_date_column,
-        time_difference_column=args.time_difference_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
-    )
-
-    # Set these to - number_of_instructions * k_shot?
-    negative_code_cache_sampling = NegativeCodeCacheSampling(
-        encounter_dataframe_process=encounter_dataframe_process,
-        negatives_type=args.negatives_type,
-        code_task_negative_cache_size=100,
-        minimum_negatives_size=10,
-    )
-
-    time_bins = [
-        AgglomerativeDataBins(distance_threshold=distance_threshold)
-        for distance_threshold in args.distance_threshold
-    ]
-
-    code_label_prediction_instructions = get_code_prediction_instruction_template()
-
-    if args.eval_mode or eval_mode:
-        code_label_prediction_task = get_code_label_prediction_task_eval(
-            encounter_dataframe_process=encounter_dataframe_process,
-            negative_code_sampling=negative_code_cache_sampling,
-            dataframe_sampling=dataframe_sampling,
-            code_label_prediction_instructions=code_label_prediction_instructions,
-            time_bins=time_bins,
-            code_convert=code_convert,
-            patient_id_column=args.patient_id_column,
-            code_column=args.code_column,
-            position_column=args.position_column
-        )
-    else:
-        code_label_prediction_task = get_code_label_prediction_task(
-            training_type=args.training_type,
-            encounter_dataframe_process=encounter_dataframe_process,
-            negative_code_sampling=negative_code_cache_sampling,
-            dataframe_sampling=dataframe_sampling,
-            code_label_prediction_instructions=code_label_prediction_instructions,
-            time_bins=time_bins,
-            code_convert=code_convert,
-            patient_id_column=args.patient_id_column,
-            code_column=args.code_column,
-            position_column=args.position_column
-        )
+    for task in args.tasks:
+        if task == 'demographics':
+            task_list.append(get_demographic_task(args=args))
+        elif task == 'labs':
+            task_list.append(get_lab_task(args=args))
+        elif task == 'all':
+            task_list.append(get_all_code_label_prediction_task(args=args))
+        elif task == 'single':
+            task_list.append(get_single_code_label_prediction_task(args=args))
+        elif task == 'tree':
+            task_list.append(get_tree_code_label_prediction_task(args=args))
+        elif task == 'eval' and (args.eval_mode or eval_mode):
+            task_list.append(get_code_label_prediction_task_eval(args=args))
+        else:
+            raise ValueError('Invalid task type')
 
     if tokenizer is None:
         instruct_tokenizer = None
     else:
         instruct_tokenizer = get_instruct_tokenizer(
             tokenizer=tokenizer,
-            model_name=args.model,
-            pad_id=args.pad_id,
-            max_seq_length=args.max_seq_length,
-            ignore_index=-100
+            ignore_index=-100,
+            args=args
         )
 
     instruct_tasks = InstructTasks(
-        code_instruct_task=code_label_prediction_task,
+        task_list=task_list,
         instruct_tokenizer=instruct_tokenizer
     )
 
@@ -682,6 +516,7 @@ def get_wds_dataset_icd_instruct(
         epoch=epoch,
         floor=floor
     )
+
 
 def get_sample_keys(args):
     if 'scatter' in args.model.lower():
