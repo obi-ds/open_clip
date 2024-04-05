@@ -201,6 +201,14 @@ class InstructTokenizer(object):
             tokens = tokens[:self._max_seq_length - 1]
         return tokens
 
+    def get_eos_token(self):
+        """
+
+        Returns:
+
+        """
+        return '<end_of_text>'
+
 
 
 class GPT2InstructTokenizer(InstructTokenizer):
@@ -272,3 +280,11 @@ class GPT2InstructTokenizer(InstructTokenizer):
             return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
         else:
             return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._ignore_index]
+
+    def get_eos_token(self):
+        """
+
+        Returns:
+
+        """
+        return self._tokenizer.tokenizer.eos_token_id

@@ -1,4 +1,5 @@
 import torch
+import random
 from typing import Union
 
 from .instruct_tokenizer import GPT2InstructTokenizer, InstructTokenizer
@@ -9,14 +10,22 @@ class InstructTasks(object):
 
     def __init__(
             self,
-            code_instruct_task: CodeLabelPredictionTask,
+            task_list,
             instruct_tokenizer: Union[GPT2InstructTokenizer, InstructTokenizer]
     ):
-        self._code_trajectory_instruct_task = code_instruct_task
+        self._task_list = task_list
         self._instruct_tokenizer = instruct_tokenizer
 
     def process_sample_from_args(self, sample, args):
-        task_instructions = self._code_trajectory_instruct_task.process_sample(sample=sample, args=args)
+        task_instructions = list()
+        if args.task_shuffle:
+            random.shuffle(self._task_list)
+        for task in self._task_list:
+            instructions = task.process_sample(sample=sample, args=args)
+            task_instructions.extend(instructions)
+            if len(instructions):
+                task_instructions.append([self.get_task_separator_instruction(), '', True])
+
         if self._instruct_tokenizer is None:
             return task_instructions
 
@@ -27,3 +36,9 @@ class InstructTasks(object):
         labels = labels.unsqueeze(0)
 
         return torch.cat([input_ids, labels])
+
+    def get_task_separator_instruction(self):
+        if self._instruct_tokenizer is None:
+            return '\n'
+        else:
+            return self._instruct_tokenizer.get_eos_token() + '\n'
