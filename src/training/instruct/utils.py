@@ -2,6 +2,7 @@
 from .codes.templates import (
     CodeLabelPredictionInstructionTemplate,
 )
+from .demographics.templates import PatientDemographicsTemplate
 
 # def get_code_label_prediction_instruction_template(
 #         past_input = 'Was the patient diagnosed with {diagnosis} in the past {time} months?',
@@ -26,7 +27,7 @@ from .codes.templates import (
 #     )
 
 def get_code_label_prediction_instruction_template(
-        task_definition = 'Will the patient visit the hospital for the following diseases in the next {time} months?',
+        task_definition = 'Diagnoses in the next {time} months',
         inputs = '* {diagnosis}:',
         x_y_delimiter = ' ',
         example_separator = '\n'
@@ -45,4 +46,44 @@ def get_code_label_prediction_instruction_template(
         example_separator=example_separator
     )
 
+def get_patient_demographics_instruction_template(
+        task_definition = 'Patient attributes',
+        inputs = '* {category}:',
+        x_y_delimiter = ' ',
+        example_separator = '\n'
+) -> PatientDemographicsTemplate:
+    """
+    Return the object can use the given data and instruction templates
+    and return an instruction string for the input and output
+
+    Returns:
+        (CodeTrajectoryPredictionInstructions): Object to build instruction strings (inputs and targets)
+    """
+    return PatientDemographicsTemplate(
+        inputs=inputs,
+        x_y_delimiter=x_y_delimiter,
+        task_definition=task_definition,
+        example_separator=example_separator
+    )
+
+
+def get_patient_labs_instruction_template(
+        task_definition = 'Labs in the next {time} months',
+        inputs = '* {diagnosis}:',
+        x_y_delimiter = ' ',
+        example_separator = '\n'
+) -> CodeLabelPredictionInstructionTemplate:
+    """
+    Return the object can use the given data and instruction templates
+    and return an instruction string for the input and output
+
+    Returns:
+        (CodeTrajectoryPredictionInstructions): Object to build instruction strings (inputs and targets)
+    """
+    return CodeLabelPredictionInstructionTemplate(
+        inputs=inputs,
+        x_y_delimiter=x_y_delimiter,
+        task_definition=task_definition,
+        example_separator=example_separator
+    )
 

@@ -20,7 +20,8 @@ from .instruct.demographics.processing import DemographicDataframeProcess
 from .instruct.labs.processing import LabsDataframeProcess
 from .instruct.utils import (
     get_code_label_prediction_instruction_template,
-    get_patient_demographics_instruction_template
+    get_patient_demographics_instruction_template,
+    get_patient_labs_instruction_template
 )
 from .instruct.codes.processing.data_bins import AgglomerativeDataBins
 from .instruct import (
@@ -188,7 +189,7 @@ def get_lab_task(args):
 
     """
     lab_dataframes = get_lab_dataframes(labs_folder=args.labs_folder)
-    lab_prediction_instructions = get_code_label_prediction_instruction_template()
+    lab_prediction_instructions = get_patient_labs_instruction_template()
     lab_dataframe_process = get_lab_dataframe_process(lab_dataframes=lab_dataframes, args=args)
     time_bins = get_time_bins(args)
     return LabPredictionTask(
