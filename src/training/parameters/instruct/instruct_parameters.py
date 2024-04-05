@@ -24,11 +24,31 @@ def get_instruct_arguments():
         help="The number of k_shots to use",
     )
     parser.add_argument(
-        '--training-type',
+        "--k-shot-demographics",
+        type=int,
+        nargs='+',
         default=None,
+        help="The number of k_shots to use for demographic data",
+    )
+    parser.add_argument(
+        "--k-shot-labs",
+        type=int,
+        nargs='+',
+        default=None,
+        help="The number of k_shots to use for demographic data",
+    )
+    parser.add_argument(
+        "--tasks",
         type=str,
-        choices=['all', 'single', 'tree'],
-        help="Train against all codes or just a single code"
+        nargs='+',
+        default=None,
+        help="The training tasks",
+    )
+    parser.add_argument(
+        "--task-shuffle",
+        default=False,
+        action="store_true",
+        help="Whether to shuffle the tasks"
     )
     parser.add_argument(
         "--eval-mode",
