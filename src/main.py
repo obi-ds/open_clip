@@ -429,7 +429,8 @@ def main(args):
 
     loss = create_loss(args)
     eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
-    pos_token_id = get_pos_token_id(model_name=args.model, tokenizer=tokenizer, token='yes')
+    pos_token_id = get_token_id(model_name=args.model, tokenizer=tokenizer, token='yes')
+    neg_token_id = get_token_id(model_name=args.model, tokenizer=tokenizer, token='no')
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
@@ -446,6 +447,7 @@ def main(args):
                 args=args,
                 eot_token_id=eos_token_id,
                 positive_token_id=pos_token_id,
+                negative_token_id=neg_token_id,
                 tb_writer=writer
             )
 
@@ -520,7 +522,7 @@ def get_eos_token_id(model_name, tokenizer):
     else:
         return tokenizer.eot_token_id
 
-def get_pos_token_id(model_name, tokenizer, token):
+def get_token_id(model_name, tokenizer, token):
     if 'gpt' in model_name:
         return tokenizer.tokenizer.convert_tokens_to_ids(token)
     else:

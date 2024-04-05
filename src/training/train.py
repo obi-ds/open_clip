@@ -365,6 +365,7 @@ def evaluate_instruct_basic(
         args,
         eot_token_id,
         positive_token_id,
+        negative_token_id,
         tb_writer=None,
         prefix='',
         ignore_index=-100,
@@ -387,7 +388,8 @@ def evaluate_instruct_basic(
         # FIXME this does not scale past small eval datasets
         # all_image_features @ all_text_features will blow up memory and compute very quickly
         cumulative_gen_loss = 0.0
-        all_scores, all_predictions, all_labels = [], [], []
+        all_predictions, all_labels = [], []
+        all_diagnosis_scores, all_diagnosis_labels = [], []
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
@@ -400,13 +402,22 @@ def evaluate_instruct_basic(
                     model_out = model(images, texts)
                     model_logits = model_out['logits']
                     model_labels = model_out['labels']
+
                     mask = (model_labels != ignore_index) & (model_labels != eot_token_id)
+                    diagnosis_mask = (model_labels == positive_token_id) | (model_labels == negative_token_id)
+
                     labels = model_labels[mask]
                     logits = model_logits[mask]
 
-                    all_scores.append(logits[:, positive_token_id].cpu())
+                    diagnosis_labels = model_labels[diagnosis_mask]
+                    diagnosis_logits = model_logits[diagnosis_mask]
+
+
                     all_predictions.append(logits.argmax(dim=-1).cpu())
                     all_labels.append(labels.cpu())
+
+                    all_diagnosis_scores.append(diagnosis_logits[:, positive_token_id].cpu())
+                    all_diagnosis_labels.append(diagnosis_labels.cpu())
                     # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
                     # however, system RAM is easily exceeded and compute time becomes problematic
 
@@ -424,9 +435,10 @@ def evaluate_instruct_basic(
                         logging.info(
                             f"{prefix} Generative Loss: {cumulative_gen_loss / num_samples:.6f}\t")
             generative_metrics = compute_generative_metrics(
-                scores=torch.cat(all_scores),
+                diagnosis_scores=torch.cat(all_diagnosis_scores),
                 predictions=torch.cat(all_predictions),
                 labels=torch.cat(all_labels),
+                diagnosis_labels=torch.cat(all_diagnosis_labels),
                 prefix=prefix
             )
             metrics.update(
@@ -521,11 +533,11 @@ def maybe_compute_generative_loss(model_out):
 def compute_generative_loss(token_logits, token_labels, ignore_index=-100, reduction='mean'):
     return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels, ignore_index=ignore_index, reduction=reduction)
 
-def compute_generative_metrics(scores, predictions, labels, prefix):
+def compute_generative_metrics(diagnosis_scores, predictions, labels, diagnosis_labels, prefix):
 
     metrics = {
         f'{prefix}accuracy': accuracy_score(labels, predictions),
-        f'{prefix}auc': roc_auc_score(labels, scores)
+        f'{prefix}auc': roc_auc_score(diagnosis_labels, diagnosis_scores)
     }
     return metrics
 
