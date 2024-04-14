@@ -170,5 +170,3 @@ class GroupBySampling(DataFrameSampling):
             np.random.shuffle(groups_array)
             # Select only those rows that belong to the groups we specify using the array
             return dataframe[group_by_object.ngroup().isin(groups_array[:number_of_groups_to_sample])]
-
-
