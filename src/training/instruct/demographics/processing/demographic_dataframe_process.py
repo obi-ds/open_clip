@@ -63,4 +63,3 @@ class DemographicDataframeProcess(object):
             (bool): True if patient id exists, false otherwise
         """
         return patient_id in self._demographic_dataframe.index
-
