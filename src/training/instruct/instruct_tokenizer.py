@@ -11,7 +11,13 @@ class InstructTokenizer(object):
     predicting the next word.
     """
 
-    def __init__(self, tokenizer, max_seq_length, pad_id, ignore_index=-100):
+    def __init__(
+            self,
+            tokenizer,
+            max_seq_length,
+            pad_id,
+            ignore_index=-100,
+    ):
         """
         Initialize variables
         Args:
@@ -41,7 +47,7 @@ class InstructTokenizer(object):
         """
         all_input_ids = []
         all_labels = []
-        for instruction_input, instruction_output, ignore_instruction in task_instructions:
+        for instruction_input, instruction_output, ignore_instruction, seq2seq in task_instructions:
             # Get the tokens for the instruction input - The eos and padding tokens are removed
             input_tokens = self.get_input_tokens(input_text=instruction_input)
             # Get the tokens for the instruction target - the bos and padding tokens are removed
@@ -50,13 +56,18 @@ class InstructTokenizer(object):
             # The input to the model - will consist of the instruction input tokens,
             # instruction target tokens and padding tokens. Target tokens are included in
             # autoregressive lm - we specify the labels in the next step (next token prediction)
-            input_ids = self.get_input_ids(input_tokens=input_tokens, output_tokens=output_tokens)
+            input_ids = self.get_input_ids(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                seq2seq=seq2seq
+            )
             # Get the tensor that will contain the labels for autoregressive training, such that we
             # only train on the instruction targets
             labels = self.get_labels(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
-                ignore_instruction=ignore_instruction
+                ignore_instruction=ignore_instruction,
+                seq2seq=seq2seq
             )
 
             # Concatenate inputs ids and labels from the different instructions
@@ -108,6 +119,7 @@ class InstructTokenizer(object):
             self,
             input_tokens: List[int],
             output_tokens: List[int],
+            seq2seq: bool
     ) -> List[int]:
         """
         Given the instruction input tokens, instruction target tokens and padding tokens,
@@ -116,13 +128,47 @@ class InstructTokenizer(object):
         Args:
             input_tokens (List[int]): The instruction input tokens
             output_tokens (List[int]): The instruction output tokens
+            seq2seq (bool):
 
         Returns:
             (List[int]): The tokens that are inputs to the model
         """
-        return input_tokens + output_tokens
+        if seq2seq:
+            return input_tokens
+        else:
+            return input_tokens + output_tokens
 
     def get_labels(
+            self,
+            input_tokens: List[int],
+            output_tokens: List[int],
+            ignore_instruction: bool,
+            seq2seq: bool
+    ) -> List[int]:
+        """
+        Given the instruction input tokens, instruction target tokens and padding tokens,
+        return a tensor that contains 0 (ignore_index) values in positions that correspond
+        to input and padding tokens, and output token values are left as is. We are creating
+        a label mask essentially.
+        Args:
+            input_tokens (List[int]): The instruction input tokens
+            output_tokens (List[int]): The instruction output tokens
+            ignore_instruction (bool, defaults to `False`): Boolean whether to ignore the output of this instruction
+            seq2seq (bool)
+
+        Returns:
+            (List[int]): The label ids the model will be trained on
+        """
+        if seq2seq:
+            return self.get_seq2seq_labels(
+                input_tokens=input_tokens, output_tokens=output_tokens, ignore_instruction=ignore_instruction
+            )
+        else:
+            return self.get_sft_labels(
+                input_tokens=input_tokens, output_tokens=output_tokens, ignore_instruction=ignore_instruction
+            )
+
+    def get_sft_labels(
             self,
             input_tokens: List[int],
             output_tokens: List[int],
@@ -144,7 +190,37 @@ class InstructTokenizer(object):
         if ignore_instruction:
             return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
         else:
-            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._tokenizer.eot_token_id]
+            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._ignore_index]
+
+    def get_seq2seq_labels(
+            self,
+            input_tokens: List[int],
+            output_tokens: List[int],
+            ignore_instruction: bool = False
+    ) -> List[int]:
+        """
+        Given the instruction input tokens, instruction target tokens and padding tokens,
+        return a tensor that contains 0 (ignore_index) values in positions that correspond
+        to input and padding tokens, and output token values are left as is. We are creating
+        a label mask essentially.
+
+        Args:
+            input_tokens (List[int]): The instruction input tokens
+            output_tokens (List[int]): The instruction output tokens
+            ignore_instruction (bool, defaults to `False`): Boolean whether to ignore the output of this instruction
+
+        Returns:
+            (List[int]): The label ids the model will be trained on
+        """
+        if ignore_instruction or len(output_tokens) == 0:
+            return [self._ignore_index] * (len(input_tokens))
+        else:
+            if len(output_tokens) == 1:
+                return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens
+            elif len(output_tokens) == 2:
+                return [self._ignore_index] * (len(input_tokens) - 3) + [output_tokens[0], self._ignore_index, self._ignore_index]
+            else:
+                raise NotImplementedError('Only works when output tokens are of length 1')
 
     def pad_input_tokens(self, tokens: List[int]) -> List[int]:
         """
@@ -210,7 +286,6 @@ class InstructTokenizer(object):
         return '<end_of_text>'
 
 
-
 class GPT2InstructTokenizer(InstructTokenizer):
     """
     Define functions that are used to build, tokenize and return input
@@ -219,7 +294,7 @@ class GPT2InstructTokenizer(InstructTokenizer):
     predicting the next word.
     """
 
-    def __init__(self, tokenizer, max_seq_length, pad_id, ignore_index=-100):
+    def __init__(self, tokenizer, max_seq_length, pad_id, ignore_index=-100, seq2seq=False):
         """
         Initialize variables
         Args:
@@ -257,34 +332,10 @@ class GPT2InstructTokenizer(InstructTokenizer):
         """
         return self._tokenizer.tokenizer(output_text)['input_ids']
 
-    def get_labels(
-            self,
-            input_tokens: List[int],
-            output_tokens: List[int],
-            ignore_instruction: bool = False
-    ) -> List[int]:
-        """
-        Given the instruction input tokens, instruction target tokens and padding tokens,
-        return a tensor that contains 0 (ignore_index) values in positions that correspond
-        to input and padding tokens, and output token values are left as is. We are creating
-        a label mask essentially.
-        Args:
-            input_tokens (List[int]): The instruction input tokens
-            output_tokens (List[int]): The instruction output tokens
-            ignore_instruction (bool, defaults to `False`): Boolean whether to ignore the output of this instruction
-
-        Returns:
-            (List[int]): The label ids the model will be trained on
-        """
-        if ignore_instruction:
-            return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
-        else:
-            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._ignore_index]
-
     def get_eos_token(self):
         """
 
         Returns:
 
         """
-        return self._tokenizer.tokenizer.eos_token_id
+        return self._tokenizer.tokenizer.eos_token
