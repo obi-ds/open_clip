@@ -4,6 +4,7 @@ import pandas as pd
 import os.path as path
 from typing import Optional, Mapping, Dict
 
+
 class CodeDescriptions(object):
     """
     Class to convert codes to their textual descriptions
@@ -133,7 +134,7 @@ class PHEDescription(CodeDescriptions):
 
         """
         pattern = r'^([A-Z])(?=[a-z]+($|\s|/|,|\'))|(?<=[\[\(/])([A-Z])(?=[a-z])|^([A-Z])(?=[a-z]+\-[a-z])'
-        return re.sub(pattern, lambda x: x.group(0), re.sub('\*$', '', code))
+        return re.sub(pattern, lambda x: x.group(0), re.sub(r'\*$', '', code))
 
     def get_description(self, code: str) -> str:
         """
@@ -149,4 +150,3 @@ class PHEDescription(CodeDescriptions):
         if not re.search(r'\w+', description):
             raise ValueError('Did not find description of PHE code')
         return description
-
