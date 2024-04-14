@@ -218,7 +218,7 @@ class InstructTokenizer(object):
             if len(output_tokens) == 1:
                 return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens
             elif len(output_tokens) == 2:
-                return [self._ignore_index] * (len(input_tokens) - 3) + [output_tokens[0], self._ignore_index, self._ignore_index]
+                return [self._ignore_index] * (len(input_tokens) - 3) + output_tokens + [self._ignore_index]
             else:
                 raise NotImplementedError('Only works when output tokens are of length 1')
 
@@ -294,7 +294,7 @@ class GPT2InstructTokenizer(InstructTokenizer):
     predicting the next word.
     """
 
-    def __init__(self, tokenizer, max_seq_length, pad_id, ignore_index=-100, seq2seq=False):
+    def __init__(self, tokenizer, max_seq_length, pad_id, ignore_index=-100):
         """
         Initialize variables
         Args:
