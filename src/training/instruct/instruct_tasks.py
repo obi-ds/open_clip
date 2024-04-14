@@ -3,7 +3,6 @@ import random
 from typing import Union
 
 from .instruct_tokenizer import GPT2InstructTokenizer, InstructTokenizer
-from .codes import CodeLabelPredictionTask
 
 
 class InstructTasks(object):
@@ -11,7 +10,7 @@ class InstructTasks(object):
     def __init__(
             self,
             task_list,
-            instruct_tokenizer: Union[GPT2InstructTokenizer, InstructTokenizer]
+            instruct_tokenizer: Union[GPT2InstructTokenizer, InstructTokenizer],
     ):
         self._task_list = task_list
         self._instruct_tokenizer = instruct_tokenizer
@@ -24,7 +23,7 @@ class InstructTasks(object):
             instructions = task.process_sample(sample=sample, args=args)
             task_instructions.extend(instructions)
             if len(instructions):
-                task_instructions.append([self.get_task_separator_instruction(), '', True])
+                task_instructions.append([self.get_task_separator_instruction(), '', True, False])
 
         if self._instruct_tokenizer is None:
             return task_instructions
