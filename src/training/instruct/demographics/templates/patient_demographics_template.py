@@ -3,7 +3,6 @@ Define the diagnostic code status classification task - The task uses templates,
 This class will return the instruction string. It will make use of the  instruction data
 and the instruction template to create the instruction string.
 """
-import numpy as np
 from typing import Tuple, Union
 
 
@@ -55,7 +54,7 @@ class PatientDemographicsTemplate(object):
         Returns:
             (str): String containing the definition of the task
         """
-        return self._task_definition + self._example_separator
+        return self._task_definition + '\n'
 
     def get_instruction(self, category: str, value: Union[str, int, float]) -> Tuple[str, str]:
         """
@@ -86,7 +85,6 @@ class PatientDemographicsTemplate(object):
             (str): Instruction input that contains the diagnosis
         """
         return self._inputs_prefix + self._inputs.format(category=category) + self._x_y_delimiter
-
 
     def get_instruction_target(self, value: Union[str, int, float]) -> str:
         """
