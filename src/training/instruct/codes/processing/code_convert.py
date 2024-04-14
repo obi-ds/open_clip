@@ -197,7 +197,6 @@ class PHEConvert(object):
         self._descriptions = descriptions
         self._lowercase = lowercase
 
-
     def transform_code(self, code: str) -> str:
         """
         Return raw codes or the textual code descriptions
@@ -236,5 +235,3 @@ class PHEConvert(object):
 
         # Map codes
         return [code for code in codes]
-
-
