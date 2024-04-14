@@ -718,6 +718,7 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             current_bin_value: int = -100,
             prediction_range_limit: int = None,
             seq2seq: bool = True,
+            sep: str = ' -> '
     ):
         """
         Initialize variables
@@ -765,6 +766,7 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
         )
         self._trie = negative_code_sampling.get_trie()
         self._tree = negative_code_sampling.get_tree()
+        self._sep = sep
 
     def process_sample(self, sample, args, ignore_instruction=False):
         """
@@ -1110,17 +1112,15 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
                 ignore_instruction = True
         return code_description, label, ignore_instruction
 
-    @staticmethod
-    def add_label_to_input(code, label, sep=' -> '):
+    def add_label_to_input(self, code, label):
         """
         Add the label to the code description
 
         Args:
             code:
             label:
-            sep:
 
         Returns:
 
         """
-        return f'{code}{sep}{label}'
+        return f'{code}{self._sep}{label}'
