@@ -2,7 +2,6 @@
 import pandas as pd
 from .instruct.codes import (
     CodeLabelPredictionTask,
-    SingleCodeLabelPredictionTask,
     CodeLabelPredictionTaskEvaluation,
     HierarchicalCodeLabelPredictionTask
 )
@@ -21,13 +20,15 @@ from .instruct.labs.processing import LabsDataframeProcess
 from .instruct.utils import (
     get_code_label_prediction_instruction_template,
     get_patient_demographics_instruction_template,
-    get_patient_labs_instruction_template
+    get_patient_labs_instruction_template,
+    get_hierarchical_code_label_prediction_instruction_template
 )
 from .instruct.codes.processing.data_bins import AgglomerativeDataBins
 from .instruct import (
     GPT2InstructTokenizer,
     InstructTokenizer
 )
+
 
 def get_all_code_label_prediction_task(args):
     """
@@ -62,39 +63,6 @@ def get_all_code_label_prediction_task(args):
     )
 
 
-def get_single_code_label_prediction_task(args):
-    """
-
-    Args:
-        args:
-
-    Returns:
-
-    """
-    (
-        encounter_dataframe,
-        encounter_dataframe_process,
-        negative_code_sampling,
-        dataframe_sampling,
-        code_convert,
-        code_label_prediction_instructions,
-        time_bins
-    ) = get_code_label_task_objects(args)
-
-    return SingleCodeLabelPredictionTask(
-        encounter_dataframe_process=encounter_dataframe_process,
-        dataframe_sampling=dataframe_sampling,
-        code_instructions=code_label_prediction_instructions,
-        time_bins=time_bins,
-        code_convert=code_convert,
-        negative_code_sampling=negative_code_sampling,
-        patient_id_column=args.patient_id_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
-        fixed_position_range=args.fixed_position_range
-    )
-
-
 def get_tree_code_label_prediction_task(args):
     """
 
@@ -110,9 +78,13 @@ def get_tree_code_label_prediction_task(args):
         negative_code_sampling,
         dataframe_sampling,
         code_convert,
-        code_label_prediction_instructions,
+        _,
         time_bins
     ) = get_code_label_task_objects(args)
+
+    code_label_prediction_instructions = get_hierarchical_code_label_prediction_instruction_template(
+        example_separator=get_example_separator(args=args)
+    )
 
     return HierarchicalCodeLabelPredictionTask(
         encounter_dataframe_process=encounter_dataframe_process,
@@ -159,6 +131,7 @@ def get_code_label_prediction_task_eval(args):
         position_column=args.position_column,
     )
 
+
 def get_demographic_task(args):
     """
 
@@ -169,7 +142,9 @@ def get_demographic_task(args):
 
     """
     demographic_dataframe = get_demographic_dataframe(filepath=args.demographic_file)
-    demographic_instructions = get_patient_demographics_instruction_template()
+    demographic_instructions = get_patient_demographics_instruction_template(
+        example_separator=get_example_separator(args=args)
+    )
     demographic_dataframe_process = DemographicDataframeProcess(
         demographic_dataframe=demographic_dataframe
     )
@@ -178,6 +153,7 @@ def get_demographic_task(args):
         demographic_instructions=demographic_instructions
     )
     return demographic_prediction_task
+
 
 def get_lab_task(args):
     """
@@ -189,7 +165,9 @@ def get_lab_task(args):
 
     """
     lab_dataframes = get_lab_dataframes(labs_folder=args.labs_folder)
-    lab_prediction_instructions = get_patient_labs_instruction_template()
+    lab_prediction_instructions = get_patient_labs_instruction_template(
+        example_separator=get_example_separator(args=args)
+    )
     lab_dataframe_process = get_lab_dataframe_process(lab_dataframes=lab_dataframes, args=args)
     time_bins = get_time_bins(args)
     return LabPredictionTask(
@@ -216,12 +194,19 @@ def get_instruct_tokenizer(tokenizer, ignore_index, args):
     """
     if 'gpt' in args.model:
         return GPT2InstructTokenizer(
-            tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length, ignore_index=ignore_index
+            tokenizer=tokenizer,
+            pad_id=args.pad_id,
+            max_seq_length=args.max_seq_length,
+            ignore_index=ignore_index,
         )
     else:
         return InstructTokenizer(
-            tokenizer=tokenizer, pad_id=args.pad_id, max_seq_length=args.max_seq_length, ignore_index=ignore_index
+            tokenizer=tokenizer,
+            pad_id=args.pad_id,
+            max_seq_length=args.max_seq_length,
+            ignore_index=ignore_index,
         )
+
 
 def get_code_label_task_objects(args):
     """
@@ -237,7 +222,9 @@ def get_code_label_task_objects(args):
     negative_code_sampling = get_negative_code_sampling(encounter_dataframe_process, args)
     dataframe_sampling = GroupBySampling()
     code_convert = get_code_convert(args=args)
-    code_label_prediction_instructions = get_code_label_prediction_instruction_template()
+    code_label_prediction_instructions = get_code_label_prediction_instruction_template(
+        example_separator=get_example_separator(args=args)
+    )
     time_bins = get_time_bins(args)
     return (
         encounter_dataframe,
@@ -248,6 +235,7 @@ def get_code_label_task_objects(args):
         code_label_prediction_instructions,
         time_bins
     )
+
 
 def get_encounter_dataframe(encounter_file):
     """
@@ -261,6 +249,7 @@ def get_encounter_dataframe(encounter_file):
     return pd.read_parquet(
         encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode', 'idf']
     )
+
 
 def get_encounter_dataframe_process(encounter_dataframe, args):
     """
@@ -281,6 +270,7 @@ def get_encounter_dataframe_process(encounter_dataframe, args):
         position_column=args.position_column,
     )
 
+
 def get_negative_code_sampling(encounter_dataframe_process, args):
     """
 
@@ -296,6 +286,7 @@ def get_negative_code_sampling(encounter_dataframe_process, args):
         negatives_type=args.negatives_type,
         code_task_negative_cache_size=100,
     )
+
 
 def get_code_convert(args):
     """
@@ -320,6 +311,7 @@ def get_code_convert(args):
             lowercase=False
         )
 
+
 def get_time_bins(args):
     """
 
@@ -334,6 +326,7 @@ def get_time_bins(args):
         for distance_threshold in args.distance_threshold
     ]
 
+
 def get_demographic_dataframe(filepath):
     """
 
@@ -345,6 +338,7 @@ def get_demographic_dataframe(filepath):
     """
     return pd.read_parquet(filepath)
 
+
 def get_lab_dataframes(labs_folder):
     """
 
@@ -355,18 +349,19 @@ def get_lab_dataframes(labs_folder):
 
     """
     lab_suffixes = [
-        'labs_1k_2401_suffix_0.parquet',
-        'labs_1k_2401_suffix_1.parquet',
-        'labs_1k_2401_suffix_2.parquet',
-        'labs_1k_2401_suffix_3.parquet',
-        'labs_1k_2401_suffix_4.parquet',
-        'labs_1k_2401_suffix_5.parquet',
-        'labs_1k_2401_suffix_6.parquet',
-        'labs_1k_2401_suffix_7.parquet',
-        'labs_1k_2401_suffix_8.parquet',
-        'labs_1k_2401_suffix_9.parquet'
+        'mgh_2020_labs_0_pd.parquet',
+        'mgh_2020_labs_1_pd.parquet',
+        'mgh_2020_labs_2_pd.parquet',
+        'mgh_2020_labs_3_pd.parquet',
+        'mgh_2020_labs_4_pd.parquet',
+        'mgh_2020_labs_5_pd.parquet',
+        'mgh_2020_labs_6_pd.parquet',
+        'mgh_2020_labs_7_pd.parquet',
+        'mgh_2020_labs_8_pd.parquet',
+        'mgh_2020_labs_9_pd.parquet'
     ]
     return [pd.read_parquet(f'{labs_folder}/{lab_suffix}') for lab_suffix in lab_suffixes]
+
 
 def get_lab_dataframe_process(lab_dataframes, args):
     """
@@ -385,3 +380,18 @@ def get_lab_dataframe_process(lab_dataframes, args):
         code_column=args.code_column,
         position_column=args.position_column,
     )
+
+
+def get_example_separator(args):
+    """
+
+    Args:
+        args:
+
+    Returns:
+
+    """
+    if 'gpt' in args.model:
+        return '\n'
+    else:
+        return ' <end_of_text>\n'

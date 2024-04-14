@@ -29,7 +29,6 @@ from .instruct import (
 )
 from .data_utils import (
     get_tree_code_label_prediction_task,
-    get_single_code_label_prediction_task,
     get_all_code_label_prediction_task,
     get_code_label_prediction_task_eval,
     get_demographic_task,
@@ -451,7 +450,6 @@ def get_wds_dataset_icd_instruct(
         eval_mode=False,
 ):
     task_list = list()
-
     for task in args.tasks:
         if task == 'demographics':
             task_list.append(get_demographic_task(args=args))
@@ -459,8 +457,6 @@ def get_wds_dataset_icd_instruct(
             task_list.append(get_lab_task(args=args))
         elif task == 'all':
             task_list.append(get_all_code_label_prediction_task(args=args))
-        elif task == 'single':
-            task_list.append(get_single_code_label_prediction_task(args=args))
         elif task == 'tree':
             task_list.append(get_tree_code_label_prediction_task(args=args))
         elif task == 'eval' and (args.eval_mode or eval_mode):
@@ -479,7 +475,7 @@ def get_wds_dataset_icd_instruct(
 
     instruct_tasks = InstructTasks(
         task_list=task_list,
-        instruct_tokenizer=instruct_tokenizer
+        instruct_tokenizer=instruct_tokenizer,
     )
 
     instruct_function = partial(
