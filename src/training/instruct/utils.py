@@ -8,8 +8,8 @@ from .demographics.templates import PatientDemographicsTemplate
 
 def get_code_label_prediction_instruction_template(
         task_definition='Diagnoses in the next {time} months',
-        inputs='* {diagnosis}:',
-        x_y_delimiter=' ',
+        inputs='* {diagnosis}',
+        x_y_delimiter=': ',
         example_separator='\n'
 ) -> CodeLabelPredictionInstructionTemplate:
     """
