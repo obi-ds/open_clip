@@ -98,7 +98,7 @@ class EncounterDataframeProcess(object):
             self,
             encounter_history: pd.DataFrame,
             past_time_delta: str,
-            future_time_delta:str
+            future_time_delta: str
     ) -> pd.DataFrame:
         """
         Filter encounter history based on the given time range. Keep only those entries
@@ -230,4 +230,3 @@ class EncounterDataframeProcess(object):
             (bool): True if patient id exists, false otherwise
         """
         return patient_id in self._encounter_dataframe.index
-
