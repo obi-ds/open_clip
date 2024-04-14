@@ -1,13 +1,10 @@
 """Make training data"""
 import sys
-sys.path.append('..')
-
 import numpy as np
 import pandas as pd
 from typing import Tuple, List
-
 from ..codes.code_trajectory_instruct_tasks import CodeLabelPredictionTask
-
+sys.path.append('..')
 
 np.random.seed(42)
 
@@ -34,11 +31,13 @@ class LabPredictionTask(CodeLabelPredictionTask):
             reference_range_high_column: str = 'ReferenceRangeHighNBR',
             ignore_instruction_column: str = 'ignore_instruction',
             position_range_column: str = 'position_range',
+            seq2seq_column: str = 'seq2seq',
             idf_column: str = 'idf',
             tf_column: str = 'tf',
             weights_column: str = 'weights',
             current_bin_value: int = -100,
             prediction_range_limit: int = None,
+            seq2seq: bool = False
     ):
         """
         Initialize variables
@@ -78,22 +77,25 @@ class LabPredictionTask(CodeLabelPredictionTask):
             label_column=label_column,
             ignore_instruction_column=ignore_instruction_column,
             position_range_column=position_range_column,
+            seq2seq_column=seq2seq_column,
             idf_column=idf_column,
             tf_column=tf_column,
             weights_column=weights_column,
             current_bin_value=current_bin_value,
-            prediction_range_limit=prediction_range_limit
+            prediction_range_limit=prediction_range_limit,
+            seq2seq=seq2seq
         )
         self._reference_range_low_column = reference_range_low_column
         self._reference_range_high_column = reference_range_high_column
 
-    def process_sample(self, sample, args):
+    def process_sample(self, sample, args, ignore_instruction=None):
         """
         Process sample
 
         Args:
             sample:
             args:
+            ignore_instruction:
 
         Returns:
 
@@ -130,7 +132,9 @@ class LabPredictionTask(CodeLabelPredictionTask):
             fixed_range=args.time_period_range
         )
 
-        ignore_instruction = self.get_ignore_instruction(eval_mode=args.eval_mode)
+        ignore_instruction = (
+            self.get_ignore_instruction(eval_mode=args.eval_mode) if ignore_instruction is None else ignore_instruction
+        )
 
         # Store all the prompt elements (input, output)
         all_instructions = list()
@@ -142,7 +146,10 @@ class LabPredictionTask(CodeLabelPredictionTask):
                 encounter_history=lab_history, prediction_range=prediction_range
             )
 
-            k_shot = min(self.sample_from_list(args.k_shot_labs), len(current_time_period))
+            k_shot = min(
+                self.sample_from_list(args.k_shot_labs),
+                current_time_period[self._code_column].nunique()
+            )
 
             if k_shot == 0 or current_time_period.empty:
                 continue
@@ -160,8 +167,8 @@ class LabPredictionTask(CodeLabelPredictionTask):
             instruction_samples = self.prepare_sampled_codes(
                 codes=sampled_labs,
                 label_string=None,
-                prediction_range=prediction_range,
                 ignore_instruction=ignore_instruction,
+                seq2seq=self._seq2seq
             ).sample(frac=1)
 
             # Convert samples to text instructions (prompt)
@@ -202,7 +209,6 @@ class LabPredictionTask(CodeLabelPredictionTask):
             prediction_ranges = self.switch_prediction_ranges(prediction_ranges=prediction_ranges)
         return prediction_ranges
 
-
     def sample_labs(self, encounter_history, max_limit):
         """
         Sample codes from the dataframe - sample such that we have good
@@ -220,7 +226,11 @@ class LabPredictionTask(CodeLabelPredictionTask):
         return labs_sampled.groupby(self._code_column).sample(n=1)
 
     def prepare_sampled_codes(
-            self, codes, label_string, prediction_range, ignore_instruction
+            self,
+            codes,
+            label_string,
+            ignore_instruction,
+            seq2seq,
     ):
         """
         Define the start and end times and the label string for the sampled codes
@@ -228,22 +238,21 @@ class LabPredictionTask(CodeLabelPredictionTask):
         Args:
             codes:
             label_string:
-            prediction_range:
             ignore_instruction:
+            seq2seq:
 
         Returns:
 
         """
-        codes[self._bin_start_column] = prediction_range[0]
-        codes[self._bin_end_column] = prediction_range[1]
         codes[self._ignore_instruction_column] = ignore_instruction
+        codes[self._seq2seq_column] = seq2seq
         return codes
 
     def convert_samples_to_instructions(
             self,
             instruction_samples: pd.DataFrame,
             include_reference_range: bool = False
-    ) -> List[Tuple[str, str, bool]]:
+    ) -> List[Tuple[str, str, bool, bool]]:
         """
         Return the instruction input and targets
         for the sampled instruction code status classification task with time range
@@ -268,7 +277,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
     def convert_samples_to_instructions_with_reference_range(
             self,
             instruction_samples: pd.DataFrame,
-    ) -> List[Tuple[str, str, bool]]:
+    ) -> List[Tuple[str, str, bool, bool]]:
         """
         Return the instruction input and targets
         for the sampled instruction code status classification task with time range
@@ -288,11 +297,12 @@ class LabPredictionTask(CodeLabelPredictionTask):
                 self._label_column,
                 self._reference_range_low_column,
                 self._reference_range_high_column,
-                self._ignore_instruction_column
+                self._ignore_instruction_column,
+                self._seq2seq_column
             ]
         ].itertuples(index=False):
-            (lab, label, reference_range_low, reference_range_high,  ignore_instruction) = (
-                row[0], row[1], row[2], row[3], row[4]
+            (lab, label, reference_range_low, reference_range_high, ignore_instruction, seq2seq) = (
+                row[0], row[1], row[2], row[3], row[4], row[5]
             )
             lab_string_with_reference_ranges = self.get_lab_string_with_reference_ranges(
                 lab=lab,
@@ -303,13 +313,13 @@ class LabPredictionTask(CodeLabelPredictionTask):
                 diagnosis=lab_string_with_reference_ranges,
                 value=label
             )
-            instructions.append(lab_instruct_string + (ignore_instruction,))
+            instructions.append(lab_instruct_string + (ignore_instruction, seq2seq))
         return instructions
 
     def convert_samples_to_instructions_without_reference_range(
             self,
             instruction_samples: pd.DataFrame,
-    ) -> List[Tuple[str, str, bool]]:
+    ) -> List[Tuple[str, str, bool, bool]]:
         """
         Return the instruction input and targets
         for the sampled instruction code status classification task with time range
@@ -327,17 +337,17 @@ class LabPredictionTask(CodeLabelPredictionTask):
             [
                 self._code_column,
                 self._label_column,
-                self._ignore_instruction_column
+                self._ignore_instruction_column,
+                self._seq2seq_column
             ]
         ].itertuples(index=False):
-            lab, label, ignore_instruction = row[0], row[1], row[2]
+            lab, label, ignore_instruction, seq2seq = row[0], row[1], row[2], row[3]
             lab_instruct_string = self._code_instructions.get_instruction(
                 diagnosis=lab,
                 value=label
             )
-            instructions.append(lab_instruct_string + (ignore_instruction,))
+            instructions.append(lab_instruct_string + (ignore_instruction, seq2seq))
         return instructions
-
 
     @staticmethod
     def get_lab_string_with_reference_ranges(lab, reference_range_low, reference_range_high):

@@ -2,6 +2,7 @@
 import pandas as pd
 from ...codes.processing import EncounterDataframeProcess
 
+
 class LabsDataframeProcess(EncounterDataframeProcess):
     """
     Class to process patient information
