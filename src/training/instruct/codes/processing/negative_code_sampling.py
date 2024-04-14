@@ -29,8 +29,10 @@ class NegativeCodeCacheSampling(object):
         if source_file is None:
             source_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
             idf_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/idfs.csv'
+            # Used for random negatives - get codes that have idf value
             self._idf = pd.read_csv(idf_file)
             raw_codes = pd.read_csv(source_file, encoding='ISO-8859-1').phecode
+            # Use this to build the tree and trie
             self._codes = pd.Series(list(set(raw_codes)))
 
         else:
@@ -220,10 +222,10 @@ class NegativeCodeCacheSampling(object):
         )
         negatives = negatives.sample(n=size)
 
+        # Add positions to this dataframe
         positions = np.random.choice(
             np.arange(prediction_range[0], prediction_range[1] + 1, 30), size, replace=True
         )
-
         negatives[position_column] = positions
 
         return negatives
@@ -260,7 +262,12 @@ class NegativeCodeCacheSampling(object):
             exclude_codes=exclude_codes,
             code_column=code_column
         )
-        number_unique = encounter_negatives[code_column].nunique()
+        number_unique = self.get_number_of_codes_in_range(
+            encounter_history=encounter_negatives,
+            prediction_range=prediction_range,
+            code_column=code_column,
+            position_column=position_column
+        )
 
         # We are essentially calculating the number of random negatives we want
         if self._negatives_type == 'random_cached':
@@ -285,6 +292,32 @@ class NegativeCodeCacheSampling(object):
         )
         encounter_negatives = self.concatenate_negatives(encounter_negatives, random_negatives)
         return encounter_negatives
+
+    @staticmethod
+    def get_number_of_codes_in_range(
+            encounter_history: pd.DataFrame,
+            prediction_range: Tuple[int, int],
+            code_column: str,
+            position_column: str
+    ) -> pd.DataFrame:
+        """
+        Return encounters within the current time range
+
+        Args:
+            encounter_history:
+            prediction_range:
+            code_column:
+            position_column:
+
+        Returns:
+
+        """
+
+        current_time_period = encounter_history[
+            (encounter_history[position_column] >= prediction_range[0]) &
+            (encounter_history[position_column] <= prediction_range[1])
+            ]
+        return current_time_period[code_column].nunique()
 
     def update_cache(self, patient_id: str):
         """
@@ -452,5 +485,3 @@ class NegativeCodeCacheSampling(object):
             return encounter_negatives
         else:
             raise ValueError('Both dataframes are empty')
-
-
