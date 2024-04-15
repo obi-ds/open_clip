@@ -952,7 +952,7 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
 
         """
         hierarchy = self.get_hierarchy(code=code, positive_hash=positive_hash, full_positive_hash=full_positive_hash)
-        hierarchy = self.sample_hierarchy(hierarchy=hierarchy, probabilities=[0.3, 0.7])
+        hierarchy = self.sample_hierarchy(hierarchy=hierarchy, probabilities=[0.2, 0.8])
         hierarchy = self.process_hierarchy(hierarchy=hierarchy)
         return hierarchy
 
