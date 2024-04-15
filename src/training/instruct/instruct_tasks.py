@@ -1,7 +1,9 @@
+import numpy as np
 import torch
 import random
 from typing import Union
 
+from .demographics import DemographicPredictionTask
 from .instruct_tokenizer import GPT2InstructTokenizer, InstructTokenizer
 
 
@@ -20,7 +22,12 @@ class InstructTasks(object):
         if args.task_shuffle:
             random.shuffle(self._task_list)
         for task in self._task_list:
-            instructions = task.process_sample(sample=sample, args=args)
+            if isinstance(task, DemographicPredictionTask):
+                instructions = task.process_sample(
+                    sample=sample, args=args, ignore_instruction=self.get_ignore_instruction_demographics()
+                )
+            else:
+                instructions = task.process_sample(sample=sample, args=args)
             task_instructions.extend(instructions)
             if len(instructions):
                 task_instructions.append([self.get_task_separator_instruction(), '', True, False])
@@ -41,3 +48,13 @@ class InstructTasks(object):
             return '\n'
         else:
             return self._instruct_tokenizer.get_eos_token() + '\n'
+
+    @staticmethod
+    def get_ignore_instruction_demographics():
+        """
+        Demographics overfit - so we don't always train on it
+
+        Returns:
+
+        """
+        return np.random.rand() > 0.2
