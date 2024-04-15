@@ -31,6 +31,7 @@ from .data_utils import (
     get_tree_code_label_prediction_task,
     get_all_code_label_prediction_task,
     get_code_label_prediction_task_eval,
+    get_tree_code_label_prediction_task_eval,
     get_demographic_task,
     get_lab_task,
     get_instruct_tokenizer
@@ -461,6 +462,8 @@ def get_wds_dataset_icd_instruct(
             task_list.append(get_tree_code_label_prediction_task(args=args))
         elif task == 'eval' and (args.eval_mode or eval_mode):
             task_list.append(get_code_label_prediction_task_eval(args=args))
+        elif task == 'tree_eval' and (args.eval_mode or eval_mode):
+            task_list.append(get_tree_code_label_prediction_task_eval(args=args))
         else:
             raise ValueError('Invalid task type')
 

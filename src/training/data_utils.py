@@ -3,7 +3,8 @@ import pandas as pd
 from .instruct.codes import (
     CodeLabelPredictionTask,
     CodeLabelPredictionTaskEvaluation,
-    HierarchicalCodeLabelPredictionTask
+    HierarchicalCodeLabelPredictionTask,
+    HierarchicalCodeLabelPredictionTaskEvaluation
 )
 from .instruct.demographics import DemographicPredictionTask
 from .instruct.labs import LabPredictionTask
@@ -120,6 +121,43 @@ def get_code_label_prediction_task_eval(args):
     ) = get_code_label_task_objects(args)
 
     return CodeLabelPredictionTaskEvaluation(
+        encounter_dataframe_process=encounter_dataframe_process,
+        dataframe_sampling=dataframe_sampling,
+        code_instructions=code_label_prediction_instructions,
+        time_bins=time_bins,
+        code_convert=code_convert,
+        negative_code_sampling=negative_code_sampling,
+        patient_id_column=args.patient_id_column,
+        code_column=args.code_column,
+        position_column=args.position_column,
+    )
+
+
+def get_tree_code_label_prediction_task_eval(args):
+    """
+
+    Args:
+        args:
+
+    Returns:
+
+    """
+    (
+        encounter_dataframe,
+        encounter_dataframe_process,
+        negative_code_sampling,
+        dataframe_sampling,
+        code_convert,
+        _,
+        time_bins
+    ) = get_code_label_task_objects(args)
+
+    code_label_prediction_instructions = get_code_label_prediction_instruction_template(
+        example_separator=get_example_separator(args=args),
+        x_y_delimiter=' '
+    )
+
+    return HierarchicalCodeLabelPredictionTaskEvaluation(
         encounter_dataframe_process=encounter_dataframe_process,
         dataframe_sampling=dataframe_sampling,
         code_instructions=code_label_prediction_instructions,
