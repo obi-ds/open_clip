@@ -52,6 +52,7 @@ class NegativeCodeCacheSampling(object):
             exclude_codes: pd.Series,
             code_column: str = 'phecode',
             position_column: str = 'position',
+            weights: Optional = None
     ):
         """
         Sample an encounter history from the cache - we can then sample codes
@@ -70,6 +71,7 @@ class NegativeCodeCacheSampling(object):
             minimum_negatives_size (int): How many negatives to sample
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
+            weights (): Weights for sampling
 
         Returns:
 
@@ -90,6 +92,7 @@ class NegativeCodeCacheSampling(object):
                 prediction_range=prediction_range,
                 code_column=code_column,
                 position_column=position_column,
+                weights=weights
             )
         # Get negatives from the encounter history of the cached patient id
         else:
@@ -110,7 +113,8 @@ class NegativeCodeCacheSampling(object):
                 exclude_codes=exclude_codes,
                 prediction_range=prediction_range,
                 code_column=code_column,
-                position_column=position_column
+                position_column=position_column,
+                weights=weights
             )
 
         # Add the current patient id to cache
@@ -198,8 +202,9 @@ class NegativeCodeCacheSampling(object):
             exclude_codes: pd.Series,
             size: int,
             prediction_range: Tuple[int, int],
+            weights,
             code_column: str = 'phecode',
-            position_column: str = 'position'
+            position_column: str = 'position',
     ):
         """
         Sample negatives randomly. Also exclude any codes that we don't want as negatives
@@ -210,6 +215,7 @@ class NegativeCodeCacheSampling(object):
             prediction_range (Tuple[int, int]): The range we are making prediction in
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
+            weights (): Weights for sampling
 
         Returns:
             (pd.DataFrame): A dataframe containing randomly sampled negatives
@@ -220,7 +226,10 @@ class NegativeCodeCacheSampling(object):
             exclude_codes=exclude_codes,
             code_column=code_column
         )
-        negatives = negatives.sample(n=size)
+        if weights is not None:
+            weights = weights[negatives[code_column]].values
+
+        negatives = negatives.sample(n=size, weights=weights)
 
         # Add positions to this dataframe
         positions = np.random.choice(
@@ -236,6 +245,7 @@ class NegativeCodeCacheSampling(object):
             minimum_negatives_size: int,
             exclude_codes: pd.Series,
             prediction_range: Tuple[int, int],
+            weights,
             code_column: str = 'phecode',
             position_column: str = 'position'
     ) -> Optional[pd.DataFrame]:
@@ -250,6 +260,7 @@ class NegativeCodeCacheSampling(object):
             prediction_range (Tuple[int, int]): The range we are making prediction in
             code_column (str, defaults to `phecode`): The column that contains codes
             position_column (str, defaults to `position`): The column that contains positions
+            weights (): Weights for sampling
 
         Returns:
             (pd.DataFrame): The encounter history of another patient.
@@ -288,7 +299,8 @@ class NegativeCodeCacheSampling(object):
             size=size,
             prediction_range=prediction_range,
             code_column=code_column,
-            position_column=position_column
+            position_column=position_column,
+            weights=weights
         )
         encounter_negatives = self.concatenate_negatives(encounter_negatives, random_negatives)
         return encounter_negatives

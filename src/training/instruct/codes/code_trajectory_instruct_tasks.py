@@ -42,7 +42,8 @@ class CodeLabelPredictionTask(object):
             seq2seq_column: str = 'seq2seq',
             current_bin_value: int = -100,
             prediction_range_limit: int = None,
-            seq2seq: bool = False
+            seq2seq: bool = False,
+            update_code_counts: bool = False
     ):
         """
         Initialize variables
@@ -88,10 +89,12 @@ class CodeLabelPredictionTask(object):
         self._tf_column = tf_column
         self._weights_column = weights_column
         self._seq2seq = seq2seq
+        self._update_code_counts = update_code_counts
+        self._document_count = 1
 
         if fixed_position_range:
             self._position_ranges = [
-                (-7, 180), (180, np.inf)
+                (-30, 180), (180, np.inf)
             ]
         else:
             self._position_ranges = [
@@ -105,6 +108,9 @@ class CodeLabelPredictionTask(object):
         else:
             self._prediction_range_limit = prediction_range_limit
 
+        if self._update_code_counts:
+            pass
+
     def process_sample(self, sample, args, ignore_instruction=False):
         """
         Process sample
@@ -117,6 +123,7 @@ class CodeLabelPredictionTask(object):
         Returns:
 
         """
+        self._document_count += 1
 
         # Get the full encounter history
         encounter_history = self.get_full_encounter_history(
@@ -193,7 +200,8 @@ class CodeLabelPredictionTask(object):
                 exclude_codes=exclude_codes_for_negatives,
                 minimum_negatives_size=sample_counts[0],
                 code_column=self._code_column,
-                position_column=self._position_column
+                position_column=self._position_column,
+                weights=self.get_weights_for_negative_sampling()
             )
 
             # We just keep it uniform with how we processed
@@ -223,8 +231,8 @@ class CodeLabelPredictionTask(object):
             # and not just concentrated in one portion of the time range - for both
             # positives and negatives
             sampled_codes = [
-                self.sample_codes(encounter_history=encounter_history, max_limit=counts)
-                for encounter_history, counts in zip(histories, sample_counts)
+                self.sample_codes(encounter_history=encounter_history, max_limit=counts, label=label)
+                for label, (encounter_history, counts) in enumerate(zip(histories, sample_counts))
             ]
 
             label_samples = [
@@ -444,7 +452,7 @@ class CodeLabelPredictionTask(object):
         counts[np.abs(index - 1)] += max_size
         return counts
 
-    def sample_codes(self, encounter_history, max_limit):
+    def sample_codes(self, encounter_history, max_limit, label):
         """
         Sample codes from the dataframe - sample such that we have good
         representation from different time ranges - for example
@@ -452,6 +460,7 @@ class CodeLabelPredictionTask(object):
         Args:
             encounter_history:
             max_limit:
+            label: The label for which we are sampling codes
 
         Returns:
 
@@ -690,6 +699,181 @@ class CodeLabelPredictionTask(object):
         """
         return encounter_history[self._code_column].str.contains(code, regex=regex)
 
+    def get_weights_for_negative_sampling(self):
+        """
+        Weights for negative sampling
+        Returns:
+
+        """
+        return None
+
+
+class DynamicCodeLabelPredictionTask(CodeLabelPredictionTask):
+    """
+    Make instruction tuning training data from diagnostic codes
+    """
+
+    def __init__(
+            self,
+            encounter_dataframe_process: EncounterDataframeProcess,
+            dataframe_sampling: GroupBySampling,
+            code_instructions: CodeLabelPredictionInstructionTemplate,
+            code_convert: Union[ICDConvert, PHEConvert],
+            time_bins: Union[AgglomerativeDataBins, Sequence[AgglomerativeDataBins]],
+            negative_code_sampling: NegativeCodeCacheSampling,
+            fixed_position_range: bool,
+            patient_id_column: str = 'PatientID',
+            code_column: str = 'phecode',
+            position_column: str = 'position',
+            bins_column: str = 'bins',
+            bin_start_column: str = 'min',
+            bin_end_column: str = 'max',
+            label_column: str = 'label',
+            idf_column: str = 'idf',
+            tf_column: str = 'tf',
+            weights_column: str = 'weights',
+            ignore_instruction_column: str = 'ignore_instruction',
+            position_range_column: str = 'position_range',
+            seq2seq_column: str = 'seq2seq',
+            current_bin_value: int = -100,
+            prediction_range_limit: int = None,
+            seq2seq: bool = False
+    ):
+        super().__init__(
+            encounter_dataframe_process=encounter_dataframe_process,
+            dataframe_sampling=dataframe_sampling,
+            code_instructions=code_instructions,
+            code_convert=code_convert,
+            time_bins=time_bins,
+            negative_code_sampling=negative_code_sampling,
+            patient_id_column=patient_id_column,
+            code_column=code_column,
+            position_column=position_column,
+            bins_column=bins_column,
+            bin_start_column=bin_start_column,
+            bin_end_column=bin_end_column,
+            label_column=label_column,
+            ignore_instruction_column=ignore_instruction_column,
+            position_range_column=position_range_column,
+            idf_column=idf_column,
+            tf_column=tf_column,
+            weights_column=weights_column,
+            seq2seq_column=seq2seq_column,
+            current_bin_value=current_bin_value,
+            prediction_range_limit=prediction_range_limit,
+            fixed_position_range=fixed_position_range,
+            seq2seq=seq2seq
+        )
+        self._code_counts_positive = self.initialize_code_counts(self.get_codes_for_code_counts())
+        self._code_counts_negative = self.initialize_code_counts(self.get_codes_for_code_counts())
+
+
+    def initialize_code_counts(self, codes):
+        """
+
+        Returns:
+
+        """
+        code_counts = (
+            pd.DataFrame(codes, columns=[self._code_column])
+            .set_index(self._code_column).sort_index()
+        )
+        code_counts[self._tf_column] = 2
+        return code_counts
+
+    def get_codes_for_code_counts(self):
+        """
+
+        Returns:
+
+        """
+        return self._negative_code_sampling.get_codes()
+
+    def sample_codes(self, encounter_history, max_limit, label):
+        """
+        Sample codes from the dataframe - sample such that we have good
+        representation from different time ranges - for example
+
+        Args:
+            encounter_history:
+            max_limit:
+            label: The label for which we are sampling codes
+
+        Returns:
+
+        """
+        tf_idf = self.get_tf_idf(encounter_history=encounter_history, label=label)
+        sampled_codes = (
+            tf_idf
+            .sample(n=max_limit, weights=tf_idf[self._weights_column] if not tf_idf.empty else None)
+        )
+        if label:
+            self.update_code_counts(
+                code_counts=self._code_counts_positive, codes=sampled_codes[self._code_column]
+            )
+        else:
+            self.update_code_counts(
+                code_counts=self._code_counts_negative, codes=sampled_codes[self._code_column]
+            )
+        return sampled_codes
+
+    def get_tf_idf(self, encounter_history, label=None):
+        """
+        Get tf idf scores
+
+        Args:
+            encounter_history:
+            label:
+
+        Returns:
+
+        """
+        tf_idf = (
+            encounter_history
+            .groupby(self._code_column)
+            .agg({self._code_column: 'count', self._idf_column: 'first'})
+            .rename(columns={self._code_column: 'count'})
+            .reset_index()
+        )
+        dynamic_idf_scores = self.get_dynamic_idf(codes=tf_idf[self._code_column], label=label)
+        tf_idf[self._weights_column] = tf_idf['count'] * tf_idf[self._idf_column] * dynamic_idf_scores.values
+        return tf_idf
+
+    def update_code_counts(self, code_counts, codes):
+        """
+
+        Args:
+            code_counts:
+            codes:
+
+        Returns:
+
+        """
+        code_counts.loc[codes, self._tf_column] += 1
+
+    def get_dynamic_idf(self, codes, label):
+        """
+
+        Args:
+            codes:
+            label:
+
+        Returns:
+
+        """
+        if label:
+            return 1 / np.log10(self._code_counts_positive.loc[codes, self._tf_column])
+        else:
+            return 1 / np.log10(self._code_counts_negative.loc[codes, self._tf_column])
+
+    def get_weights_for_negative_sampling(self):
+        """
+        Weights for negative sampling
+        Returns:
+
+        """
+        return 1/ self._code_counts_negative[self._tf_column]
+
 
 class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
     """
@@ -718,7 +902,8 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             current_bin_value: int = -100,
             prediction_range_limit: int = None,
             seq2seq: bool = True,
-            sep: str = ' -> '
+            sep: str = ' -> ',
+            update_code_counts: bool = False
     ):
         """
         Initialize variables
@@ -762,7 +947,8 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             current_bin_value=current_bin_value,
             prediction_range_limit=prediction_range_limit,
             fixed_position_range=fixed_position_range,
-            seq2seq=seq2seq
+            seq2seq=seq2seq,
+            update_code_counts=update_code_counts
         )
         self._trie = negative_code_sampling.get_trie()
         self._tree = negative_code_sampling.get_tree()
@@ -824,7 +1010,6 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
         all_instructions = list()
 
         for prediction_range in prediction_ranges:
-
             k_shot = self.sample_from_list(args.k_shot)
 
             # Get the task instruction - which should indicate we are making prediction for a given
@@ -897,7 +1082,7 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             # and not just concentrated in one portion of the time range - for both
             # positives and negatives
             sampled_codes = [
-                self.sample_codes(encounter_history=encounter_history, max_limit=counts)
+                self.sample_codes(encounter_history=encounter_history, max_limit=counts, label=None)
                 for encounter_history, counts in zip(histories, sample_counts)
             ]
 
@@ -1108,7 +1293,7 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             code_description = self.add_label_to_input(code=code_description, label=label)
             ignore_instruction = False
         else:
-            if np.random.rand() > 1 / max(1, len(self._tree.children(code))):
+            if np.random.rand() > min(1 / max(1, len(self._tree.children(code))), 0.2):
                 ignore_instruction = True
         return code_description, label, ignore_instruction
 

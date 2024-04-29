@@ -2,12 +2,13 @@
 import pandas as pd
 from .instruct.codes import (
     CodeLabelPredictionTask,
+    DynamicCodeLabelPredictionTask,
     CodeLabelPredictionTaskEvaluation,
     HierarchicalCodeLabelPredictionTask,
     HierarchicalCodeLabelPredictionTaskEvaluation
 )
-from .instruct.demographics import DemographicPredictionTask
-from .instruct.labs import LabPredictionTask
+from .instruct.demographics import DemographicPredictionTask, DemographicPredictionPrompt
+from .instruct.labs import LabPredictionTask, LabPredictionPrompt
 from .instruct.codes.descriptions import ICDDescription, PHEDescription
 from .instruct.codes.processing import (
     EncounterDataframeProcess,
@@ -51,6 +52,38 @@ def get_all_code_label_prediction_task(args):
     ) = get_code_label_task_objects(args)
 
     return CodeLabelPredictionTask(
+        encounter_dataframe_process=encounter_dataframe_process,
+        dataframe_sampling=dataframe_sampling,
+        code_instructions=code_label_prediction_instructions,
+        time_bins=time_bins,
+        code_convert=code_convert,
+        negative_code_sampling=negative_code_sampling,
+        patient_id_column=args.patient_id_column,
+        code_column=args.code_column,
+        position_column=args.position_column,
+        fixed_position_range=args.fixed_position_range
+    )
+
+def get_dynamic_code_label_prediction_task(args):
+    """
+
+    Args:
+        args:
+
+    Returns:
+
+    """
+    (
+        encounter_dataframe,
+        encounter_dataframe_process,
+        negative_code_sampling,
+        dataframe_sampling,
+        code_convert,
+        code_label_prediction_instructions,
+        time_bins
+    ) = get_code_label_task_objects(args)
+
+    return DynamicCodeLabelPredictionTask(
         encounter_dataframe_process=encounter_dataframe_process,
         dataframe_sampling=dataframe_sampling,
         code_instructions=code_label_prediction_instructions,
@@ -212,6 +245,48 @@ def get_lab_task(args):
         lab_dataframe_process=lab_dataframe_process,
         lab_instructions=lab_prediction_instructions,
         time_bins=time_bins,
+        patient_id_column=args.patient_id_column,
+        lab_name_column=args.lab_name_column,
+        position_column=args.position_column,
+        fixed_position_range=args.fixed_position_range
+    )
+
+
+def get_demographic_prompt(args):
+    """
+
+    Args:
+        args:
+
+    Returns:
+
+    """
+    demographic_instructions = get_patient_demographics_instruction_template(
+        example_separator=get_example_separator(args=args)
+    )
+    demographic_dataframe_process = None
+    return DemographicPredictionPrompt(
+        demographic_dataframe_process=demographic_dataframe_process,
+        demographic_instructions=demographic_instructions,
+    )
+
+
+def get_lab_prompt(args):
+    """
+
+    Args:
+        args:
+
+    Returns:
+
+    """
+    lab_prediction_instructions = get_patient_labs_instruction_template(
+        example_separator=get_example_separator(args=args)
+    )
+    lab_dataframe_process = None
+    return LabPredictionPrompt(
+        lab_dataframe_process=lab_dataframe_process,
+        lab_instructions=lab_prediction_instructions,
         patient_id_column=args.patient_id_column,
         lab_name_column=args.lab_name_column,
         position_column=args.position_column,

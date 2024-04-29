@@ -26,15 +26,19 @@ from open_clip.tokenizer import decode
 
 from .instruct import (
     InstructTasks,
+    InstructPrompt
 )
 from .data_utils import (
     get_tree_code_label_prediction_task,
     get_all_code_label_prediction_task,
+    get_dynamic_code_label_prediction_task,
     get_code_label_prediction_task_eval,
     get_tree_code_label_prediction_task_eval,
     get_demographic_task,
     get_lab_task,
-    get_instruct_tokenizer
+    get_instruct_tokenizer,
+    get_demographic_prompt,
+    get_lab_prompt
 )
 
 try:
@@ -458,6 +462,8 @@ def get_wds_dataset_icd_instruct(
             task_list.append(get_lab_task(args=args))
         elif task == 'all':
             task_list.append(get_all_code_label_prediction_task(args=args))
+        elif task == 'dynamic_all':
+            task_list.append(get_dynamic_code_label_prediction_task(args=args))
         elif task == 'tree':
             task_list.append(get_tree_code_label_prediction_task(args=args))
         elif task == 'eval' and (args.eval_mode or eval_mode):
@@ -502,6 +508,47 @@ def get_wds_dataset_icd_instruct(
         ),
         rename,
         wds.map_dict(text=instruct_function),
+        wds.map_dict(image=torch_blosc_convert),
+        wds.map_dict(image=preprocess_img),
+        return_tuple,
+        wds.batched(args.batch_size, partial=not is_train),
+    ]
+
+    return get_wds_data_info(
+        args=args,
+        pipeline_extension=pipeline_extension,
+        is_train=is_train,
+        epoch=epoch,
+        floor=floor
+    )
+
+def get_wds_dataset_icd_prompt(
+        args,
+        preprocess_img,
+        is_train,
+        epoch=0,
+        floor=False,
+        tokenizer=None,
+        return_sample=False,
+):
+
+
+    image_key, text_key = get_sample_keys(args)
+    if return_sample or args.eval_mode:
+        rename = wds.rename(image=image_key, text=text_key, labels=text_key)
+        return_tuple = wds.to_tuple("image", "text", "labels")
+    else:
+        rename = wds.rename(image=image_key, text=text_key)
+        return_tuple = wds.to_tuple("image", "text")
+
+    torch_blosc_convert = get_torch_blosc_convert(args)
+
+    # Build pipeline extension
+    pipeline_extension = [
+        wds.decode(
+            wds.handle_extension("blosc", blosc.unpack_array),
+        ),
+        rename,
         wds.map_dict(image=torch_blosc_convert),
         wds.map_dict(image=preprocess_img),
         return_tuple,
