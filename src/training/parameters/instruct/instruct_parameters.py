@@ -56,4 +56,10 @@ def get_instruct_arguments():
         action="store_true",
         help="Whether to run the main script in eval mode only"
     )
+    parser.add_argument(
+        "--focal-loss",
+        default=False,
+        action="store_true",
+        help="Whether to train with focal loss"
+    )
     return parser
