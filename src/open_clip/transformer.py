@@ -899,6 +899,7 @@ class ScatteringTransformer(nn.Module):
         # Apply the scattering transform
         scattered_x = self.scattering.forward(x_reshaped)
 
+        # TODO - Drop log and abs and zero order - change scatter output size accordingly
         # log-scale and dropping zero-order coefficients
         scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
 
