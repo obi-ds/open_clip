@@ -21,7 +21,8 @@ class LabPredictionTask(CodeLabelPredictionTask):
             time_bins,
             fixed_position_range: bool,
             patient_id_column: str = 'PatientID',
-            lab_name_column: str = 'ExternalNM',
+            lab_name_column: str = 'ExternalNM_lower',
+            lab_name_normalized_column: str = 'ExternalNM',
             position_column: str = 'position',
             bins_column: str = 'bins',
             bin_start_column: str = 'min',
@@ -85,6 +86,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
             prediction_range_limit=prediction_range_limit,
             seq2seq=seq2seq
         )
+        self._lab_name_normalized_column = lab_name_normalized_column
         self._reference_range_low_column = reference_range_low_column
         self._reference_range_high_column = reference_range_high_column
 
@@ -100,6 +102,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
         Returns:
 
         """
+        self._document_count += 1
 
         # If for some reason we don't have encounter data for this person - we ignore training
         # on this person
@@ -221,7 +224,9 @@ class LabPredictionTask(CodeLabelPredictionTask):
         Returns:
 
         """
-        labs = super().sample_codes(encounter_history=encounter_history, max_limit=max_limit)[self._code_column]
+        labs = super().sample_codes(
+            encounter_history=encounter_history, max_limit=max_limit, label=None
+        )[self._code_column]
         labs_sampled = encounter_history[encounter_history[self._code_column].isin(labs)]
         return labs_sampled.groupby(self._code_column).sample(n=1)
 
@@ -293,7 +298,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
         instructions = list()
         for row in instruction_samples[
             [
-                self._code_column,
+                self._lab_name_normalized_column,
                 self._label_column,
                 self._reference_range_low_column,
                 self._reference_range_high_column,
@@ -335,7 +340,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
         instructions = list()
         for row in instruction_samples[
             [
-                self._code_column,
+                self._lab_name_normalized_column,
                 self._label_column,
                 self._ignore_instruction_column,
                 self._seq2seq_column
