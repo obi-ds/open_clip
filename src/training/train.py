@@ -389,7 +389,14 @@ def evaluate_instruct_basic(
         # all_image_features @ all_text_features will blow up memory and compute very quickly
         cumulative_gen_loss = 0.0
         all_predictions, all_labels = [], []
-        all_diagnosis_scores, all_diagnosis_labels = [], []
+        (
+            all_diagnosis_scores,
+            all_diagnosis_labels,
+            all_no_context_diagnosis_scores,
+            all_no_context_diagnosis_labels,
+            all_context_diagnosis_scores,
+            all_context_diagnosis_labels,
+        ) = [], [], [], [], [], []
         with torch.no_grad():
             for i, batch in enumerate(dataloader):
                 images, texts = batch
@@ -403,21 +410,50 @@ def evaluate_instruct_basic(
                     model_logits = model_out['logits']
                     model_labels = model_out['labels']
 
-                    mask = (model_labels != ignore_index) & (model_labels != eot_token_id)
-                    diagnosis_mask = (model_labels == positive_token_id) | (model_labels == negative_token_id)
+                    (
+                        mask,
+                        diagnosis_mask,
+                        no_context_diagnosis_select,
+                        no_context_diagnosis_indexes,
+                        context_diagnosis_select,
+                        context_diagnosis_indexes,
+                    ) = get_masks(
+                        model_labels=model_labels,
+                        positive_token_id=positive_token_id,
+                        negative_token_id=negative_token_id,
+                        eot_token_id=eot_token_id,
+                        ignore_index=ignore_index,
+                        max_seq_length=args.max_seq_length,
+                        device=device
+                    )
 
                     labels = model_labels[mask]
                     logits = model_logits[mask]
 
                     diagnosis_labels = model_labels[diagnosis_mask]
                     diagnosis_logits = model_logits[diagnosis_mask]
+                    no_context_diagnosis_labels = model_labels[
+                        no_context_diagnosis_select, no_context_diagnosis_indexes
+                    ]
+                    no_context_diagnosis_logits = model_logits[
+                        no_context_diagnosis_select, no_context_diagnosis_indexes
+                    ]
+                    context_diagnosis_labels = model_labels[
+                        context_diagnosis_select, context_diagnosis_indexes
+                    ]
+                    context_diagnosis_logits = model_logits[
+                        context_diagnosis_select, context_diagnosis_indexes
+                    ]
 
 
                     all_predictions.append(logits.argmax(dim=-1).cpu())
                     all_labels.append(labels.cpu())
-
                     all_diagnosis_scores.append(diagnosis_logits[:, positive_token_id].cpu())
                     all_diagnosis_labels.append(diagnosis_labels.cpu())
+                    all_no_context_diagnosis_scores.append(no_context_diagnosis_logits[:, positive_token_id].cpu())
+                    all_no_context_diagnosis_labels.append(no_context_diagnosis_labels.cpu())
+                    all_context_diagnosis_scores.append(context_diagnosis_logits[:, positive_token_id].cpu())
+                    all_context_diagnosis_labels.append(context_diagnosis_labels.cpu())
                     # features are accumulated in CPU tensors, otherwise GPU memory exhausted quickly
                     # however, system RAM is easily exceeded and compute time becomes problematic
 
@@ -435,10 +471,14 @@ def evaluate_instruct_basic(
                         logging.info(
                             f"{prefix} Generative Loss: {cumulative_gen_loss / num_samples:.6f}\t")
             generative_metrics = compute_generative_metrics(
-                diagnosis_scores=torch.cat(all_diagnosis_scores),
                 predictions=torch.cat(all_predictions),
                 labels=torch.cat(all_labels),
+                diagnosis_scores=torch.cat(all_diagnosis_scores),
                 diagnosis_labels=torch.cat(all_diagnosis_labels),
+                no_context_diagnosis_scores=torch.cat(all_no_context_diagnosis_scores),
+                no_context_diagnosis_labels=torch.cat(all_no_context_diagnosis_labels),
+                context_diagnosis_scores=torch.cat(all_context_diagnosis_scores),
+                context_diagnosis_labels=torch.cat(all_context_diagnosis_labels),
                 prefix=prefix
             )
             metrics.update(
@@ -524,6 +564,53 @@ def get_clip_metrics(image_features, text_features, logit_scale):
 
     return metrics
 
+def get_masks(
+        model_labels: torch.Tensor,
+        positive_token_id,
+        negative_token_id,
+        ignore_index,
+        eot_token_id,
+        max_seq_length,
+        device
+
+):
+    indexes = torch.arange(len(model_labels), device=device)
+    mask = (model_labels != ignore_index) & (model_labels != eot_token_id)
+    diagnosis_mask = (model_labels == positive_token_id) | (model_labels == negative_token_id)
+    diagnosis_mask_flipped = torch.fliplr(diagnosis_mask)
+
+    no_context_diagnosis_indexes = diagnosis_mask.long().argmax(dim=1)
+    context_diagnosis_indexes = -diagnosis_mask_flipped.long().argmax(dim=1) - 1 + max_seq_length
+    first_context_indexes = (~diagnosis_mask & mask).long().argmax(dim=1)
+
+    no_context_diagnosis_mask = (no_context_diagnosis_indexes != 0)
+    no_context_mask = (
+            ((no_context_diagnosis_indexes < first_context_indexes) | (first_context_indexes == 0))
+            & no_context_diagnosis_mask
+    )
+    context_mask = (
+            ((context_diagnosis_indexes != no_context_diagnosis_indexes) | ~no_context_mask)
+            & no_context_diagnosis_mask
+    )
+
+    # Positions where diagnosis occurs without anything before - with no information
+    no_context_diagnosis_indexes = no_context_diagnosis_indexes[no_context_mask]
+    no_context_diagnosis_select = indexes[no_context_mask]
+
+    # Positions where diagnosis occurs after everything occurs - with all information
+    context_diagnosis_indexes = context_diagnosis_indexes[context_mask]
+    context_diagnosis_select = indexes[context_mask]
+
+    return (
+        mask,
+        diagnosis_mask,
+        no_context_diagnosis_select,
+        no_context_diagnosis_indexes,
+        context_diagnosis_select,
+        context_diagnosis_indexes,
+    )
+
+
 def maybe_compute_generative_loss(model_out):
     if "logits" in model_out and "labels" in model_out:
         token_logits = model_out["logits"]
@@ -533,12 +620,24 @@ def maybe_compute_generative_loss(model_out):
 def compute_generative_loss(token_logits, token_labels, ignore_index=-100, reduction='mean'):
     return F.cross_entropy(token_logits.permute(0, 2, 1), token_labels, ignore_index=ignore_index, reduction=reduction)
 
-def compute_generative_metrics(diagnosis_scores, predictions, labels, diagnosis_labels, prefix):
+def compute_generative_metrics(
+        predictions,
+        labels,
+        diagnosis_scores,
+        diagnosis_labels,
+        no_context_diagnosis_scores,
+        no_context_diagnosis_labels,
+        context_diagnosis_scores,
+        context_diagnosis_labels,
+        prefix):
 
     metrics = {
         f'{prefix}accuracy': accuracy_score(labels, predictions),
-        f'{prefix}auc': roc_auc_score(diagnosis_labels, diagnosis_scores)
+        f'{prefix}auc': roc_auc_score(diagnosis_labels, diagnosis_scores),
+        f'{prefix}auc_no_context': roc_auc_score(no_context_diagnosis_labels, no_context_diagnosis_scores),
+        f'{prefix}auc_context': roc_auc_score(context_diagnosis_labels, context_diagnosis_scores)
     }
+
     return metrics
 
 def compute_probability(loss):
