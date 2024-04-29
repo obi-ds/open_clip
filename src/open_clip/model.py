@@ -19,7 +19,7 @@ from .hf_model import HFTextEncoder
 from .modified_resnet import ModifiedResNet
 from .timm_model import TimmModel
 from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer,\
-    text_global_pool, ScatteringTransformer
+    text_global_pool, GlobalScatteringTransformer, WindowedScatteringTransformer
 from .utils import to_2tuple
 
 
@@ -86,9 +86,11 @@ class CLIPTextCfg:
 
 @dataclass
 class CLIPScatterCfg:
+
     scattering_j: int = 6,
     scattering_q: int = 8,
     scattering_t: int = None,
+    windowed: bool = False,
     layers: Union[Tuple[int, int, int, int], int] = 12
     width: int = 768
     head_width: int = 64
@@ -250,25 +252,46 @@ def _build_scattering_tower(
     norm_layer = LayerNormFp32 if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
     act_layer = nn.GELU
 
-    model = ScatteringTransformer(
-        scattering_j=scatter_cfg.scattering_j,
-        scattering_q=scatter_cfg.scattering_q,
-        scattering_t=scatter_cfg.scattering_t,
-        width=scatter_cfg.width,
-        layers=scatter_cfg.layers,
-        heads=heads,
-        dropout=scatter_cfg.dropout,
-        mlp_ratio=scatter_cfg.mlp_ratio,
-        ls_init_value=scatter_cfg.ls_init_value,
-        global_average_pool=scatter_cfg.global_average_pool,
-        attentional_pool=scatter_cfg.attentional_pool,
-        n_queries=scatter_cfg.n_queries,
-        attn_pooler_heads=scatter_cfg.attn_pooler_heads,
-        output_tokens=scatter_cfg.output_tokens,
-        output_dim=embed_dim,
-        act_layer=act_layer,
-        norm_layer=norm_layer,
-    )
+    if not scatter_cfg.windowed:
+        model = GlobalScatteringTransformer(
+            scattering_j=scatter_cfg.scattering_j,
+            scattering_q=scatter_cfg.scattering_q,
+            scattering_t=scatter_cfg.scattering_t,
+            width=scatter_cfg.width,
+            layers=scatter_cfg.layers,
+            heads=heads,
+            dropout=scatter_cfg.dropout,
+            mlp_ratio=scatter_cfg.mlp_ratio,
+            ls_init_value=scatter_cfg.ls_init_value,
+            global_average_pool=scatter_cfg.global_average_pool,
+            attentional_pool=scatter_cfg.attentional_pool,
+            n_queries=scatter_cfg.n_queries,
+            attn_pooler_heads=scatter_cfg.attn_pooler_heads,
+            output_tokens=scatter_cfg.output_tokens,
+            output_dim=embed_dim,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+        )
+    else:
+        model = WindowedScatteringTransformer(
+            scattering_j=scatter_cfg.scattering_j,
+            scattering_q=scatter_cfg.scattering_q,
+            scattering_t=scatter_cfg.scattering_t,
+            width=scatter_cfg.width,
+            layers=scatter_cfg.layers,
+            heads=heads,
+            patch_dropout=scatter_cfg.dropout,
+            mlp_ratio=scatter_cfg.mlp_ratio,
+            ls_init_value=scatter_cfg.ls_init_value,
+            global_average_pool=scatter_cfg.global_average_pool,
+            attentional_pool=scatter_cfg.attentional_pool,
+            n_queries=scatter_cfg.n_queries,
+            attn_pooler_heads=scatter_cfg.attn_pooler_heads,
+            output_tokens=scatter_cfg.output_tokens,
+            output_dim=embed_dim,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+        )
 
     return model
 

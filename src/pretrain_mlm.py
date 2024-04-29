@@ -29,6 +29,7 @@ except ImportError:
     hvd = None
 
 from open_clip import create_model_and_transforms, trace_model, get_tokenizer, create_loss
+from open_clip.loss import ClipLoss
 from training.data import get_data, get_wds_dataset_icd_instruct
 from training.distributed import is_master, init_distributed_device, broadcast_object
 from training.logger import setup_logging
@@ -482,7 +483,16 @@ def main(args):
         evaluate_mlm(model, data, start_epoch, args, tb_writer=writer, tokenizer=tokenizer)
         return
 
-    loss = create_loss(args)
+    #loss = create_loss(args)
+
+    loss = ClipLoss(
+        local_loss=args.local_loss,
+        gather_with_grad=args.gather_with_grad,
+        cache_labels=True,
+        rank=args.rank,
+        world_size=args.world_size,
+        use_horovod=args.horovod,
+    )
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):

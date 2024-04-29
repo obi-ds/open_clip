@@ -377,11 +377,16 @@ def train_one_epoch_mlm(model, data, loss, epoch, optimizer, scaler, scheduler, 
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
 
-        # TODO not using scaler for this
-        scaler = None
-
         #from IPython import embed
         #embed()
+
+        # inspect loss and scaler objects
+        # should be able to call cliploss on the two pooled representations (with dropped leads and without)
+
+        # TODO not using scaler for this
+        #scaler = None
+
+
 
         #breakpoint()
 
@@ -393,6 +398,12 @@ def train_one_epoch_mlm(model, data, loss, epoch, optimizer, scaler, scheduler, 
                 original_output = model(images)
                 masked_output = model(masked_images)
                 pooled_cosine_loss = masked_cosine_similarity_loss(original_output[0], masked_output[0])
+
+                # TODO scale is updated in the CLIP implementation
+                #logit_scale = model_out["logit_scale"]
+                logit_scale = 1.0
+                clip_loss = loss.forward(original_output[0], masked_output[0], logit_scale)
+
                 #latent_cosine_loss = masked_cosine_similarity_loss(original_output[1], masked_output[1], mask_with_cls)
                 #latent_mse_loss = masked_mse_loss(original_output[1], masked_output[1], mask_with_cls)
 
@@ -426,9 +437,10 @@ def train_one_epoch_mlm(model, data, loss, epoch, optimizer, scaler, scheduler, 
                     #"latent_cosine_loss": latent_cosine_loss,
                     #"latent_mse_loss": latent_mse_loss,
                     "pooled_cosine_loss": pooled_cosine_loss,
+                    "pooled_clip_loss": clip_loss,
                     "reconstruction_mse_loss": reconstruction_mse_loss
                           }
-                total_loss = pooled_cosine_loss + reconstruction_mse_loss
+                total_loss = pooled_cosine_loss + clip_loss + reconstruction_mse_loss
                 #total_loss = reconstruction_mse_loss
             #backward(total_loss)
             backward(total_loss, scaler)
@@ -848,6 +860,11 @@ def evaluate_mlm(model, data, epoch, args, tb_writer=None, tokenizer=None):
                         pooled_cosine_loss = masked_cosine_similarity_loss(original_output[0], masked_output[0])
                         #latent_cosine_loss = masked_cosine_similarity_loss(original_output[1], masked_output[1], mask_with_cls)
                         #latent_mse_loss = masked_mse_loss(original_output[1], masked_output[1], mask_with_cls)
+
+                        # TODO scale is updated in the CLIP implementation
+                        # logit_scale = model_out["logit_scale"]
+                        logit_scale = 1.0
+                        #clip_loss = loss.forward(original_output[0], masked_output[0], logit_scale)
 
                         # scattering coefficient reconstruction loss
                         scattered_original = visual_model.scattering.forward(images.view(-1, 2500))
