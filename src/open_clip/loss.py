@@ -1,10 +1,12 @@
+from typing import Optional
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
 try:
     import torch.distributed.nn
-    from torch import distributed as dist
+    from torch import distributed as dist, Tensor
 
     has_distributed = True
 except ImportError:
@@ -451,3 +453,75 @@ class CaptionLoss(ClipLoss):
             return {"contrastive_loss": clip_loss, "caption_loss": caption_loss}
 
         return clip_loss, caption_loss
+
+
+class FocalLoss(ClipLoss):
+    def __init__(
+            self,
+            local_loss=False,
+            gather_with_grad=False,
+            cache_labels=False,
+            rank=0,
+            world_size=1,
+            use_horovod=False,
+            alpha: Optional[Tensor] = None,
+            gamma: float = 1,
+            reduction: str = 'mean',
+            ignore_index: int = -100
+    ):
+        super().__init__(
+            local_loss=local_loss,
+            gather_with_grad=gather_with_grad,
+            cache_labels=cache_labels,
+            rank=rank,
+            world_size=world_size,
+            use_horovod=use_horovod
+        )
+        self._alpha = alpha
+        self._gamma = gamma
+        self._ignore_index = ignore_index
+        self._reduction = reduction
+        self.clip_loss_weight = 0
+        self.nll_loss = nn.NLLLoss(
+            weight=alpha,
+            reduction='none',
+            ignore_index=ignore_index
+        )
+
+    def forward(self, image_features, text_features, logits, labels, logit_scale, output_dict=False):
+
+        clip_loss = super().forward(image_features, text_features, logit_scale)
+        clip_loss = self.clip_loss_weight * clip_loss
+
+        logits = logits[:, :, :].contiguous()
+        labels = labels[:, :].contiguous()
+
+        mask = labels != self._ignore_index
+
+        logits = logits[mask]
+        labels = labels[mask]
+
+        if len(labels) == 0:
+            return torch.tensor(0.)
+
+        log_probabilities = F.log_softmax(logits, dim=-1)
+        negative_log_pt = self.nll_loss(log_probabilities, labels)
+
+        # get true class column from each row
+        indexes = torch.arange(len(log_probabilities))
+        pt = log_probabilities[indexes, labels].exp()
+
+        caption_loss = ((1 - pt) ** self._gamma) * negative_log_pt
+
+        if self._reduction == 'mean':
+            caption_loss = caption_loss.mean()
+        elif self._reduction == 'sum':
+            caption_loss = caption_loss.sum()
+
+        if output_dict:
+            return {"contrastive_loss": clip_loss, "caption_loss": caption_loss}
+
+        return clip_loss, caption_loss
+
+
+
