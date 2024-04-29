@@ -1,2 +1,3 @@
 from .lab_instruct_tasks import LabPredictionTask
-__all__ = ["LabPredictionTask"]
+from .lab_instruct_prompt import LabPredictionPrompt
+__all__ = ["LabPredictionTask", "LabPredictionPrompt"]
