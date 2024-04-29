@@ -24,7 +24,9 @@ class InstructTasks(object):
         for task in self._task_list:
             if isinstance(task, DemographicPredictionTask):
                 instructions = task.process_sample(
-                    sample=sample, args=args, ignore_instruction=self.get_ignore_instruction_demographics()
+                    sample=sample, args=args, ignore_instruction=self.get_ignore_instruction_demographics(
+                        focal_loss=args.focal_loss
+                    )
                 )
             else:
                 instructions = task.process_sample(sample=sample, args=args)
@@ -50,11 +52,14 @@ class InstructTasks(object):
             return self._instruct_tokenizer.get_eos_token() + '\n'
 
     @staticmethod
-    def get_ignore_instruction_demographics():
+    def get_ignore_instruction_demographics(focal_loss):
         """
         Demographics overfit - so we don't always train on it
 
         Returns:
 
         """
-        return np.random.rand() > 0.2
+        if focal_loss:
+            return np.random.rand() > 1
+        else:
+            return np.random.rand() > 0.5
