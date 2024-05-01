@@ -16,6 +16,16 @@ def get_encounter_file_arguments():
         help="The file containing the encounter history",
     )
     parser.add_argument(
+        "--demographic-file",
+        type=str,
+        help="The file containing the demographic data",
+    )
+    parser.add_argument(
+        "--labs-folder",
+        type=str,
+        help="The folder containing the lab data",
+    )
+    parser.add_argument(
         "--patient-id-column",
         type=str,
         default='PatientID',
@@ -38,6 +48,12 @@ def get_encounter_file_arguments():
         type=str,
         default='phecode',
         help="Column name for icd 10 codes",
+    )
+    parser.add_argument(
+        "--lab-name-column",
+        type=str,
+        default='ExternalNM_lower',
+        help="Column name for lab names",
     )
     parser.add_argument(
         "--contact-date-column",

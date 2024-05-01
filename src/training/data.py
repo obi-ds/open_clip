@@ -22,28 +22,23 @@ from torch.utils.data.distributed import DistributedSampler
 from webdataset.filters import _shuffle
 from webdataset.tariterators import base_plus_ext, url_opener, tar_file_expander, valid_sample
 
-from .instruct.codes import (
-    CodeStatusClassificationTask,
-    CodeStatusRangeClassificationTask,
-    CodeT2EPredictionTask,
-    CodeStatusRangeClassificationTaskStrictEval,
-    CodeStatusRangeClassificationTaskEval
+from open_clip.tokenizer import decode
+
+from .instruct import (
+    InstructTasks,
+    InstructPrompt
 )
-from .instruct.codes.descriptions import ICDDescription, PHEDescription
-from .instruct.codes.processing import (
-    EncounterDataframeProcess,
-    DataFrameSampling,
-    ICDConvert,
-    PHEConvert,
-    NegativePHESampling,
-    NegativeICDSampling
+from .data_utils import (
+    get_tree_code_label_prediction_task,
+    get_all_code_label_prediction_task,
+    get_code_label_prediction_task_eval,
+    get_tree_code_label_prediction_task_eval,
+    get_demographic_task,
+    get_lab_task,
+    get_instruct_tokenizer,
+    get_demographic_prompt,
+    get_lab_prompt
 )
-from .instruct.utils import (
-    get_code_status_classification_instructions,
-    get_code_status_range_classification_instructions,
-    get_code_t2e_prediction_instructions
-)
-from .instruct import ICDInstruct
 
 try:
     import horovod.torch as hvd
@@ -448,41 +443,6 @@ def get_synthetic_dataset(args, preprocess_fn, is_train, epoch=0, tokenizer=None
 
     return DataInfo(dataloader, sampler)
 
-def get_patient_encounter_history_object(
-        args,
-        use_phe_codes=True
-):
-    encounter_dataframe = pd.read_parquet(
-        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
-    )
-
-
-    if use_phe_codes or 'phe' in args.code_column:
-        code_convert = PHEConvert(
-            descriptions=PHEDescription(),
-            lowercase=False
-        )
-    else:
-        code_convert = ICDConvert(
-            descriptions=ICDDescription(),
-            billable_probability=args.billable_probability,
-            top_non_probability=args.top_non_probability,
-            mixed_non_probability=args.mixed_non_probability,
-            lowercase=False
-        )
-
-    encounter_dataframe_process = EncounterDataframeProcess(
-        encounter_dataframe=encounter_dataframe,
-        code_convert=code_convert,
-        patient_id_column=args.patient_id_column,
-        contact_date_column=args.contact_date_column,
-        time_difference_column=args.time_difference_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
-    )
-
-    return encounter_dataframe_process
-
 def get_wds_dataset_icd_instruct(
         args,
         preprocess_img,
@@ -490,158 +450,46 @@ def get_wds_dataset_icd_instruct(
         epoch=0,
         floor=False,
         tokenizer=None,
-        evaluate_attribute=None,
-        example_attributes=None,
-        custom_prompt=False,
-        task_probabilities=None,
-        lock_range=None,
-        use_phe_codes=False,
-        shuffle=True,
-        strict_eval=False,
-        return_sample=False
+        return_sample=False,
+        eval_mode=False,
 ):
-    max_seq_length = 76
-    pad_id = 0
-
-    args.shuffle = shuffle
-
-    encounter_dataframe = pd.read_parquet(
-        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
-    )
-
-    dataframe_sampling = DataFrameSampling()
-
-    if use_phe_codes or 'phe' in args.code_column:
-        code_convert = PHEConvert(
-            descriptions=PHEDescription(),
-            lowercase=False
-        )
-        negative_code_sampling = NegativePHESampling(code_convert=code_convert)
-    else:
-        code_convert = ICDConvert(
-            descriptions=ICDDescription(),
-            billable_probability=args.billable_probability,
-            top_non_probability=args.top_non_probability,
-            mixed_non_probability=args.mixed_non_probability,
-            lowercase=False
-        )
-        negative_code_sampling = NegativeICDSampling(code_convert=code_convert)
-
-    encounter_dataframe_process = EncounterDataframeProcess(
-        encounter_dataframe=encounter_dataframe,
-        code_convert=code_convert,
-        patient_id_column=args.patient_id_column,
-        contact_date_column=args.contact_date_column,
-        time_difference_column=args.time_difference_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
-    )
-
-    if args.lock_range:
-        assert args.random_negative_probability == 1, "If range is locked/fixed, random negative probability needs to be 1"
-
-    code_status_range_classification_instructions = get_code_status_range_classification_instructions(
-        task_definition='Patient is diagnosed with: \n\n',
-        future_input='- {diagnosis} between months {start_time} and {end_time}:',
-        future_target='{answer}',
-        past_input='- {diagnosis} between {start_time} and {end_time} months ago:',
-        past_target='{answer}',
-        positive_answer_target='yes',
-        negative_answer_target='no',
-        lock_range=lock_range if lock_range is not None else args.lock_range
-    )
-
-    code_t2e_prediction_instructions = get_code_t2e_prediction_instructions(
-        task_definition='Predict the time to event: \n\n',
-        inputs='- {diagnosis}:',
-        targets='{sign}{answer}',
-        negative_answer_target=np.inf,
-    )
-
-    if not custom_prompt:
-        code_status_range_classification_task = CodeStatusRangeClassificationTask(
-            encounter_dataframe_process=encounter_dataframe_process,
-            dataframe_sampling=dataframe_sampling,
-            negative_code_sampling=negative_code_sampling,
-            code_instructions=code_status_range_classification_instructions,
-            code_convert=code_convert,
-            patient_id_column=args.patient_id_column,
-            code_column=args.code_column,
-            position_column=args.position_column,
-        )
-
-        code_t2e_prediction_task = CodeT2EPredictionTask(
-            encounter_dataframe_process=encounter_dataframe_process,
-            dataframe_sampling=dataframe_sampling,
-            negative_code_sampling=negative_code_sampling,
-            code_instructions=code_t2e_prediction_instructions,
-            code_convert=code_convert,
-            patient_id_column=args.patient_id_column,
-            code_column=args.code_column,
-            position_column=args.position_column,
-        )
-    else:
-        if strict_eval:
-            code_status_range_classification_task = CodeStatusRangeClassificationTaskStrictEval(
-                encounter_dataframe_process=encounter_dataframe_process,
-                dataframe_sampling=dataframe_sampling,
-                negative_code_sampling=negative_code_sampling,
-                code_instructions=code_status_range_classification_instructions,
-                code_convert=code_convert,
-                patient_id_column=args.patient_id_column,
-                code_column=args.code_column,
-                position_column=args.position_column,
-                example_attributes=example_attributes,
-                evaluate_attribute=evaluate_attribute
-            )
+    task_list = list()
+    for task in args.tasks:
+        if task == 'demographics':
+            task_list.append(get_demographic_task(args=args))
+        elif task == 'labs':
+            task_list.append(get_lab_task(args=args))
+        elif task == 'all':
+            task_list.append(get_all_code_label_prediction_task(args=args))
+        elif task == 'tree':
+            task_list.append(get_tree_code_label_prediction_task(args=args))
+        elif task == 'eval' and (args.eval_mode or eval_mode):
+            task_list.append(get_code_label_prediction_task_eval(args=args))
+        elif task == 'tree_eval' and (args.eval_mode or eval_mode):
+            task_list.append(get_tree_code_label_prediction_task_eval(args=args))
         else:
-            code_status_range_classification_task = CodeStatusRangeClassificationTaskEval(
-                encounter_dataframe_process=encounter_dataframe_process,
-                dataframe_sampling=dataframe_sampling,
-                negative_code_sampling=negative_code_sampling,
-                code_instructions=code_status_range_classification_instructions,
-                code_convert=code_convert,
-                patient_id_column=args.patient_id_column,
-                code_column=args.code_column,
-                position_column=args.position_column,
-                example_attributes=example_attributes,
-                evaluate_attribute=evaluate_attribute
-            )
+            raise ValueError('Invalid task type')
 
-        code_t2e_prediction_task = None
+    if tokenizer is None:
+        instruct_tokenizer = None
+    else:
+        instruct_tokenizer = get_instruct_tokenizer(
+            tokenizer=tokenizer,
+            ignore_index=-100,
+            args=args
+        )
 
-    instruction_tasks = [code_status_range_classification_task, code_t2e_prediction_task]
-
-    if task_probabilities is None:
-        # task_probabilities = np.ones(len(instruction_tasks)) / len(instruction_tasks)
-        task_probabilities = [1.0, 0.0]
-
-    icd_instruct = ICDInstruct(
-        instruction_tasks=instruction_tasks,
-        task_probabilities=task_probabilities,
-        tokenizer=tokenizer,
-        max_seq_length=max_seq_length,
-        pad_id=pad_id
+    instruct_tasks = InstructTasks(
+        task_list=task_list,
+        instruct_tokenizer=instruct_tokenizer,
     )
 
     instruct_function = partial(
-        icd_instruct.process_sample_from_args, args=args
+        instruct_tasks.process_sample_from_args, args=args
     )
 
-    # Build pipeline extension
-    # pipeline_extension = [
-    #     wds.decode(
-    #         wds.handle_extension("blosc", blosc.unpack_array),
-    #     ),
-    #     wds.rename(image="dict.x.blosc", text="dict.meta.pyd"),
-    #     wds.map_dict(text=instruct_function),
-    #     wds.map_dict(image=wds_ecg_to_torch),
-    #     wds.map_dict(image=preprocess_img),
-    #     wds.to_tuple("image", "text"),
-    #     wds.batched(args.batch_size, partial=not is_train),
-    # ]
     image_key, text_key = get_sample_keys(args)
-    if return_sample:
+    if return_sample or args.eval_mode:
         rename = wds.rename(image=image_key, text=text_key, labels=text_key)
         return_tuple = wds.to_tuple("image", "text", "labels")
     else:
@@ -663,18 +511,46 @@ def get_wds_dataset_icd_instruct(
         wds.batched(args.batch_size, partial=not is_train),
     ]
 
-    # pipeline_extension = [
-    #     wds.decode(
-    #         wds.handle_extension("blosc", blosc.unpack_array),
-    #     ),
-    #     wds.rename(image="dict.x.blosc", text="dict.meta.pyd", labels="dict.meta.pyd"),
-    #     wds.map_dict(text=instruct_function),
-    #     wds.map_dict(image=wds_ecg_to_torch),
-    #     wds.map_dict(image=preprocess_img),
-    #     wds.map_dict(labels=test),
-    #     wds.to_tuple("image", "text", "labels"),
-    #     wds.batched(args.batch_size, partial=not is_train),
-    # ]
+    return get_wds_data_info(
+        args=args,
+        pipeline_extension=pipeline_extension,
+        is_train=is_train,
+        epoch=epoch,
+        floor=floor
+    )
+
+def get_wds_dataset_icd_prompt(
+        args,
+        preprocess_img,
+        is_train,
+        epoch=0,
+        floor=False,
+        tokenizer=None,
+        return_sample=False,
+):
+
+
+    image_key, text_key = get_sample_keys(args)
+    if return_sample or args.eval_mode:
+        rename = wds.rename(image=image_key, text=text_key, labels=text_key)
+        return_tuple = wds.to_tuple("image", "text", "labels")
+    else:
+        rename = wds.rename(image=image_key, text=text_key)
+        return_tuple = wds.to_tuple("image", "text")
+
+    torch_blosc_convert = get_torch_blosc_convert(args)
+
+    # Build pipeline extension
+    pipeline_extension = [
+        wds.decode(
+            wds.handle_extension("blosc", blosc.unpack_array),
+        ),
+        rename,
+        wds.map_dict(image=torch_blosc_convert),
+        wds.map_dict(image=preprocess_img),
+        return_tuple,
+        wds.batched(args.batch_size, partial=not is_train),
+    ]
 
     return get_wds_data_info(
         args=args,
@@ -684,15 +560,16 @@ def get_wds_dataset_icd_instruct(
         floor=floor
     )
 
+
 def get_sample_keys(args):
-    if 'scatter' in args.model.lower():
+    if 'ecg' in args.model.lower():
         return 'dict.x.blosc', 'dict.meta.pyd'
     elif 'cyto' in args.model.lower():
         return 'x.blosc', 'meta.pyd'
     else:
         raise ValueError('args.model should contain either ecg or cyto')
 def get_torch_blosc_convert(args):
-    if 'scatter' in args.model.lower():
+    if 'ecg' in args.model.lower():
         return wds_ecg_to_torch
     elif 'cyto' in args.model.lower():
         return wds_cytometry_to_torch

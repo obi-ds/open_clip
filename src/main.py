@@ -1,6 +1,7 @@
 import glob
 import logging
 import os
+import copy
 import re
 import subprocess
 import sys
@@ -34,7 +35,7 @@ from training.distributed import is_master, init_distributed_device, broadcast_o
 from training.logger import setup_logging
 from training.params import parse_args
 from training.scheduler import cosine_lr, const_lr, const_lr_cooldown
-from training.train import train_one_epoch, evaluate, evaluate_icd_binary_instruct, get_step, log_metrics
+from training.train import train_one_epoch, evaluate, evaluate_instruct_basic, get_step, log_metrics
 from training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
 
 LATEST_CHECKPOINT_NAME = "epoch_latest.pt"
@@ -352,7 +353,7 @@ def main(args):
             logging.info(f"=> loaded checkpoint '{args.resume}' (epoch {start_epoch})")
 
     # initialize datasets
-    tokenizer = get_tokenizer(args.model)
+    tokenizer = get_tokenizer(args.model, context_length=args.max_seq_length)
     data = get_data(
         args,
         (preprocess_train, preprocess_val),
@@ -427,55 +428,9 @@ def main(args):
         return
 
     loss = create_loss(args)
-
-    binary_status = {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0]
-        )
-    }
-
-    # Future status
-    # afib_status = {
-    #     'val': get_wds_dataset_icd_instruct(
-    #         args=args,
-    #         preprocess_img=preprocess_val,
-    #         is_train=False,
-    #         tokenizer=tokenizer,
-    #         task_probabilities=[1.0, 0.0],
-    #         evaluate_attribute=['CV_416.2', (0, 1), None],
-    #         custom_prompt=True,
-    #         lock_range=True
-    #     )
-    # }
-
-    evaluations = {
-        # 'afib+1_': ('CV_416.2', 0, 1),
-        # 'hf+1_': ('CV_424', 0, 1),
-        # 't2d+1_': ('EM_202.2', 0, 1),
-        # 'afib-1_': ('CV_416.2', 0, -1),
-        # 'hf-1_': ('CV_424', 0, -1),
-        # 't2d-1_': ('EM_202.2', 0, -1),
-        # 'afib+6_': ('CV_416.2', 0, 6),
-        # 'hf+6_': ('CV_424', 0, 6),
-        # 't2d+6_': ('EM_202.2', 0, 6),
-    }
-
-    evaluations_data = {
-        eval_prefix: get_icd_evaluation(
-            code=eval_params[0],
-            start_time=eval_params[1],
-            end_time=eval_params[2],
-            args=args,
-            preprocess_val=preprocess_val,
-            tokenizer=tokenizer
-        )
-        for eval_prefix, eval_params in evaluations.items()
-    }
-
+    eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
+    pos_token_id = get_token_id(model_name=args.model, tokenizer=tokenizer, token='yes')
+    neg_token_id = get_token_id(model_name=args.model, tokenizer=tokenizer, token='no')
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
@@ -485,54 +440,16 @@ def main(args):
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
-            # evaluate(model, data, completed_epoch, args, tb_writer=writer, tokenizer=tokenizer)
-            log_step = get_step(data=data, accum_freq=args.accum_freq, epoch=completed_epoch)
-
-            # TODO: We changed from coca eval to only gen eval
-            # TODO - Other evaluations
-            # 1. Evaluate General
-
-            evaluate_icd_binary_instruct(
-                model,
-                binary_status,
-                completed_epoch,
-                args,
-                prefix='binary_status_',
-                tokenizer=tokenizer,
-                tb_writer=writer,
-                step=log_step
+            evaluate_instruct_basic(
+                model=model,
+                data=data,
+                epoch=completed_epoch,
+                args=args,
+                eot_token_id=eos_token_id,
+                positive_token_id=pos_token_id,
+                negative_token_id=neg_token_id,
+                tb_writer=writer
             )
-
-            # Evaluate A-Fib
-            # TODO: This assumes top level code - if using leaf level - we need to change the ICD code
-            #  accordingly
-            # evaluate_icd_binary_instruct(
-            #     model,
-            #     afib_status,
-            #     completed_epoch,
-            #     args,
-            #     prefix='afib_status_',
-            #     tokenizer=tokenizer,
-            #     tb_writer=writer,
-            #     step=log_step
-            # )
-
-            for eval_prefix, eval_data in evaluations_data.items():
-                evaluate_icd_binary_instruct(
-                    model,
-                    eval_data,
-                    completed_epoch,
-                    args,
-                    prefix=eval_prefix,
-                    tokenizer=tokenizer,
-                    tb_writer=writer,
-                    step=log_step
-                )
-
-            # eval_metrics = {**binary_status_metrics, **afib_status_metrics}
-
-            # log_metrics(metrics=binary_status_metrics, args=args, tb_writer=writer, epoch=completed_epoch,
-            # step=log_step)
 
         # Saving checkpoints.
         if args.save_logs:
@@ -598,59 +515,18 @@ def copy_codebase(args):
     print("Done copying code.")
     return 1
 
-def get_icd_evaluation(code, start_time, end_time, args, preprocess_val, tokenizer):
-    return {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0],
-            evaluate_attribute=[code, (start_time, end_time), None],
-            custom_prompt=True,
-            lock_range=True
-        )
-    }
+def get_eos_token_id(model_name, tokenizer):
+    if 'gpt' in model_name:
+        return tokenizer.tokenizer.encode('\n')[0]
+        # return tokenizer.tokenizer.eos_token_id
+    else:
+        return tokenizer.eot_token_id
 
-def get_future_evaluation():
-    afib_30_future_status = {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0],
-            evaluate_attribute=['CV_416.2', (0, 1), None],
-            custom_prompt=True,
-            lock_range=True
-        )
-    }
-
-    hf_30_future_status = {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0],
-            evaluate_attribute=['CV_424', (0, 1), None],
-            custom_prompt=True,
-            lock_range=True
-        )
-    }
-
-    t2d_30_future_status = {
-        'val': get_wds_dataset_icd_instruct(
-            args=args,
-            preprocess_img=preprocess_val,
-            is_train=False,
-            tokenizer=tokenizer,
-            task_probabilities=[1.0, 0.0],
-            evaluate_attribute=['EM_202.2', (0, 1), None],
-            custom_prompt=True,
-            lock_range=True
-        )
-    }
+def get_token_id(model_name, tokenizer, token):
+    if 'gpt' in model_name:
+        return tokenizer.tokenizer.convert_tokens_to_ids(token)
+    else:
+        return tokenizer.encode(token)[0]
 
 
 if __name__ == "__main__":

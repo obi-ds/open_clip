@@ -1,86 +1,94 @@
 """Util functions"""
-import numpy as np
 from .codes.templates import (
-    CodeStatusInstructionTemplate,
-    CodeStatusRangeInstructionTemplate,
-    CodeStatusClassificationInstructions,
-    CodeStatusFixedRangeClassificationInstructions,
-    CodeT2EInstructionTemplate,
-    CodeT2EPredictionInstructions
+    CodeLabelPredictionInstructionTemplate,
+    HierarchicalCodeLabelPredictionInstructionTemplate
 )
+from .demographics.templates import PatientDemographicsTemplate
 
-# ICD utils
 
-def get_code_status_classification_instructions(
-        task_definition: str,
-        future_input: str,
-        future_target: str,
-        past_input: str,
-        past_target: str,
-        positive_answer_target: str,
-        negative_answer_target: str
-):
-    instruction_template_future = CodeStatusInstructionTemplate(
-        inputs=future_input,
-        targets=future_target
-    )
+def get_code_label_prediction_instruction_template(
+        task_definition='Diagnoses in the next {time} months',
+        inputs='* {diagnosis}',
+        x_y_delimiter=': ',
+        example_separator='\n'
+) -> CodeLabelPredictionInstructionTemplate:
+    """
+    Return the object can use the given data and instruction templates
+    and return an instruction string for the input and output
 
-    instruction_template_past = CodeStatusInstructionTemplate(
-        inputs=past_input,
-        targets=past_target
-    )
-
-    return CodeStatusClassificationInstructions(
-        task_definition=task_definition,
-        instruction_template_future=instruction_template_future,
-        instruction_template_past=instruction_template_past,
-        positive_answer_target=positive_answer_target,
-        negative_answer_target=negative_answer_target
-    )
-
-def get_code_status_range_classification_instructions(
-        task_definition: str,
-        future_input: str,
-        future_target: str,
-        past_input: str,
-        past_target: str,
-        positive_answer_target: str,
-        negative_answer_target: str,
-        lock_range: bool
-):
-    instruction_template_future = CodeStatusRangeInstructionTemplate(
-        inputs=future_input,
-        targets=future_target
-    )
-
-    instruction_template_past = CodeStatusRangeInstructionTemplate(
-        inputs=past_input,
-        targets=past_target
-    )
-
-    return CodeStatusFixedRangeClassificationInstructions(
-        task_definition=task_definition,
-        instruction_template_future=instruction_template_future,
-        instruction_template_past=instruction_template_past,
-        positive_answer_target=positive_answer_target,
-        negative_answer_target=negative_answer_target,
-        lock_range=lock_range
-    )
-
-def get_code_t2e_prediction_instructions(
-        task_definition: str,
-        inputs: str,
-        targets: str,
-        negative_answer_target: float = np.inf,
-):
-    instruction_template = CodeT2EInstructionTemplate(
+    Returns:
+        (CodeTrajectoryPredictionInstructions): Object to build instruction strings (inputs and targets)
+    """
+    return CodeLabelPredictionInstructionTemplate(
         inputs=inputs,
-        targets=targets
-    )
-
-    return CodeT2EPredictionInstructions(
+        x_y_delimiter=x_y_delimiter,
         task_definition=task_definition,
-        instruction_template=instruction_template,
-        negative_answer_target=negative_answer_target,
+        example_separator=example_separator
     )
 
+
+def get_hierarchical_code_label_prediction_instruction_template(
+        task_definition='Diagnoses in the next {time} months',
+        inputs='{diagnosis}',
+        inputs_prefix='* ',
+        targets_prefix=':  ',
+        x_y_delimiter=' -> ',
+        example_separator='\n'
+) -> HierarchicalCodeLabelPredictionInstructionTemplate:
+    """
+    Return the object can use the given data and instruction templates
+    and return an instruction string for the input and output
+
+    Returns:
+        (CodeTrajectoryPredictionInstructions): Object to build instruction strings (inputs and targets)
+    """
+    return HierarchicalCodeLabelPredictionInstructionTemplate(
+        inputs=inputs,
+        inputs_prefix=inputs_prefix,
+        targets_prefix=targets_prefix,
+        x_y_delimiter=x_y_delimiter,
+        task_definition=task_definition,
+        example_separator=example_separator
+    )
+
+
+def get_patient_demographics_instruction_template(
+        task_definition='Patient attributes',
+        inputs='* {category}:',
+        x_y_delimiter=' ',
+        example_separator='\n'
+) -> PatientDemographicsTemplate:
+    """
+    Return the object can use the given data and instruction templates
+    and return an instruction string for the input and output
+
+    Returns:
+        (CodeTrajectoryPredictionInstructions): Object to build instruction strings (inputs and targets)
+    """
+    return PatientDemographicsTemplate(
+        inputs=inputs,
+        x_y_delimiter=x_y_delimiter,
+        task_definition=task_definition,
+        example_separator=example_separator
+    )
+
+
+def get_patient_labs_instruction_template(
+        task_definition='Labs in the next {time} months',
+        inputs='* {diagnosis}:',
+        x_y_delimiter=' ',
+        example_separator='\n'
+) -> CodeLabelPredictionInstructionTemplate:
+    """
+    Return the object can use the given data and instruction templates
+    and return an instruction string for the input and output
+
+    Returns:
+        (CodeTrajectoryPredictionInstructions): Object to build instruction strings (inputs and targets)
+    """
+    return CodeLabelPredictionInstructionTemplate(
+        inputs=inputs,
+        x_y_delimiter=x_y_delimiter,
+        task_definition=task_definition,
+        example_separator=example_separator
+    )

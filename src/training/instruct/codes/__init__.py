@@ -1,14 +1,14 @@
-from .icd_instruct_task import (
-    CodeStatusClassificationTask,
-    CodeStatusRangeClassificationTask,
-    CodeT2EPredictionTask,
-    CodeStatusRangeClassificationTaskStrictEval,
-    CodeStatusRangeClassificationTaskEval
+from .code_trajectory_instruct_tasks import (
+    CodeLabelPredictionTask,
+    HierarchicalCodeLabelPredictionTask,
+)
+from .code_trajectory_instruct_tasks_eval import (
+    CodeLabelPredictionTaskEvaluation,
+    HierarchicalCodeLabelPredictionTaskEvaluation
 )
 __all__ = [
-    "CodeStatusClassificationTask",
-    "CodeStatusRangeClassificationTask",
-    "CodeT2EPredictionTask",
-    "CodeStatusRangeClassificationTaskStrictEval",
-    "CodeStatusRangeClassificationTaskEval"
+    "CodeLabelPredictionTask",
+    "HierarchicalCodeLabelPredictionTask",
+    "CodeLabelPredictionTaskEvaluation",
+    "HierarchicalCodeLabelPredictionTaskEvaluation",
 ]

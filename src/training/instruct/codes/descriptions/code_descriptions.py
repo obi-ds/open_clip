@@ -2,7 +2,8 @@
 import re
 import pandas as pd
 import os.path as path
-from typing import Optional, Mapping
+from typing import Optional, Mapping, Dict
+
 
 class CodeDescriptions(object):
     """
@@ -68,6 +69,7 @@ class ICDDescription(CodeDescriptions):
         """
         description = self.codes.get(code.replace('.', ''), '')
         if not re.search(r'\w+', description):
+            print(code)
             return code
         return description
 
@@ -86,16 +88,53 @@ class PHEDescription(CodeDescriptions):
             and textual descriptions.
         """
         if source_file is None:
-            source_file = path.dirname(path.abspath(__file__)) + '/phe_codes_flat.csv'
-            codes = self.get_codes(phe_code_df=pd.read_csv(source_file))
+            source_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
+            phe_code_df = pd.read_csv(source_file, encoding='ISO-8859-1')
+            codes = {**self.get_codes(phe_code_df=phe_code_df), **self.get_root_codes(phe_code_df=phe_code_df)}
         else:
             raise NotImplementedError('Custom icd source files are not supported yet')
 
         super().__init__(codes)
 
+    def get_codes(self, phe_code_df: pd.DataFrame) -> Dict[str, str]:
+        """
+        Mapping from code to code description
+
+        Args:
+            phe_code_df (pd.DataFrame): The dataframe that contains phe codes
+            and their textual descriptions
+
+        Returns:
+            (Dict[str, str]): Mapping between code & it's description
+        """
+        return {row.phecode: self.clean_code(row.phecode_string) for row in phe_code_df.itertuples()}
+
     @staticmethod
-    def get_codes(phe_code_df):
-        return {row.phecode: row.phecode_string for row in phe_code_df.itertuples()}
+    def get_root_codes(phe_code_df: pd.DataFrame) -> Dict[str, str]:
+        """
+        Mapping from root code to description
+
+        Args:
+            phe_code_df (pd.DataFrame): The dataframe that contains phe codes
+            and their textual descriptions
+
+        Returns:
+            (Dict[str, str]): Mapping between root code & it's description
+        """
+        return {row.phecode.split('_')[0]: row.category for row in phe_code_df.itertuples()}
+
+    @staticmethod
+    def clean_code(code):
+        """
+        Clean the description of the code
+        Args:
+            code:
+
+        Returns:
+
+        """
+        pattern = r'^([A-Z])(?=[a-z]+($|\s|/|,|\'))|(?<=[\[\(/])([A-Z])(?=[a-z])|^([A-Z])(?=[a-z]+\-[a-z])'
+        return re.sub(pattern, lambda x: x.group(0), re.sub(r'\*$', '', code))
 
     def get_description(self, code: str) -> str:
         """

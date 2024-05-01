@@ -15,11 +15,11 @@ from torch import nn
 from torch.utils.checkpoint import checkpoint
 from functools import partial
 
-from .hf_model import HFTextEncoder
+from .hf_model import GPTTextEncoder
 from .modified_resnet import ModifiedResNet
 from .timm_model import TimmModel
 from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer,\
-    text_global_pool, ScatteringTransformer
+    text_global_pool, GlobalECGTransformer, WindowedECGTransformer
 from .utils import to_2tuple
 
 
@@ -85,16 +85,19 @@ class CLIPTextCfg:
 
 
 @dataclass
-class CLIPScatterCfg:
+class CLIPECGCfg:
+
     scattering_j: int = 6,
     scattering_q: int = 8,
     scattering_t: int = None,
+    windowed: bool = False,
+    use_scattering: bool = True,
     layers: Union[Tuple[int, int, int, int], int] = 12
     width: int = 768
     head_width: int = 64
     mlp_ratio: float = 4.0
     ls_init_value: Optional[float] = None  # layer scale initial value
-    dropout: float = 0.0  # what fraction of patches to dropout during training (0 would mean disabled and no patches dropped) - 0.5 to 0.75 recommended in the paper for optimal results
+    patch_dropout: float = 0.0  # what fraction of patches to dropout during training (0 would mean disabled and no patches dropped) - 0.5 to 0.75 recommended in the paper for optimal results
     global_average_pool: bool = False  # whether to global average pool the last embedding layer, instead of using CLS token (https://arxiv.org/abs/2205.01580)
     attentional_pool: bool = False  # whether to use attentional pooler in the last embedding layer
     n_queries: int = 256  # n_queries for attentional pooler
@@ -200,7 +203,7 @@ def _build_text_tower(
         text_cfg = CLIPTextCfg(**text_cfg)
 
     if text_cfg.hf_model_name:
-        text = HFTextEncoder(
+        text = GPTTextEncoder(
             text_cfg.hf_model_name,
             output_dim=embed_dim,
             proj_type=text_cfg.hf_proj_type,
@@ -237,38 +240,57 @@ def _build_text_tower(
     return text
 
 
-def _build_scattering_tower(
+def _build_ecg_tower(
         embed_dim: int,
-        scatter_cfg: CLIPScatterCfg,
+        ecg_cfg: CLIPECGCfg,
         cast_dtype: Optional[torch.dtype] = None
 ):
-    if isinstance(scatter_cfg, dict):
-        scatter_cfg = CLIPScatterCfg(**scatter_cfg)
+    if isinstance(ecg_cfg, dict):
+        ecg_cfg = CLIPECGCfg(**ecg_cfg)
 
     # Initialize the model
-    heads = scatter_cfg.width // scatter_cfg.head_width
+    heads = ecg_cfg.width // ecg_cfg.head_width
     norm_layer = LayerNormFp32 if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
     act_layer = nn.GELU
 
-    model = ScatteringTransformer(
-        scattering_j=scatter_cfg.scattering_j,
-        scattering_q=scatter_cfg.scattering_q,
-        scattering_t=scatter_cfg.scattering_t,
-        width=scatter_cfg.width,
-        layers=scatter_cfg.layers,
-        heads=heads,
-        dropout=scatter_cfg.dropout,
-        mlp_ratio=scatter_cfg.mlp_ratio,
-        ls_init_value=scatter_cfg.ls_init_value,
-        global_average_pool=scatter_cfg.global_average_pool,
-        attentional_pool=scatter_cfg.attentional_pool,
-        n_queries=scatter_cfg.n_queries,
-        attn_pooler_heads=scatter_cfg.attn_pooler_heads,
-        output_tokens=scatter_cfg.output_tokens,
-        output_dim=embed_dim,
-        act_layer=act_layer,
-        norm_layer=norm_layer,
-    )
+    if not ecg_cfg.windowed:
+        model = GlobalECGTransformer(
+            scattering_j=ecg_cfg.scattering_j,
+            scattering_q=ecg_cfg.scattering_q,
+            scattering_t=ecg_cfg.scattering_t,
+            width=ecg_cfg.width,
+            layers=ecg_cfg.layers,
+            heads=heads,
+            patch_dropout=ecg_cfg.patch_dropout,
+            mlp_ratio=ecg_cfg.mlp_ratio,
+            ls_init_value=ecg_cfg.ls_init_value,
+            global_average_pool=ecg_cfg.global_average_pool,
+            attentional_pool=ecg_cfg.attentional_pool,
+            n_queries=ecg_cfg.n_queries,
+            attn_pooler_heads=ecg_cfg.attn_pooler_heads,
+            output_tokens=ecg_cfg.output_tokens,
+            output_dim=embed_dim,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+        )
+    else:
+        model = WindowedECGTransformer(
+            use_scattering=ecg_cfg.use_scattering,
+            width=ecg_cfg.width,
+            layers=ecg_cfg.layers,
+            heads=heads,
+            patch_dropout=ecg_cfg.patch_dropout,
+            mlp_ratio=ecg_cfg.mlp_ratio,
+            ls_init_value=ecg_cfg.ls_init_value,
+            global_average_pool=ecg_cfg.global_average_pool,
+            attentional_pool=ecg_cfg.attentional_pool,
+            n_queries=ecg_cfg.n_queries,
+            attn_pooler_heads=ecg_cfg.attn_pooler_heads,
+            output_tokens=ecg_cfg.output_tokens,
+            output_dim=embed_dim,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+        )
 
     return model
 

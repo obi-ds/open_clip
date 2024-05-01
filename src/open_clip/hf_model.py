@@ -3,6 +3,7 @@
 Wraps HuggingFace transformers (https://github.com/huggingface/transformers) models for use as a text tower in CLIP model.
 """
 import re
+from typing import Union
 
 import torch
 import torch.nn as nn
@@ -93,6 +94,71 @@ class ClsLastHiddenStatePooler(nn.Module):
         return x.last_hidden_state[:, self.cls_token_position, :]
 
 
+class GPTTextEncoder(nn.Module):
+    def __init__(
+            self,
+            model_name_or_path: str,
+            output_dim: int,
+            config: PretrainedConfig = None,
+            pooler_type: str = None,
+            proj_type: str = None,
+            pretrained: bool = True,
+            output_tokens: bool = False,
+    ):
+        super().__init__()
+        self.output_tokens = output_tokens
+        self.output_dim = output_dim
+        self.config = AutoConfig.from_pretrained(model_name_or_path)
+        self.config.pad_token_id = self.config.bos_token_id
+        self.transformer = AutoModel.from_pretrained(
+            model_name_or_path,
+            from_tf=bool(".ckpt" in model_name_or_path),
+            config=self.config,
+        )
+        # FIXME: Will this help GPT model? - The other components of coca aren't layer
+        #  normalized - the scattering/vision transformer
+        self.transformer.ln_f = nn.Identity()
+
+        self.vocab_size = getattr(self.config, 'vocab_size', 0)
+        self.context_length = getattr(self.config, 'n_positions', 0)
+
+        d_model = getattr(self.config, 'n_embd', 768)
+
+        if (d_model == output_dim) and (proj_type is None):  # do we always need a proj?
+            self.proj = nn.Identity()
+        elif proj_type == 'linear':
+            self.proj = nn.Linear(d_model, output_dim, bias=False)
+        elif proj_type == 'mlp':
+            hidden_size = (d_model + output_dim) // 2
+            self.proj = nn.Sequential(
+                nn.Linear(d_model, hidden_size, bias=False),
+                nn.GELU(),
+                nn.Linear(hidden_size, output_dim, bias=False),
+            )
+
+    def forward(self, x: Union[torch.LongTensor, TensorType]):
+
+        # 0 for pad token positions
+        attention_mask = (x != self.config.pad_token_id).long()
+
+        transformer_outputs = self.transformer(input_ids=x, attention_mask=attention_mask)
+        last_hidden_state = transformer_outputs[0]
+
+        sequence_lengths = torch.eq(x, self.config.pad_token_id).int().argmax(-1) - 1
+        sequence_lengths = sequence_lengths % x.shape[-1]
+        sequence_lengths = sequence_lengths.to(x.device)
+
+        batch_size, sequence_length = x.shape[:2]
+
+        pooled_representation = last_hidden_state[
+            torch.arange(batch_size, device=last_hidden_state.device), sequence_lengths
+        ]
+
+        projected_representation = self.proj(pooled_representation)
+
+        return projected_representation, last_hidden_state
+
+
 class HFTextEncoder(nn.Module):
     """HuggingFace model adapter"""
     output_tokens: torch.jit.Final[bool]
@@ -118,14 +184,18 @@ class HFTextEncoder(nn.Module):
             raise RuntimeError("Please `pip install transformers` to use pre-trained HuggingFace models")
         if config is None:
             self.config = AutoConfig.from_pretrained(model_name_or_path)
-            create_func, model_args = (AutoModel.from_pretrained, model_name_or_path) if pretrained else (
-                AutoModel.from_config, self.config)
-            # TODO: do all model configs have this attribute? PretrainedConfig does so yes??
-            if hasattr(self.config, "is_encoder_decoder") and self.config.is_encoder_decoder:
-                self.transformer = create_func(model_args)
-                self.transformer = self.transformer.encoder
-            else:
-                self.transformer = create_func(model_args, add_pooling_layer=uses_transformer_pooler)
+            self.config.is_decoder = True
+            self.transformer =  AutoModel.from_pretrained(
+                model_name_or_path, config=config, add_pooling_layer=uses_transformer_pooler
+            )
+            # create_func, model_args = (AutoModel.from_pretrained, model_name_or_path) if pretrained else (
+            #     AutoModel.from_config, self.config)
+            # # TODO: do all model configs have this attribute? PretrainedConfig does so yes??
+            # if hasattr(self.config, "is_encoder_decoder") and self.config.is_encoder_decoder:
+            #     self.transformer = create_func(model_args)
+            #     self.transformer = self.transformer.encoder
+            # else:
+            #     self.transformer = create_func(model_args, add_pooling_layer=uses_transformer_pooler)
         else:
             self.config = config
             self.transformer = AutoModel.from_config(config)
@@ -152,7 +222,7 @@ class HFTextEncoder(nn.Module):
             )
 
     def forward(self, x: TensorType):
-        attn_mask = (x != self.config.pad_token_id).long()
+        attn_mask = (x != self.config.pad_token_id).long() + self.attn_mask
         out = self.transformer(input_ids=x, attention_mask=attn_mask)
         pooled_out = self.pooler(out, attn_mask)
         projected = self.proj(pooled_out)
