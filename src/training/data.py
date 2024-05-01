@@ -589,14 +589,14 @@ def get_wds_dataset_icd_instruct(
     )
 
 def get_sample_keys(args):
-    if 'scatter' in args.model.lower():
+    if 'ecg' in args.model.lower():
         return 'dict.x.blosc', 'dict.meta.pyd'
     elif 'cyto' in args.model.lower():
         return 'x.blosc', 'meta.pyd'
     else:
         raise ValueError('args.model should contain either ecg or cyto')
 def get_torch_blosc_convert(args):
-    if 'scatter' in args.model.lower():
+    if 'ecg' in args.model.lower():
         return wds_ecg_to_torch
     elif 'cyto' in args.model.lower():
         return wds_cytometry_to_torch
