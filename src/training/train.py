@@ -1154,12 +1154,17 @@ def compute_generative_metrics(
         context_diagnosis_labels,
         prefix):
 
-    metrics = {
-        f'{prefix}accuracy': accuracy_score(labels, predictions),
-        f'{prefix}auc': roc_auc_score(diagnosis_labels, diagnosis_scores),
-        f'{prefix}auc_no_context': roc_auc_score(no_context_diagnosis_labels, no_context_diagnosis_scores),
-        f'{prefix}auc_context': roc_auc_score(context_diagnosis_labels, context_diagnosis_scores)
-    }
+    metrics = dict()
+
+    if len(labels):
+        metrics[f'{prefix}accuracy'] = accuracy_score(labels, predictions)
+        metrics[f'{prefix}auc'] = roc_auc_score(diagnosis_labels, diagnosis_scores)
+
+    if len(no_context_diagnosis_labels):
+        metrics[f'{prefix}auc_no_context'] = roc_auc_score(no_context_diagnosis_labels, no_context_diagnosis_scores)
+
+    if len(context_diagnosis_labels):
+        metrics[f'{prefix}auc_context'] = roc_auc_score(context_diagnosis_labels, context_diagnosis_scores)
 
     return metrics
 
