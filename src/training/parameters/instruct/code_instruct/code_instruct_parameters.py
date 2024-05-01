@@ -81,13 +81,25 @@ def get_code_instruct_arguments():
         "--time-negatives-buffer",
         default=None,
         type=int,
-        help="Make negatives stricter - a code is a negative if it does not occur in the prediction range +- this buffer"
+        help="Make negatives stricter - a code is a negative if it doesn't occur in the prediction range +- this buffer"
     )
     parser.add_argument(
         "--fine-tune-code",
         type=str,
         default=None,
         help="The code to fine tune when training type is single"
+    )
+    parser.add_argument(
+        "--update-code-counts",
+        default=False,
+        action="store_true",
+        help="Update code counts and IDFs"
+    )
+    parser.add_argument(
+        "--update-lab-counts",
+        default=False,
+        action="store_true",
+        help="Update lab counts and IDFs"
     )
 
     return parser
