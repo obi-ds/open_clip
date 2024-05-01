@@ -12,7 +12,7 @@ from .transformer import (
     QuickGELU,
     MultimodalTransformer,
 )
-from .model import CLIPTextCfg, CLIPVisionCfg, CLIPScatterCfg, _build_vision_tower, _build_text_tower, _build_scattering_tower
+from .model import CLIPTextCfg, CLIPVisionCfg, CLIPECGCfg, _build_vision_tower, _build_text_tower, _build_ecg_tower
 
 try:
     from transformers import (
@@ -480,13 +480,13 @@ def prepare_inputs_for_generation(input_ids, image_inputs, past=None, **kwargs):
         "attention_mask": attention_mask,
     }
 
-class ScatterCoCa(CoCa):
+class ECGCoCa(CoCa):
     def __init__(
             self,
             embed_dim,
             multimodal_cfg: MultimodalCfg,
             text_cfg: CLIPTextCfg,
-            scatter_cfg: CLIPScatterCfg,
+            ecg_cfg: CLIPECGCfg,
             vision_cfg: Optional[CLIPVisionCfg] = None,
             quick_gelu: bool = False,
             init_logit_scale: float = np.log(1 / 0.07),
@@ -507,9 +507,9 @@ class ScatterCoCa(CoCa):
             pad_id=pad_id
         )
 
-        self.visual = _build_scattering_tower(
+        self.visual = _build_ecg_tower(
             embed_dim=embed_dim,
-            scatter_cfg=scatter_cfg,
+            ecg_cfg=ecg_cfg,
         )
 
     def forward(
