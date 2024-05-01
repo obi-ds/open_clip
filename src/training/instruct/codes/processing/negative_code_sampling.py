@@ -22,6 +22,8 @@ class NegativeCodeCacheSampling(object):
     ):
         self._encounter_dataframe_process = encounter_dataframe_process
         self._negatives_type = negatives_type
+        if self._negatives_type == 'random_cached':
+            self._random_cached_weight = 1.0
         self._code_task_negative_cache = set()
         self._last_sampled_cache_id = None
         self._code_task_negative_cache_size = code_task_negative_cache_size
@@ -284,7 +286,7 @@ class NegativeCodeCacheSampling(object):
         if self._negatives_type == 'random_cached':
             # Set size such that we have equal number of encounter negatives and random
             # negatives
-            size = max(number_unique, minimum_negatives_size - number_unique)
+            size = max(int(number_unique * self._random_cached_weight), minimum_negatives_size - number_unique)
         elif self._negatives_type == 'cached':
             # Use only cached negatives - but if the number is too small
             # then add random negatives
@@ -474,6 +476,32 @@ class NegativeCodeCacheSampling(object):
 
         """
         return self._codes
+
+    def set_negatives_type(self, negatives_type):
+        """
+
+        Args:
+            negatives_type:
+
+        Returns:
+
+        """
+        print('Negatives Type: ', self._negatives_type)
+        self._negatives_type = negatives_type
+        print('Negatives Type: ', self._negatives_type)
+
+    def set_random_cached_weight(self, weight):
+        """
+
+        Args:
+            weight:
+
+        Returns:
+
+        """
+        print('Negatives Type: ', self._random_cached_weight)
+        self._random_cached_weight = weight
+        print('Negatives Type: ', self._random_cached_weight)
 
     @staticmethod
     def concatenate_negatives(

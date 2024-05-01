@@ -38,7 +38,8 @@ class LabPredictionTask(CodeLabelPredictionTask):
             weights_column: str = 'weights',
             current_bin_value: int = -100,
             prediction_range_limit: int = None,
-            seq2seq: bool = False
+            seq2seq: bool = False,
+            update_lab_counts: bool = False
     ):
         """
         Initialize variables
@@ -84,7 +85,8 @@ class LabPredictionTask(CodeLabelPredictionTask):
             weights_column=weights_column,
             current_bin_value=current_bin_value,
             prediction_range_limit=prediction_range_limit,
-            seq2seq=seq2seq
+            seq2seq=seq2seq,
+            update_code_counts=update_lab_counts
         )
         self._lab_name_normalized_column = lab_name_normalized_column
         self._reference_range_low_column = reference_range_low_column
@@ -102,7 +104,6 @@ class LabPredictionTask(CodeLabelPredictionTask):
         Returns:
 
         """
-        self._document_count += 1
 
         # If for some reason we don't have encounter data for this person - we ignore training
         # on this person
@@ -167,6 +168,11 @@ class LabPredictionTask(CodeLabelPredictionTask):
             # positives and negatives
             sampled_labs = self.sample_labs(encounter_history=current_time_period, max_limit=k_shot)
 
+            self._document_count += 1
+            self.update_code_counts(
+                codes=sampled_labs[self._code_column], label=True
+            )
+
             instruction_samples = self.prepare_sampled_codes(
                 codes=sampled_labs,
                 label_string=None,
@@ -225,7 +231,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
 
         """
         labs = super().sample_codes(
-            encounter_history=encounter_history, max_limit=max_limit, label=None
+            encounter_history=encounter_history, max_limit=max_limit, label=True
         )[self._code_column]
         labs_sampled = encounter_history[encounter_history[self._code_column].isin(labs)]
         return labs_sampled.groupby(self._code_column).sample(n=1)
@@ -406,17 +412,11 @@ class LabPredictionTask(CodeLabelPredictionTask):
         else:
             return False
 
-    def get_random_encounters(self) -> pd.DataFrame:
+    def get_codes_for_code_counts(self):
         """
-        Use this function to create a random dataframe populated
-        with codes and positions
-
-        Args:
 
         Returns:
-            (pd.DataFrame): A randomly generated encounter dataframe
+
         """
-        # Use these to create and return a dataframe
-        return pd.DataFrame(
-            {self._code_column: [], self._position_column: [], self._idf_column: []}
-        )
+        idf_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs/idfs.csv'
+        return pd.read_csv(idf_file)[self._code_column]
