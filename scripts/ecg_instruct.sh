@@ -90,6 +90,7 @@ torchrun \
     --seed 0
 
 
+<<<<<<< HEAD
 # 2. Hard Negatives
 export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 torchrun \
@@ -105,12 +106,31 @@ torchrun \
     --batch-size 360 \
     --epochs 32 \
     --lr 2e-4 \
+=======
+# debug run for CNN
+#     #--name="ecg_phe_cnn_run_1" \
+#     --name="ecg_phe_cnn_run_21" \
+#export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+export CUDA_VISIBLE_DEVICES='1'
+torchrun \
+    --nnodes=1 --nproc_per_node=1 --master_addr=localhost --master_port=2126 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_23_10_23/shard_{0000..0082}.tar" \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_23_10_23/shard_{0000..0002}.tar" \
+    --train-num-samples 1062400 \
+    --val-num-samples 38400 \
+    --dataset-type icddataset \
+    --workers 4 \
+    --batch-size 4 \
+    --epochs 20 \
+    --lr 1e-4 \
     --beta1 0.9 \
     --beta1 0.98 \
     --eps 1e-6 \
     --wd 0.01 \
     --warmup 4000 \
     --lr-scheduler cosine \
+    --lr-scheduler="cosine" \
     --lr-cooldown-end 5e-5 \
     --coca-caption-loss-weight 1.0 \
     --coca-contrastive-loss-weight 0.0 \
@@ -120,7 +140,7 @@ torchrun \
     --zeroshot-frequency 0 \
     --local-loss \
     --gather-with-grad \
-    --model scatter_base \
+    --model scatter_cnn \
     --report-to wandb \
     --billable-probability 0.0 \
     --top-non-probability 1.0 \

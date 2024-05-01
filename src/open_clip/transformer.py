@@ -807,7 +807,7 @@ class MultimodalTransformer(Transformer):
         self.grad_checkpointing = enable
 
 
-class ScatteringTransformer(nn.Module):
+class GlobalScatteringTransformer(nn.Module):
     output_tokens: torch.jit.Final[bool]
 
     def __init__(self,
@@ -831,11 +831,19 @@ class ScatteringTransformer(nn.Module):
                  ):
         super().__init__()
 
-        print(layers, scattering_j, scattering_q, scattering_t)
+        # CHANGED:
+        # use either scattering transform or CNN architecture before transformer
 
+        shape = 2500
+        scale = width ** -0.5
+        self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
+        #self.pos_drop = nn.Dropout(p=dropout)
+
+        
+        self.use_scattering = True
         # TODO T is an optional low-pass filter, could drop that parameter
         # T=2**13
-        shape = 2500
+
         # Scattering transformation
         self.scattering = Scattering1D(J=scattering_j, shape=shape, Q=scattering_q, T=scattering_t)
 
@@ -845,19 +853,12 @@ class ScatteringTransformer(nn.Module):
         dummy_output = self.scattering(dummy_signal)
         self.scattering_signal_length = dummy_output.shape[1]
         self.scattering_output_size = dummy_output.shape[0]
-        # this is the same as the function below
-        # self.scattering_output_size = self.scattering.output_size()
-
-        scale = width ** -0.5
-        self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
         self.pos_embed = nn.Parameter(scale * torch.randn(1, 12 + 1, width))
-        self.pos_drop = nn.Dropout(p=dropout)
+        # this is the same as the function below
 
-        # TODO dropping zero-order coefficients and log-scaling should be config parameters
-        # scattering_output_size - 1 takes into account dropping zero-order coefficients
         self.input_projection = nn.Linear(in_features=(
-                (self.scattering_output_size - 1) * self.scattering_signal_length),
-            out_features=width)
+                (self.scattering_output_size) * self.scattering_signal_length), 
+                out_features=width)
 
         # TODO could also use a Conv2d layer here
         # self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=width, kernel_size=patch_size, stride=patch_size,
@@ -893,26 +894,20 @@ class ScatteringTransformer(nn.Module):
     def forward(self, x):
 
         batch_size, leads, _ = x.shape
-        # Reshape the input to treat each lead as a separate signal
+
+        # reshape the input to treat each lead as a separate signal
         x_reshaped = x.view(-1, 2500)
 
         # Apply the scattering transform
         scattered_x = self.scattering.forward(x_reshaped)
 
-        # TODO - Drop log and abs and zero order - change scatter output size accordingly
-        # log-scale and dropping zero-order coefficients
-        scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
-
-        # Reshape to [64, 12, 125, 39]
         x1 = scattered_x.view(batch_size,
-                              leads,
-                              self.scattering_output_size - 1,
-                              self.scattering_signal_length)
-
-        # Reshape to [64, 12, 125 * 39]
+                                leads,
+                                self.scattering_output_size,
+                                self.scattering_signal_length)
         x2 = x1.contiguous().view(batch_size,
-                                  leads,
-                                  (self.scattering_output_size - 1) * self.scattering_signal_length)
+                                    leads,
+                                    (self.scattering_output_size) * self.scattering_signal_length)
 
         # use this to project down to transformer input width
         x = self.input_projection(x2)
@@ -920,9 +915,8 @@ class ScatteringTransformer(nn.Module):
         # concatenate the CLS token, and add the position tokens to each lead
         x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
         x = x + self.pos_embed
-        x = self.pos_drop(x)
+        #x = self.pos_drop(x)
 
-        # TODO verify the dimensions here
         x = x.permute(1, 0, 2)  # NLD -> LND
         x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
@@ -941,3 +935,374 @@ class ScatteringTransformer(nn.Module):
         if self.output_tokens:
             return pooled, tokens
         return pooled
+
+
+class WindowedScatteringTransformer(nn.Module):
+    output_tokens: torch.jit.Final[bool]
+
+    def __init__(self,
+                 scattering_j: int = 6,
+                 scattering_q: int = 8,
+                 scattering_t: int = None,
+                 window_size=600,
+                 num_windows=5,
+                 layers: int = 2,
+                 width: int = 768,
+                 heads: int = 12,
+                 mlp_ratio: float = 4.0,
+                 ls_init_value: float = None,
+                 patch_dropout: float = 0.0,
+                 global_average_pool: bool = False,
+                 attentional_pool: bool = False,
+                 n_queries: int = 256,
+                 attn_pooler_heads: int = 8,
+                 output_dim: int = 512,
+                 output_tokens: bool = False,
+                 act_layer: Callable = nn.GELU,
+                 norm_layer: Callable = LayerNorm
+                 ):
+        super().__init__()
+
+        total_length = 2500
+        num_leads = 12
+        scale = width ** -0.5
+
+        self.window_size = window_size
+        self.stride = (total_length - window_size) // (num_windows - 1)
+
+        self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
+        #self.pos_drop = nn.Dropout(p=dropout)
+        self.patch_dropout = PatchDropout(patch_dropout) if patch_dropout > 0. else nn.Identity()
+        
+        self.use_scattering = True
+        self.scattering = Scattering1D(J=scattering_j, shape=window_size, Q=scattering_q, T=scattering_t)
+
+        dummy_signal = torch.randn(window_size)
+        dummy_output = self.scattering(dummy_signal)
+        self.scattering_signal_length = dummy_output.shape[1]
+        self.scattering_output_size = dummy_output.shape[0]
+        self.scattering_output_dim = dummy_output.shape[-1] * dummy_output.shape[-2]
+
+        #self.pos_embed = nn.Parameter(scale * torch.randn(1, 12 + 1, width))
+        self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * (2500 // self.stride) + 1, width))
+
+        self.input_projection = nn.Linear(in_features=(
+                (self.scattering_output_size) * self.scattering_signal_length), 
+                out_features=width)
+
+        # Transformer network
+        self.transformer = Transformer(
+            width=width,
+            layers=layers,
+            heads=heads,
+            mlp_ratio=mlp_ratio,
+            ls_init_value=ls_init_value,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+        )
+
+        self.global_average_pool = global_average_pool
+        if attentional_pool:
+            self.attn_pool = AttentionalPooler(output_dim, width, n_head=attn_pooler_heads, n_queries=n_queries)
+            self.ln_post = norm_layer(output_dim)
+            self.proj = nn.Parameter(scale * torch.randn(output_dim, output_dim))
+        else:
+            self.attn_pool = None
+            self.ln_post = norm_layer(width)
+            self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
+
+        # Whether to return tokens as well
+        self.output_tokens = output_tokens
+
+    def _global_pool(self, x):
+        return x.mean(dim=1), x
+
+
+    def forward(self, x):
+
+        x = x.unfold(dimension=2, size=self.window_size, step=self.stride)
+        batch_size, num_leads, num_windows, _ = x.shape
+
+        x = x.reshape(-1, self.window_size) # Flatten for scattering
+        x = self.scattering(x)  # Apply scattering transform
+        x = x.view(batch_size, num_leads * num_windows, -1)  # Reshape for projection
+        x = self.input_projection(x)  # Project to embedding size
+
+        # concatenate the CLS token, and add the position tokens to each lead
+        x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
+        x = x + self.positional_embedding
+        #x = self.pos_drop(x)
+        x = self.patch_dropout(x)
+
+        x = x.permute(1, 0, 2)  # NLD -> LND
+        x = self.transformer(x)
+        x = x.permute(1, 0, 2)  # LND -> NLD
+
+        if self.attn_pool is not None:
+            x = self.attn_pool(x)
+            x = self.ln_post(x)
+            pooled, tokens = self._global_pool(x)
+        else:
+            pooled, tokens = self._global_pool(x)
+            pooled = self.ln_post(pooled)
+
+        if self.proj is not None:
+            pooled = pooled @ self.proj
+
+        if self.output_tokens:
+            return pooled, tokens
+        return pooled
+
+
+class PooledReconstructionWrapper(nn.Module):
+    def __init__(self, visual_model, input_features=None, hidden_features=1024, output_features=None):
+        super(PooledReconstructionWrapper, self).__init__()
+        self.visual_model = visual_model
+
+        if not input_features:
+            self.reconstruction_layer = nn.Linear(512, 12 * 2500)
+        else:
+            self.reconstruction_layer1 = nn.Linear(input_features, hidden_features)
+            self.reconstruction_layer2 = nn.Linear(hidden_features, hidden_features)
+            self.reconstruction_output_layer = nn.Linear(hidden_features, output_features)
+
+    def forward(self, x):
+        # Pass input through the visual model
+        pooled, tokens = self.visual_model(x)
+
+        x = F.relu(self.reconstruction_layer1(pooled))
+        x = F.relu(self.reconstruction_layer2(x))
+        reconstruction = self.reconstruction_output_layer(x)
+
+        return pooled, tokens, reconstruction
+
+
+class TokenReconstructionWrapper(nn.Module):
+    def __init__(self, visual_model, token_features, hidden_features, output_features_per_lead):
+        super(TokenReconstructionWrapper, self).__init__()
+        self.visual_model = visual_model
+
+        # Assuming token_features is the size of each token
+        # hidden_features is the size of the hidden layer for each lead
+        # output_features_per_lead is the number of features (data points) in each lead
+
+        # Define reconstruction layers for each token/lead
+        self.reconstruction_layers = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(token_features, hidden_features),
+                nn.ReLU(),
+                nn.Linear(hidden_features, hidden_features),
+                nn.ReLU(),
+                nn.Linear(hidden_features, output_features_per_lead)
+            ) for _ in range(12)  # Assuming 12 leads in ECG
+        ])
+
+    def forward(self, x):
+        # Pass input through the visual model
+        pooled, tokens = self.visual_model(x)
+
+        # remove the CLS token
+        reconstructions = [layer(token) for layer, token in zip(self.reconstruction_layers, tokens[:,:-1,:].transpose(0, 1))]
+
+        # Stack the reconstructions to form the final output
+        reconstruction = torch.stack(reconstructions, dim=1)
+
+        return pooled, tokens, reconstruction
+
+
+class SimpleCNN(nn.Module):
+    def __init__(self, input_length, hidden_size, output_size):
+        super(SimpleCNN, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=1, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.act1 = nn.LeakyReLU()
+        self.bn1 = nn.BatchNorm1d(32)
+        self.pool1 = nn.MaxPool1d(kernel_size=2, stride=2)
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(32 * (input_length // 2), hidden_size)  # Adjust input_length
+        self.fc2 = nn.Linear(hidden_size, output_size)  # output_size depends on the task
+
+    def forward(self, x):
+        x = self.pool1(self.bn1(self.act1(self.conv1(x))))
+        x = self.flatten(x)
+        x = self.act1(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
+class MultiLayerCNN(nn.Module):
+    def __init__(self, input_length, hidden_size, output_size):
+        super(MultiLayerCNN, self).__init__()
+
+        # Number of times to repeat the layers
+        num_repeats = 4
+
+        # Initial in_channels for the first Conv1d layer
+        in_channels = 1
+        out_channels = 32
+        features = 16
+
+        # Creating repeated layers
+        self.layers = nn.ModuleList()
+        for _ in range(num_repeats):
+            self.layers.append(
+                nn.Sequential(
+                    nn.Conv1d(in_channels, features, kernel_size=7, stride=2, padding=1),
+                    nn.ReLU(),
+                    nn.BatchNorm1d(features),
+                    nn.MaxPool1d(kernel_size=2, stride=2)
+                )
+            )
+            # Update in_channels for the next sequence of layers
+            in_channels = 32
+            in_channels = 32
+            in_channels = 32
+
+        self.layers.append(
+            nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(32 * (input_length // 2), hidden_size),  # Adjust input_length
+                nn.Linear(hidden_size, output_size)  # output_size depends on the task
+            )
+        )
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+
+class multi_conv2d_new(nn.Module):
+
+    def __init__(self, in_filters, num_filters):
+        super(multi_conv2d_new, self).__init__()
+        self.a1 = nn.Conv2d(in_filters, int(num_filters / 1.5), kernel_size=(3, 3), padding='same')
+        self.act_a1 = nn.ReLU()
+        self.bn_a1 = nn.BatchNorm2d(int(num_filters / 1.5), affine=True)
+        self.a2 = nn.Conv2d(int(num_filters / 1.5), num_filters, kernel_size=(1, 1), padding='same')
+        self.act_a2 = nn.ReLU()
+        self.bn_a2 = nn.BatchNorm2d(num_filters, affine=True)
+
+        self.b1 = nn.Conv2d(in_filters, int(num_filters / 1.5), kernel_size=(7, 7), padding='same')
+        self.act_b1 = nn.ReLU()
+        self.bn_b1 = nn.BatchNorm2d(int(num_filters / 1.5), affine=True)
+        self.b2 = nn.Conv2d(int(num_filters / 1.5), num_filters, kernel_size=(3, 3), padding='same')
+        self.act_b2 = nn.ReLU()
+        self.bn_b2 = nn.BatchNorm2d(num_filters, affine=True)
+        self.b3 = nn.Conv2d(num_filters, num_filters, kernel_size=(1, 1), padding='same')
+        self.act_b3 = nn.ReLU()
+        self.bn_b3 = nn.BatchNorm2d(num_filters, affine=True)
+
+        self.c1 = nn.Conv2d(in_filters, num_filters, kernel_size=(1, 1), padding='same')
+        self.act_c1 = nn.ReLU()
+        self.bn_c1 = nn.BatchNorm2d(num_filters, affine=True)
+
+    def forward(self, x):
+        a = self.act_a1(self.a1(x))
+        a = self.bn_a1(a)
+        a = self.act_a2(self.a2(a))
+        a = self.bn_a2(a)
+
+        b = self.act_b1(self.b1(x))
+        b = self.bn_b1(b)
+        b = self.act_b2(self.b2(b))
+        b = self.bn_b2(b)
+        b = self.act_b3(self.b3(b))
+        b = self.bn_b3(b)
+
+        c = self.act_c1(self.c1(x))
+        c = self.bn_c1(c)
+
+        out = torch.cat((a, b, c), dim=1)
+
+        return out
+
+class MultiConvolution2D(nn.Module):
+
+    def __init__(self, initial_filters=64):
+        super(MultiConvolution2D, self).__init__()
+
+        self.conv1 = nn.Conv2d(1, initial_filters, kernel_size=(7, 3), stride=(2, 1))
+        self.act1 = nn.ReLU()
+        self.bn1 = nn.BatchNorm2d(initial_filters, affine=True)
+
+        self.multi_conv2d_1 = multi_conv2d_new(initial_filters, initial_filters)
+        self.multi_conv2d_2 = multi_conv2d_new(int(initial_filters * 3), initial_filters)
+        self.mp1 = nn.MaxPool2d((3, 1))
+
+        self.multi_conv2d_3 = multi_conv2d_new(int(initial_filters * 3), int(initial_filters * 1.5))
+        self.multi_conv2d_4 = multi_conv2d_new(int(initial_filters * 1.5 * 3), int(initial_filters * 1.5))
+        self.mp2 = nn.MaxPool2d((3, 1))
+
+        self.multi_conv2d_5 = multi_conv2d_new(int(initial_filters * 1.5 * 3), int(initial_filters * 2))
+        self.multi_conv2d_6 = multi_conv2d_new(int(initial_filters * 2 * 3), int(initial_filters * 2))
+        self.mp3 = nn.MaxPool2d((2, 1))
+
+        self.multi_conv2d_7 = multi_conv2d_new(int(initial_filters * 2 * 3), int(initial_filters * 3))
+        self.multi_conv2d_8 = multi_conv2d_new(int(initial_filters * 3 * 3), int(initial_filters * 3))
+        self.multi_conv2d_9 = multi_conv2d_new(int(initial_filters * 3 * 3), int(initial_filters * 4))
+        self.mp4 = nn.MaxPool2d((2, 1))
+
+        self.multi_conv2d_10 = multi_conv2d_new(int(initial_filters * 4 * 3), int(initial_filters * 5))
+        self.multi_conv2d_11 = multi_conv2d_new(int(initial_filters * 5 * 3), int(initial_filters * 6))
+        self.multi_conv2d_12 = multi_conv2d_new(int(initial_filters * 6 * 3), int(initial_filters * 7))
+        self.mp5 = nn.MaxPool2d((2, 1))
+
+        self.multi_conv2d_13 = multi_conv2d_new(int(initial_filters * 7 * 3), int(initial_filters * 8))
+        self.multi_conv2d_14 = multi_conv2d_new(int(initial_filters * 8 * 3), int(initial_filters * 8))
+        self.multi_conv2d_15 = multi_conv2d_new(int(initial_filters * 8 * 3), int(initial_filters * 8))
+        self.mp6 = nn.MaxPool2d((2, 1))
+
+        self.multi_conv2d_16 = multi_conv2d_new(int(initial_filters * 8 * 3), int(initial_filters * 12))
+        self.multi_conv2d_17 = multi_conv2d_new(int(initial_filters * 12 * 3), int(initial_filters * 14))
+        self.multi_conv2d_18 = multi_conv2d_new(int(initial_filters * 14 * 3), int(initial_filters * 16))
+
+        # TODO parameterize
+        #self.dp = nn.Dropout(0.1)
+        #self.linear = nn.Linear(int(initial_filters * 16 * 3), 1)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.act1(x)
+        x = self.bn1(x)
+
+        x = self.multi_conv2d_1(x)
+        x = self.multi_conv2d_2(x)
+        x = self.mp1(x)
+
+        #         x = x + (torch.randn(x.size()).to(x.get_device()) * 0.1 + 0)
+
+        x = self.multi_conv2d_3(x)
+        x = self.multi_conv2d_4(x)
+        x = self.mp2(x)
+
+        x = self.multi_conv2d_5(x)
+        x = self.multi_conv2d_6(x)
+        x = self.mp3(x)
+
+        x = self.multi_conv2d_7(x)
+        x = self.multi_conv2d_8(x)
+        x = self.multi_conv2d_9(x)
+        x = self.mp4(x)
+
+        x = self.multi_conv2d_10(x)
+        x = self.multi_conv2d_11(x)
+        x = self.multi_conv2d_12(x)
+        x = self.mp5(x)
+
+        x = self.multi_conv2d_13(x)
+        x = self.multi_conv2d_14(x)
+        x = self.multi_conv2d_15(x)
+        x = self.mp6(x)
+
+        x = self.multi_conv2d_16(x)
+        x = self.multi_conv2d_17(x)
+        x = self.multi_conv2d_18(x)
+
+        #x = torch.mean(x, [2, 3])
+
+        #         x = x + (torch.randn(x.size()).to(x.get_device()) * 0.1 + 0)
+
+        #x = self.dp(x)
+        #x = self.linear(x)
+
+        return x

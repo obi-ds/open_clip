@@ -52,7 +52,7 @@ def get_encounter_file_arguments():
     parser.add_argument(
         "--lab-name-column",
         type=str,
-        default='ExternalNM',
+        default='ExternalNM_lower',
         help="Column name for lab names",
     )
     parser.add_argument(
