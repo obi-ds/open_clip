@@ -2,7 +2,6 @@
 import pandas as pd
 from .instruct.codes import (
     CodeLabelPredictionTask,
-    DynamicCodeLabelPredictionTask,
     CodeLabelPredictionTaskEvaluation,
     HierarchicalCodeLabelPredictionTask,
     HierarchicalCodeLabelPredictionTaskEvaluation
@@ -61,39 +60,8 @@ def get_all_code_label_prediction_task(args):
         patient_id_column=args.patient_id_column,
         code_column=args.code_column,
         position_column=args.position_column,
-        fixed_position_range=args.fixed_position_range
-    )
-
-def get_dynamic_code_label_prediction_task(args):
-    """
-
-    Args:
-        args:
-
-    Returns:
-
-    """
-    (
-        encounter_dataframe,
-        encounter_dataframe_process,
-        negative_code_sampling,
-        dataframe_sampling,
-        code_convert,
-        code_label_prediction_instructions,
-        time_bins
-    ) = get_code_label_task_objects(args)
-
-    return DynamicCodeLabelPredictionTask(
-        encounter_dataframe_process=encounter_dataframe_process,
-        dataframe_sampling=dataframe_sampling,
-        code_instructions=code_label_prediction_instructions,
-        time_bins=time_bins,
-        code_convert=code_convert,
-        negative_code_sampling=negative_code_sampling,
-        patient_id_column=args.patient_id_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
-        fixed_position_range=args.fixed_position_range
+        fixed_position_range=args.fixed_position_range,
+        update_code_counts=args.update_code_counts
     )
 
 
@@ -248,7 +216,8 @@ def get_lab_task(args):
         patient_id_column=args.patient_id_column,
         lab_name_column=args.lab_name_column,
         position_column=args.position_column,
-        fixed_position_range=args.fixed_position_range
+        fixed_position_range=args.fixed_position_range,
+        update_lab_counts=args.update_lab_counts
     )
 
 
