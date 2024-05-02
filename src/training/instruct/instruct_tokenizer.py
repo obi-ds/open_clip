@@ -286,7 +286,7 @@ class InstructTokenizer(object):
         return '<end_of_text>'
 
 
-class GPT2InstructTokenizer(InstructTokenizer):
+class HFInstructTokenizer(InstructTokenizer):
     """
     Define functions that are used to build, tokenize and return input
     ids and labels that will be used by the model for generative tasks
