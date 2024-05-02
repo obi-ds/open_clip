@@ -17,9 +17,9 @@
         "patch_dropout": 0.1,
         "output_tokens": true,
         "windowed": true,
-        "use_scattering": false,
+        "use_scattering": true,
         "attentional_pool": false,
-        "pool_type": "tok"
+        "pool_type": "avg"
     },
     "vision_cfg": {
         "layers": 12,

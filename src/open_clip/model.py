@@ -100,8 +100,10 @@ class CLIPECGCfg:
     patch_dropout: float = 0.0  # what fraction of patches to dropout during training (0 would mean disabled and no patches dropped) - 0.5 to 0.75 recommended in the paper for optimal results
     global_average_pool: bool = False  # whether to global average pool the last embedding layer, instead of using CLS token (https://arxiv.org/abs/2205.01580)
     attentional_pool: bool = False  # whether to use attentional pooler in the last embedding layer
-    n_queries: int = 256  # n_queries for attentional pooler
+    attn_pooler_queries: int = 256  # n_queries for attentional pooler
     attn_pooler_heads: int = 8  # n heads for attentional_pooling
+    final_ln_after_pool: bool = False  # apply final LayerNorm after pooling
+    pool_type: str = 'tok'
     output_tokens: bool = False
 
 
@@ -264,9 +266,8 @@ def _build_ecg_tower(
             patch_dropout=ecg_cfg.patch_dropout,
             mlp_ratio=ecg_cfg.mlp_ratio,
             ls_init_value=ecg_cfg.ls_init_value,
-            global_average_pool=ecg_cfg.global_average_pool,
             attentional_pool=ecg_cfg.attentional_pool,
-            n_queries=ecg_cfg.n_queries,
+            attn_pooler_queries=ecg_cfg.attn_pooler_queries,
             attn_pooler_heads=ecg_cfg.attn_pooler_heads,
             output_tokens=ecg_cfg.output_tokens,
             output_dim=embed_dim,
@@ -282,10 +283,10 @@ def _build_ecg_tower(
             patch_dropout=ecg_cfg.patch_dropout,
             mlp_ratio=ecg_cfg.mlp_ratio,
             ls_init_value=ecg_cfg.ls_init_value,
-            global_average_pool=ecg_cfg.global_average_pool,
             attentional_pool=ecg_cfg.attentional_pool,
-            n_queries=ecg_cfg.n_queries,
+            attn_pooler_queries=ecg_cfg.attn_pooler_queries,
             attn_pooler_heads=ecg_cfg.attn_pooler_heads,
+            pool_type=ecg_cfg.pool_type,
             output_tokens=ecg_cfg.output_tokens,
             output_dim=embed_dim,
             act_layer=act_layer,

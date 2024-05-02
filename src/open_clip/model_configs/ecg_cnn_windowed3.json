@@ -18,8 +18,8 @@
         "output_tokens": true,
         "windowed": true,
         "use_scattering": false,
-        "attentional_pool": false,
-        "pool_type": "tok"
+        "attentional_pool": true,
+        "pool_type": "avg"
     },
     "vision_cfg": {
         "layers": 12,
