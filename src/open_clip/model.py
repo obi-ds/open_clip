@@ -15,7 +15,7 @@ from torch import nn
 from torch.utils.checkpoint import checkpoint
 from functools import partial
 
-from .hf_model import GPTTextEncoder
+from .hf_model import BioGPTTextEncoder
 from .modified_resnet import ModifiedResNet
 from .timm_model import TimmModel
 from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer,\
@@ -203,7 +203,7 @@ def _build_text_tower(
         text_cfg = CLIPTextCfg(**text_cfg)
 
     if text_cfg.hf_model_name:
-        text = GPTTextEncoder(
+        text = BioGPTTextEncoder(
             text_cfg.hf_model_name,
             output_dim=embed_dim,
             proj_type=text_cfg.hf_proj_type,
