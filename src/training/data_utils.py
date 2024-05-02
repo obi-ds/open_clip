@@ -505,7 +505,7 @@ def get_example_separator(args):
     """
     if 'biogpt' in args.model or 'bio_gpt' in args.model:
         return ' </s>\n'
-    if 'gpt' in args.model:
+    elif 'gpt' in args.model:
         return '\n'
     else:
         return ' <end_of_text>\n'
