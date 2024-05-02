@@ -83,11 +83,11 @@ class CoCa(nn.Module):
             multimodal_cfg: MultimodalCfg,
             text_cfg: CLIPTextCfg,
             vision_cfg: Optional[CLIPVisionCfg],
+            pad_id,
             quick_gelu: bool = False,
             init_logit_scale: float = np.log(1 / 0.07),
             init_logit_bias: Optional[float] = None,
             cast_dtype: Optional[torch.dtype] = None,
-            pad_id: int = 0,
     ):
         super().__init__()
         multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
@@ -487,12 +487,12 @@ class ECGCoCa(CoCa):
             multimodal_cfg: MultimodalCfg,
             text_cfg: CLIPTextCfg,
             ecg_cfg: CLIPECGCfg,
+            pad_id,
             vision_cfg: Optional[CLIPVisionCfg] = None,
             quick_gelu: bool = False,
             init_logit_scale: float = np.log(1 / 0.07),
             init_logit_bias: Optional[float] = None,
-            cast_dtype: Optional[torch.dtype] = None,
-            pad_id: int = 0,
+            cast_dtype: Optional[torch.dtype] = None
     ):
 
         super().__init__(
