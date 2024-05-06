@@ -506,7 +506,6 @@ class ECGCoCa(CoCa):
             cast_dtype=cast_dtype,
             pad_id=pad_id
         )
-
         self.visual = _build_ecg_tower(
             embed_dim=embed_dim,
             ecg_cfg=ecg_cfg,
