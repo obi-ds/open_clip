@@ -412,7 +412,6 @@ class NegativeCodeCacheSampling(object):
             use_log_position (bool): Whether to keep time deltas in days or as log value of days
             time_difference_normalize (int, defaults to `30`): Normalize time difference by this value
             (e.g. 30 normalizes it to months)
-            code_column (str, defaults to `phecode`): The column that contains codes
 
         Returns:
             (pd.DataFrame): The encounter history
