@@ -87,11 +87,11 @@ class CLIPTextCfg:
 @dataclass
 class CLIPECGCfg:
 
-    scattering_j: int = 6,
-    scattering_q: int = 8,
-    scattering_t: int = None,
-    windowed: bool = False,
-    use_scattering: bool = True,
+    scattering_j: int = 6
+    scattering_q: int = 8
+    scattering_t: int = None
+    windowed: bool = False
+    use_scattering: bool = True
     layers: Union[Tuple[int, int, int, int], int] = 12
     width: int = 768
     head_width: int = 64
@@ -248,12 +248,15 @@ def _build_ecg_tower(
     if isinstance(ecg_cfg, dict):
         ecg_cfg = CLIPECGCfg(**ecg_cfg)
 
+    print(ecg_cfg.windowed)
+
     # Initialize the model
     heads = ecg_cfg.width // ecg_cfg.head_width
     norm_layer = LayerNormFp32 if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
     act_layer = nn.GELU
 
     if not ecg_cfg.windowed:
+        print('Global ECG')
         model = GlobalECGTransformer(
             scattering_j=ecg_cfg.scattering_j,
             scattering_q=ecg_cfg.scattering_q,
@@ -275,6 +278,9 @@ def _build_ecg_tower(
         )
     else:
         model = WindowedECGTransformer(
+            scattering_j=ecg_cfg.scattering_j,
+            scattering_q=ecg_cfg.scattering_q,
+            scattering_t=ecg_cfg.scattering_t,
             use_scattering=ecg_cfg.use_scattering,
             width=ecg_cfg.width,
             layers=ecg_cfg.layers,
