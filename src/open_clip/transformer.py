@@ -831,6 +831,8 @@ class GlobalECGTransformer(nn.Module):
                  ):
         super().__init__()
 
+        print(layers, scattering_j, scattering_q, scattering_t)
+
         # CHANGED:
         # use either scattering transform or CNN architecture before transformer
 
@@ -856,7 +858,7 @@ class GlobalECGTransformer(nn.Module):
         # this is the same as the function below
 
         self.input_projection = nn.Linear(in_features=(
-                (self.scattering_output_size) * self.scattering_signal_length), 
+                (self.scattering_output_size) * self.scattering_signal_length),
                 out_features=width)
 
         # TODO could also use a Conv2d layer here
@@ -962,6 +964,8 @@ class WindowedECGTransformer(nn.Module):
                  norm_layer: Callable = LayerNorm
                  ):
         super().__init__()
+
+        print(layers, window_size, num_windows)
 
         total_length = 2500
         num_leads = 12
