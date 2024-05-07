@@ -19,7 +19,7 @@
         "windowed": true,
         "use_scattering": true,
         "attentional_pool": false,
-        "pool_type": "tok"
+        "pool_type": "avg"
     },
     "vision_cfg": {
         "layers": 12,
