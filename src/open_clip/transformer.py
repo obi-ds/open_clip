@@ -967,8 +967,6 @@ class WindowedECGTransformer(nn.Module):
         # Given normalized_shape=[768], expected input with shape [*, 768], but got input of size[256, 4, 512]
         # open_clip/transformer.py", line 239, in forward
 
-
-
         total_length = 2500
         num_leads = 12
         self.window_size = window_size
@@ -1002,7 +1000,6 @@ class WindowedECGTransformer(nn.Module):
             self.cnn_output_dim = 64*4*2
             self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * (2500 // self.stride) + 1, width))
             self.input_projection = nn.Linear(in_features=self.cnn_output_dim, out_features=width)
-
 
         # Transformer network
         self.transformer = Transformer(
@@ -1054,21 +1051,9 @@ class WindowedECGTransformer(nn.Module):
         self.ln_post = norm_layer(pool_dim)
         self.proj = nn.Parameter(scale * torch.randn(pool_dim, output_dim))
 
-        # self.global_average_pool = global_average_pool
-        # if attentional_pool:
-        #     self.attn_pool = AttentionalPooler(output_dim, width, n_head=attn_pooler_heads, n_queries=n_queries)
-        #     self.ln_post = norm_layer(output_dim)
-        #     self.proj = nn.Parameter(scale * torch.randn(output_dim, output_dim))
-        # else:
-        #     self.attn_pool = None
-        #     self.ln_post = norm_layer(width)
-        #     self.proj = nn.Parameter(scale * torch.randn(width, output_dim))
-
         # Whether to return tokens as well
         self.output_tokens = output_tokens
 
-    # def _global_pool(self, x):
-    #     return x.mean(dim=1), x
 
     @torch.jit.ignore
     def set_grad_checkpointing(self, enable=True):
@@ -1102,9 +1087,7 @@ class WindowedECGTransformer(nn.Module):
         # concatenate the CLS token, and add the position tokens to each lead
         x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
         x = x + self.positional_embedding
-        #x = self.pos_drop(x)
         x = self.patch_dropout(x)
-        #breakpoint()
         x = self.ln_pre(x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND

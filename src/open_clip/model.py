@@ -277,6 +277,9 @@ def _build_ecg_tower(
     else:
         model = WindowedECGTransformer(
             use_scattering=ecg_cfg.use_scattering,
+            scattering_j=ecg_cfg.scattering_j,
+            scattering_q=ecg_cfg.scattering_q,
+            scattering_t=ecg_cfg.scattering_t,
             width=ecg_cfg.width,
             layers=ecg_cfg.layers,
             heads=heads,
