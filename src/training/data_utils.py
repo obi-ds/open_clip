@@ -51,12 +51,12 @@ def get_all_code_label_prediction_task(args):
         time_bins
     ) = get_code_label_task_objects(args)
 
-    samples_per_worker = get_samples_per_worker(
-        num_samples=args.train_samples,
-        epochs=args.epochs,
-        world_size=args.world_size,
-        num_workers=args.workers
-    )
+    # samples_per_worker = get_samples_per_worker(
+    #     num_samples=args.train_num_samples,
+    #     epochs=args.epochs,
+    #     world_size=args.world_size,
+    #     num_workers=args.workers
+    # )
 
     return CodeLabelPredictionTask(
         encounter_dataframe_process=encounter_dataframe_process,
@@ -70,8 +70,6 @@ def get_all_code_label_prediction_task(args):
         position_column=args.position_column,
         fixed_position_range=args.fixed_position_range,
         update_code_counts=args.update_code_counts,
-        samples_per_worker=samples_per_worker,
-        easy_hard_training=args.easy_hard_training
     )
 
 
