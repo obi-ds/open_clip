@@ -303,6 +303,10 @@ class HFInstructTokenizer(InstructTokenizer):
             pad_id (int): The id used for padding tokens
         """
         super().__init__(tokenizer, max_seq_length, pad_id, ignore_index)
+        if 'biogpt' in self._tokenizer.tokenizer.name_or_path:
+            self._start_pos = 1
+        else:
+            self._start_pos = 0
 
     def get_input_tokens(self, input_text: str) -> List[int]:
         """
@@ -316,7 +320,7 @@ class HFInstructTokenizer(InstructTokenizer):
         Returns:
             (torch.Tensor): Return tokenized input
         """
-        return self._tokenizer.tokenizer(input_text)['input_ids']
+        return self._tokenizer.tokenizer.encode(input_text)[self._start_pos:]
 
     def get_output_tokens(self, output_text: str) -> List[int]:
         """
@@ -330,7 +334,7 @@ class HFInstructTokenizer(InstructTokenizer):
         Returns:
             (List[int]): Return tokenized input
         """
-        return self._tokenizer.tokenizer(output_text)['input_ids']
+        return self._tokenizer.tokenizer.encode(output_text)[self._start_pos:]
 
     def get_eos_token(self):
         """
