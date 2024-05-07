@@ -157,6 +157,9 @@ class CoCa(nn.Module):
         text_latent, _ = self._encode_text(text, normalize=normalize)
         return text_latent
 
+    def lock_text_tower(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
+        self.text.lock(unlocked_layers, freeze_layer_norm)
+
     def forward(
             self,
             image,
