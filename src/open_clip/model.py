@@ -94,6 +94,7 @@ class CLIPECGCfg:
     use_scattering: bool = True
     layers: Union[Tuple[int, int, int, int], int] = 12
     width: int = 768
+    heads: int = 12
     head_width: int = 64
     mlp_ratio: float = 4.0
     ls_init_value: Optional[float] = None  # layer scale initial value
