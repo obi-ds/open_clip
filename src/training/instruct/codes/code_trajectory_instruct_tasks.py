@@ -94,7 +94,7 @@ class CodeLabelPredictionTask(object):
 
         if fixed_position_range:
             self._position_ranges = [
-                (-30, 180), (180, np.inf)
+                (-7, 180), (180, np.inf)
             ]
         else:
             self._position_ranges = [
@@ -199,8 +199,6 @@ class CodeLabelPredictionTask(object):
                 time_difference_normalize=args.time_difference_normalize,
                 exclude_codes=exclude_codes_for_negatives,
                 minimum_negatives_size=sample_counts[0],
-                code_column=self._code_column,
-                position_column=self._position_column,
                 weights=self.get_weights_for_negative_sampling()
             )
 
@@ -495,8 +493,8 @@ class CodeLabelPredictionTask(object):
             .rename(columns={self._code_column: 'count'})
             .reset_index()
         )
-        dynamic_idf_scores = self.get_dynamic_idf(codes=tf_idf[self._code_column], label=label)
-        tf_idf[self._weights_column] = tf_idf['count'] * tf_idf[self._idf_column] * dynamic_idf_scores
+        # dynamic_idf_scores = self.get_dynamic_idf(codes=tf_idf[self._code_column], label=label)
+        tf_idf[self._weights_column] = tf_idf['count'] * tf_idf[self._idf_column]
         return tf_idf
 
     def prepare_sampled_codes(
@@ -775,10 +773,11 @@ class CodeLabelPredictionTask(object):
         Returns:
 
         """
-        if self._update_code_counts and self._document_count:
-            return np.log10((self._document_count + epsilon) / self._code_counts_negative[self._tf_column])
-        else:
-            return None
+        return None
+        # if self._update_code_counts and self._document_count:
+        #     return np.log10((self._document_count + epsilon) / self._code_counts_negative[self._tf_column])
+        # else:
+        #     return None
 
 
 class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
@@ -959,8 +958,6 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
                 time_difference_normalize=args.time_difference_normalize,
                 exclude_codes=exclude_codes_for_negatives,
                 minimum_negatives_size=sample_counts[0],
-                code_column=self._code_column,
-                position_column=self._position_column
             )
 
             # We just keep it uniform with how we processed
