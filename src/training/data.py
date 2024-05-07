@@ -459,7 +459,7 @@ def get_wds_dataset_icd_instruct(
             task_list.append(get_demographic_task(args=args))
         elif task == 'labs':
             task_list.append(get_lab_task(args=args))
-        elif task == 'all':
+        elif task == 'diagnosis':
             task_list.append(get_all_code_label_prediction_task(args=args))
         elif task == 'tree':
             task_list.append(get_tree_code_label_prediction_task(args=args))
