@@ -493,8 +493,8 @@ class CodeLabelPredictionTask(object):
             .rename(columns={self._code_column: 'count'})
             .reset_index()
         )
-        # dynamic_idf_scores = self.get_dynamic_idf(codes=tf_idf[self._code_column], label=label)
-        tf_idf[self._weights_column] = tf_idf['count'] * tf_idf[self._idf_column]
+        dynamic_idf_scores = self.get_dynamic_idf(codes=tf_idf[self._code_column], label=label)
+        tf_idf[self._weights_column] = tf_idf['count'] * tf_idf[self._idf_column] * dynamic_idf_scores
         return tf_idf
 
     def prepare_sampled_codes(
@@ -773,11 +773,10 @@ class CodeLabelPredictionTask(object):
         Returns:
 
         """
-        return None
-        # if self._update_code_counts and self._document_count:
-        #     return np.log10((self._document_count + epsilon) / self._code_counts_negative[self._tf_column])
-        # else:
-        #     return None
+        if self._update_code_counts and self._document_count:
+            return np.log10((self._document_count + epsilon) / self._code_counts_negative[self._tf_column])
+        else:
+            return None
 
 
 class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
@@ -801,14 +800,17 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             bin_start_column: str = 'min',
             bin_end_column: str = 'max',
             label_column: str = 'label',
+            idf_column: str = 'idf',
+            tf_column: str = 'tf',
+            weights_column: str = 'weights',
             ignore_instruction_column: str = 'ignore_instruction',
-            seq2seq_column: str = 'seq2seq',
             position_range_column: str = 'position_range',
+            seq2seq_column: str = 'seq2seq',
             current_bin_value: int = -100,
             prediction_range_limit: int = None,
-            seq2seq: bool = True,
+            seq2seq: bool = False,
+            update_code_counts: bool = False,
             sep: str = ' -> ',
-            update_code_counts: bool = False
     ):
         """
         Initialize variables
@@ -849,6 +851,9 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             ignore_instruction_column=ignore_instruction_column,
             position_range_column=position_range_column,
             seq2seq_column=seq2seq_column,
+            idf_column=idf_column,
+            tf_column=tf_column,
+            weights_column=weights_column,
             current_bin_value=current_bin_value,
             prediction_range_limit=prediction_range_limit,
             fixed_position_range=fixed_position_range,
@@ -1059,8 +1064,6 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             (List[Tuple[str, str, bool]]): A list that contains tuples which have the instruction input and target.
             The list will contain only 1 element for zero shot training
         """
-        # TODO: Make ignore instruction a bool or a string - if it is a string - we can use as the label?
-        #  Or manipulate the label portion of code instruct string
         instructions = list()
         for row in instruction_samples:
             codes, labels, ignore_instructions = zip(*row)
