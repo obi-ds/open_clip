@@ -431,6 +431,7 @@ def main(args):
     eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
     pos_token_id = get_token_id(model_name=args.model, tokenizer=tokenizer, token='yes')
     neg_token_id = get_token_id(model_name=args.model, tokenizer=tokenizer, token='no')
+    print('Token IDS: ', (eos_token_id, pos_token_id, neg_token_id))
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
@@ -525,6 +526,8 @@ def get_eos_token_id(model_name, tokenizer):
         return tokenizer.eot_token_id
 
 def get_token_id(model_name, tokenizer, token):
+    if 'biogpt' in model_name or 'bio_gpt' in model_name:
+        return tokenizer.tokenizer.encode(token)[1]
     if 'gpt' in model_name:
         return tokenizer.tokenizer.convert_tokens_to_ids(token)
     else:
