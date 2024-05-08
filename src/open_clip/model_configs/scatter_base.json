@@ -1,5 +1,5 @@
 {
-    "embed_dim": 768,
+    "embed_dim": 512,
     "multimodal_cfg": {
         "width": 768,
         "context_length": 64,
@@ -11,13 +11,13 @@
         "n_queries": 256,
         "attn_pooler_heads": 8
     },
-    "ecg_cfg": {
+    "scatter_cfg": {
         "scattering_j": 12,
         "scattering_q": 12,
         "scattering_t": 64,
         "layers": 12,
         "width": 768,
-        "patch_dropout": 0.0,
+        "dropout": 0.0,
         "output_tokens": true
     },
     "vision_cfg": {
@@ -32,7 +32,6 @@
         "heads": 12,
         "width": 768,
         "embed_cls": true,
-        "pad_id": 0,
         "output_tokens": true
     },
     "custom_text": true

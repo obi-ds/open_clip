@@ -83,11 +83,11 @@ class CoCa(nn.Module):
             multimodal_cfg: MultimodalCfg,
             text_cfg: CLIPTextCfg,
             vision_cfg: Optional[CLIPVisionCfg],
+            pad_id,
             quick_gelu: bool = False,
             init_logit_scale: float = np.log(1 / 0.07),
             init_logit_bias: Optional[float] = None,
             cast_dtype: Optional[torch.dtype] = None,
-            pad_id: int = 0,
     ):
         super().__init__()
         multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
@@ -156,6 +156,9 @@ class CoCa(nn.Module):
     def encode_text(self, text, normalize: bool = True):
         text_latent, _ = self._encode_text(text, normalize=normalize)
         return text_latent
+
+    def lock_text_tower(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
+        self.text.lock(unlocked_layers, freeze_layer_norm)
 
     def forward(
             self,
@@ -487,12 +490,12 @@ class ECGCoCa(CoCa):
             multimodal_cfg: MultimodalCfg,
             text_cfg: CLIPTextCfg,
             ecg_cfg: CLIPECGCfg,
+            pad_id,
             vision_cfg: Optional[CLIPVisionCfg] = None,
             quick_gelu: bool = False,
             init_logit_scale: float = np.log(1 / 0.07),
             init_logit_bias: Optional[float] = None,
-            cast_dtype: Optional[torch.dtype] = None,
-            pad_id: int = 0,
+            cast_dtype: Optional[torch.dtype] = None
     ):
 
         super().__init__(
@@ -506,7 +509,6 @@ class ECGCoCa(CoCa):
             cast_dtype=cast_dtype,
             pad_id=pad_id
         )
-
         self.visual = _build_ecg_tower(
             embed_dim=embed_dim,
             ecg_cfg=ecg_cfg,

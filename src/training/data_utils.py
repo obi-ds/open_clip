@@ -1,4 +1,5 @@
 """Util functions to set up web dataset dataloader"""
+import math
 import pandas as pd
 from .instruct.codes import (
     CodeLabelPredictionTask,
@@ -26,7 +27,7 @@ from .instruct.utils import (
 )
 from .instruct.codes.processing.data_bins import AgglomerativeDataBins
 from .instruct import (
-    GPT2InstructTokenizer,
+    HFInstructTokenizer,
     InstructTokenizer
 )
 
@@ -50,6 +51,13 @@ def get_all_code_label_prediction_task(args):
         time_bins
     ) = get_code_label_task_objects(args)
 
+    # samples_per_worker = get_samples_per_worker(
+    #     num_samples=args.train_num_samples,
+    #     epochs=args.epochs,
+    #     world_size=args.world_size,
+    #     num_workers=args.workers
+    # )
+
     return CodeLabelPredictionTask(
         encounter_dataframe_process=encounter_dataframe_process,
         dataframe_sampling=dataframe_sampling,
@@ -61,7 +69,7 @@ def get_all_code_label_prediction_task(args):
         code_column=args.code_column,
         position_column=args.position_column,
         fixed_position_range=args.fixed_position_range,
-        update_code_counts=args.update_code_counts
+        update_code_counts=args.update_code_counts,
     )
 
 
@@ -275,7 +283,7 @@ def get_instruct_tokenizer(tokenizer, ignore_index, args):
 
     """
     if 'gpt' in args.model:
-        return GPT2InstructTokenizer(
+        return HFInstructTokenizer(
             tokenizer=tokenizer,
             pad_id=args.pad_id,
             max_seq_length=args.max_seq_length,
@@ -464,6 +472,26 @@ def get_lab_dataframe_process(lab_dataframes, args):
     )
 
 
+def get_samples_per_worker(
+        num_samples,
+        epochs,
+        world_size,
+        num_workers
+):
+    """
+
+    Args:
+        num_samples:
+        epochs:
+        world_size:
+        num_workers:
+
+    Returns:
+
+    """
+    return math.floor((num_samples * epochs) / (world_size * num_workers))
+
+
 def get_example_separator(args):
     """
 
@@ -473,7 +501,9 @@ def get_example_separator(args):
     Returns:
 
     """
-    if 'gpt' in args.model:
+    if 'biogpt' in args.model or 'bio_gpt' in args.model:
+        return ' </s>\n'
+    elif 'gpt' in args.model:
         return '\n'
     else:
         return ' <end_of_text>\n'

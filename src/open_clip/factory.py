@@ -246,7 +246,12 @@ def create_model(
         model_cfg = dict(model_cfg, **model_kwargs)  # merge cfg dict w/ kwargs (kwargs overrides cfg)
         if custom_text:
             if "ecg_cfg" in model_cfg:
-                model = ECGCoCa(**model_cfg, **model_kwargs, cast_dtype=cast_dtype)
+                model = ECGCoCa(
+                    **model_cfg,
+                    **model_kwargs,
+                    pad_id=model_cfg['text_cfg']['pad_id'],
+                    cast_dtype=cast_dtype
+                )
             elif "multimodal_cfg" in model_cfg:
                 if 'cyto' in model_name:
                     model = CytoCoCa(**model_cfg, cast_dtype=cast_dtype)

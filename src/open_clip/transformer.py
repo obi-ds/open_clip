@@ -822,6 +822,7 @@ class GlobalECGTransformer(nn.Module):
                  ls_init_value: float = None,
                  patch_dropout: float = 0.0,
                  attentional_pool: bool = False,
+                 global_average_pool: bool = False,
                  attn_pooler_queries: int = 256,
                  attn_pooler_heads: int = 8,
                  output_dim: int = 512,
@@ -831,18 +832,11 @@ class GlobalECGTransformer(nn.Module):
                  ):
         super().__init__()
 
-        # CHANGED:
-        # use either scattering transform or CNN architecture before transformer
+        print(layers, scattering_j, scattering_q, scattering_t)
 
-        shape = 2500
-        scale = width ** -0.5
-        self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
-        #self.pos_drop = nn.Dropout(p=dropout)
-
-        self.use_scattering = True
         # TODO T is an optional low-pass filter, could drop that parameter
         # T=2**13
-
+        shape = 2500
         # Scattering transformation
         self.scattering = Scattering1D(J=scattering_j, shape=shape, Q=scattering_q, T=scattering_t)
 
@@ -852,12 +846,19 @@ class GlobalECGTransformer(nn.Module):
         dummy_output = self.scattering(dummy_signal)
         self.scattering_signal_length = dummy_output.shape[1]
         self.scattering_output_size = dummy_output.shape[0]
-        self.pos_embed = nn.Parameter(scale * torch.randn(1, 12 + 1, width))
         # this is the same as the function below
+        # self.scattering_output_size = self.scattering.output_size()
 
+        scale = width ** -0.5
+        self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
+        self.pos_embed = nn.Parameter(scale * torch.randn(1, 12 + 1, width))
+        self.pos_drop = nn.Dropout(p=patch_dropout)
+
+        # TODO dropping zero-order coefficients and log-scaling should be config parameters
+        # scattering_output_size - 1 takes into account dropping zero-order coefficients
         self.input_projection = nn.Linear(in_features=(
-                (self.scattering_output_size - 1) * self.scattering_signal_length), 
-                out_features=width)
+                (self.scattering_output_size - 1) * self.scattering_signal_length),
+            out_features=width)
 
         # TODO could also use a Conv2d layer here
         # self.conv1 = nn.Conv2d(in_channels=in_channels, out_channels=width, kernel_size=patch_size, stride=patch_size,
@@ -874,8 +875,9 @@ class GlobalECGTransformer(nn.Module):
             norm_layer=norm_layer,
         )
 
+        self.global_average_pool = global_average_pool
         if attentional_pool:
-            self.attn_pool = AttentionalPooler(output_dim, width, n_head=attn_pooler_heads, n_queries=attn_pooler_queries)
+            self.attn_pool = AttentionalPooler(output_dim, width, n_head=attn_pooler_heads, n_queries=n_queries)
             self.ln_post = norm_layer(output_dim)
             self.proj = nn.Parameter(scale * torch.randn(output_dim, output_dim))
         else:
@@ -892,8 +894,7 @@ class GlobalECGTransformer(nn.Module):
     def forward(self, x):
 
         batch_size, leads, _ = x.shape
-
-        # reshape the input to treat each lead as a separate signal
+        # Reshape the input to treat each lead as a separate signal
         x_reshaped = x.view(-1, 2500)
 
         # Apply the scattering transform
@@ -903,13 +904,20 @@ class GlobalECGTransformer(nn.Module):
         # Log-scale and dropping zero-order coefficients
         scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
 
+        # TODO - Drop log and abs and zero order - change scatter output size accordingly
+        # log-scale and dropping zero-order coefficients
+        scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
+
+        # Reshape to [64, 12, 125, 39]
         x1 = scattered_x.view(batch_size,
-                                leads,
-                                self.scattering_output_size - 1,
-                                self.scattering_signal_length)
+                              leads,
+                              self.scattering_output_size - 1,
+                              self.scattering_signal_length)
+
+        # Reshape to [64, 12, 125 * 39]
         x2 = x1.contiguous().view(batch_size,
-                                    leads,
-                                    (self.scattering_output_size - 1) * self.scattering_signal_length)
+                                  leads,
+                                  (self.scattering_output_size - 1) * self.scattering_signal_length)
 
         # use this to project down to transformer input width
         x = self.input_projection(x2)
@@ -917,8 +925,9 @@ class GlobalECGTransformer(nn.Module):
         # concatenate the CLS token, and add the position tokens to each lead
         x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
         x = x + self.pos_embed
-        #x = self.pos_drop(x)
+        x = self.pos_drop(x)
 
+        # TODO verify the dimensions here
         x = x.permute(1, 0, 2)  # NLD -> LND
         x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
@@ -968,6 +977,7 @@ class WindowedECGTransformer(nn.Module):
                  ):
         super().__init__()
 
+        print(layers, window_size, num_windows)
         assert pool_type in ('tok', 'avg', 'none')
         # TODO attentional_pool has dimension mismatch (width vs output_size)
         # Given normalized_shape=[768], expected input with shape [*, 768], but got input of size[256, 4, 512]

@@ -94,7 +94,7 @@ class ClsLastHiddenStatePooler(nn.Module):
         return x.last_hidden_state[:, self.cls_token_position, :]
 
 
-class GPTTextEncoder(nn.Module):
+class BioGPTTextEncoder(nn.Module):
     def __init__(
             self,
             model_name_or_path: str,
@@ -109,7 +109,6 @@ class GPTTextEncoder(nn.Module):
         self.output_tokens = output_tokens
         self.output_dim = output_dim
         self.config = AutoConfig.from_pretrained(model_name_or_path)
-        self.config.pad_token_id = self.config.bos_token_id
         self.transformer = AutoModel.from_pretrained(
             model_name_or_path,
             from_tf=bool(".ckpt" in model_name_or_path),
@@ -117,12 +116,13 @@ class GPTTextEncoder(nn.Module):
         )
         # FIXME: Will this help GPT model? - The other components of coca aren't layer
         #  normalized - the scattering/vision transformer
-        self.transformer.ln_f = nn.Identity()
+        # For bio gpt model
+        # self.transformer.layer_norm = nn.Identity()
 
         self.vocab_size = getattr(self.config, 'vocab_size', 0)
         self.context_length = getattr(self.config, 'n_positions', 0)
 
-        d_model = getattr(self.config, 'n_embd', 768)
+        d_model = getattr(self.config, 'hidden_size', 1024)
 
         if (d_model == output_dim) and (proj_type is None):  # do we always need a proj?
             self.proj = nn.Identity()
@@ -144,11 +144,8 @@ class GPTTextEncoder(nn.Module):
         transformer_outputs = self.transformer(input_ids=x, attention_mask=attention_mask)
         last_hidden_state = transformer_outputs[0]
 
-        sequence_lengths = torch.eq(x, self.config.pad_token_id).int().argmax(-1) - 1
-        sequence_lengths = sequence_lengths % x.shape[-1]
-        sequence_lengths = sequence_lengths.to(x.device)
-
-        batch_size, sequence_length = x.shape[:2]
+        batch_size, _ = x.shape[:2]
+        sequence_lengths = (torch.ne(x, self.config.pad_token_id).sum(-1) - 1).to(x.device)
 
         pooled_representation = last_hidden_state[
             torch.arange(batch_size, device=last_hidden_state.device), sequence_lengths
@@ -157,6 +154,23 @@ class GPTTextEncoder(nn.Module):
         projected_representation = self.proj(pooled_representation)
 
         return projected_representation, last_hidden_state
+
+    def lock(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
+        if not unlocked_layers:  # full freezing
+            for n, p in self.transformer.named_parameters():
+                p.requires_grad = (not freeze_layer_norm) if "LayerNorm" in n.split(".") else False
+            return
+
+        encoder = self.transformer.encoder if hasattr(self.transformer, 'encoder') else self.transformer
+        layer_list = getattr(encoder, arch_dict[self.config.model_type]["config_names"]["layer_attr"])
+        print(f"Unlocking {unlocked_layers}/{len(layer_list) + 1} layers of hf model")
+        embeddings = getattr(
+            self.transformer, arch_dict[self.config.model_type]["config_names"]["token_embeddings_attr"])
+        modules = [embeddings, *layer_list][:-unlocked_layers]
+        # freeze layers
+        for module in modules:
+            for n, p in module.named_parameters():
+                p.requires_grad = (not freeze_layer_norm) if "LayerNorm" in n.split(".") else False
 
 
 class HFTextEncoder(nn.Module):
