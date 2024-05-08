@@ -86,12 +86,12 @@ class CLIPTextCfg:
 
 @dataclass
 class CLIPECGCfg:
-
-    scattering_j: int = 6,
-    scattering_q: int = 8,
-    scattering_t: int = None,
-    windowed: bool = False,
-    use_scattering: bool = True,
+    use_scattering: bool = True
+    scattering_j: int = 6
+    scattering_q: int = 8
+    scattering_t: int = None
+    windowed: bool = False
+    sample_windows: bool = False
     layers: Union[Tuple[int, int, int, int], int] = 12
     width: int = 768
     head_width: int = 64

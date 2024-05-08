@@ -1,5 +1,6 @@
 from collections import OrderedDict
 import math
+import random
 from typing import Callable, Optional, Sequence, Tuple
 from functools import partial
 
@@ -855,7 +856,7 @@ class GlobalECGTransformer(nn.Module):
         # this is the same as the function below
 
         self.input_projection = nn.Linear(in_features=(
-                (self.scattering_output_size) * self.scattering_signal_length), 
+                (self.scattering_output_size - 1) * self.scattering_signal_length), 
                 out_features=width)
 
         # TODO could also use a Conv2d layer here
@@ -897,14 +898,18 @@ class GlobalECGTransformer(nn.Module):
 
         # Apply the scattering transform
         scattered_x = self.scattering.forward(x_reshaped)
+        
+        # CHANGED
+        # Log-scale and dropping zero-order coefficients
+        scattered_x = torch.log(torch.abs(scattered_x[:, 1:, :]) + 1e-6)
 
         x1 = scattered_x.view(batch_size,
                                 leads,
-                                self.scattering_output_size,
+                                self.scattering_output_size - 1,
                                 self.scattering_signal_length)
         x2 = x1.contiguous().view(batch_size,
                                     leads,
-                                    (self.scattering_output_size) * self.scattering_signal_length)
+                                    (self.scattering_output_size - 1) * self.scattering_signal_length)
 
         # use this to project down to transformer input width
         x = self.input_projection(x2)
@@ -938,12 +943,9 @@ class WindowedECGTransformer(nn.Module):
     output_tokens: torch.jit.Final[bool]
 
     def __init__(self,
-                 use_scattering: bool = True,
                  window_size: int = 600,
                  num_windows: int = 5,
-                 scattering_j: int = 6,
-                 scattering_q: int = 8,
-                 scattering_t: int = None,
+                 sample_windows: bool = True,
                  layers: int = 2,
                  width: int = 768,
                  heads: int = 12,
@@ -958,7 +960,11 @@ class WindowedECGTransformer(nn.Module):
                  output_tokens: bool = False,
                  act_layer: Callable = nn.GELU,
                  norm_layer: Callable = LayerNorm,
-                 no_ln_pre: bool = False
+                 no_ln_pre: bool = False,
+                 use_scattering: bool = False,
+                 scattering_j: int = 6,
+                 scattering_q: int = 8,
+                 scattering_t: int = None
                  ):
         super().__init__()
 
@@ -970,6 +976,8 @@ class WindowedECGTransformer(nn.Module):
         total_length = 2500
         num_leads = 12
         self.window_size = window_size
+        self.num_windows = num_windows
+        self.sample_windows = sample_windows
         self.stride = (total_length - window_size) // (num_windows - 1)
         scale = width ** -0.5
         self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
@@ -984,11 +992,11 @@ class WindowedECGTransformer(nn.Module):
             dummy_output = self.scattering(dummy_signal)
             self.scattering_signal_length = dummy_output.shape[1]
             self.scattering_output_size = dummy_output.shape[0]
-            self.scattering_output_dim = dummy_output.shape[-1] * dummy_output.shape[-2]
+            self.scattering_output_dim = (dummy_output.shape[-1] - 1) * dummy_output.shape[-2]
             self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * (2500 // self.stride) + 1, width))
 
             self.input_projection = nn.Linear(in_features=(
-                    (self.scattering_output_size) * self.scattering_signal_length), 
+                    (self.scattering_output_size - 1) * self.scattering_signal_length), 
                     out_features=width)
             
         else:
@@ -998,7 +1006,7 @@ class WindowedECGTransformer(nn.Module):
             
             # CNN channels , pooling dimensions, avg and max pooling
             self.cnn_output_dim = 64*4*2
-            self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * (2500 // self.stride) + 1, width))
+            self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * num_windows + 1, width))
             self.input_projection = nn.Linear(in_features=self.cnn_output_dim, out_features=width)
 
         # Transformer network
@@ -1059,6 +1067,7 @@ class WindowedECGTransformer(nn.Module):
     def set_grad_checkpointing(self, enable=True):
         self.transformer.grad_checkpointing = enable
 
+
     def _global_pool(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.pool_type == 'avg':
             pooled, tokens = x[:, 1:].mean(dim=1), x[:, 1:]
@@ -1069,14 +1078,31 @@ class WindowedECGTransformer(nn.Module):
 
         return pooled, tokens
 
-    def forward(self, x):
 
-        x = x.unfold(dimension=2, size=self.window_size, step=self.stride)
+    def _sample_windows(self, x):
+        """ Randomly sample windows from the input tensor, keeping the start points in sorted order """
+        batch_size, num_leads, total_length = x.shape
+        max_start_point = total_length - self.window_size
+        sampled_indices = sorted([random.randint(0, max_start_point) for _ in range(self.num_windows)])
+
+        windows = [x[:, :, start:start + self.window_size] for start in sampled_indices]
+        return torch.stack(windows, dim=2)
+
+
+    def forward(self, x):
+        if self.training and self.sample_windows:
+            x = self._sample_windows(x)
+        else:
+            x = x.unfold(dimension=2, size=self.window_size, step=self.stride)
+        
         batch_size, num_leads, num_windows, _ = x.shape
 
         if self.use_scattering:
             x = x.reshape(-1, self.window_size) # Flatten for scattering
             x = self.scattering(x)  # Apply scattering transform
+            
+            # CHANGED
+            x = torch.log(torch.abs(x[:, 1:, :]) + 1e-6) # Log-scale and drop zero-order coefficients
         else:
             x = x.reshape(batch_size, num_leads * num_windows, -1)
             x = self.cnn(x)
@@ -1171,8 +1197,8 @@ class EnhancedCNN(nn.Module):
         super(EnhancedCNN, self).__init__()
         self.initial_conv = nn.Sequential(
             nn.Conv1d(1, 64, kernel_size=5, stride=1, padding=2),
-            nn.ReLU(),
-            nn.BatchNorm1d(64)
+            nn.BatchNorm1d(64),
+            nn.ReLU()
         )
         self.res_block1 = self._build_res_block(64, 64)
         self.res_block2 = self._build_res_block(64, 64)
@@ -1180,14 +1206,19 @@ class EnhancedCNN(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool1d(4)
         self.max_pool = nn.AdaptiveMaxPool1d(4)
 
+        # added init 
+        for m in self.modules():
+            if isinstance(m, nn.Conv1d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+
     def _build_res_block(self, in_channels, out_channels):
         return nn.Sequential(
             nn.Conv1d(in_channels, out_channels, kernel_size=5, stride=1, padding=2),
-            nn.ReLU(),
             nn.BatchNorm1d(out_channels),
-            nn.Conv1d(out_channels, out_channels, kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
-            nn.BatchNorm1d(out_channels)
+            nn.Conv1d(out_channels, out_channels, kernel_size=5, stride=1, padding=2),
+            nn.BatchNorm1d(out_channels),
+            nn.ReLU()
         )
 
     def forward(self, x):
@@ -1195,6 +1226,9 @@ class EnhancedCNN(nn.Module):
         
         # Reshape input to treat each segment as a separate batch element
         x = x.view(-1, 1, window_size)  # Flatten batch and sequence dimensions
+
+        # add log transform of inputs
+        x = torch.sign(x) * torch.log1p(torch.abs(x))
 
         x = self.initial_conv(x)
         # Apply residual connections

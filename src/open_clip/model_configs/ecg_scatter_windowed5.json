@@ -23,7 +23,7 @@
         "sample_windows": true,
         "use_scattering": true,
         "attentional_pool": true,
-        "pool_type": "avg"
+        "pool_type": "tok"
     },
     "vision_cfg": {
         "layers": 12,
