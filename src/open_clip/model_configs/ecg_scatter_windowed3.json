@@ -12,13 +12,17 @@
         "attn_pooler_heads": 8
     },
     "ecg_cfg": {
+        "scattering_j": 12,
+        "scattering_q": 12,
+        "scattering_t": 64,
         "layers": 12,
         "width": 768,
-        "patch_dropout": 0.1,
+        "patch_dropout": 0.0,
         "output_tokens": true,
         "windowed": true,
+        "sample_windows": true,
         "use_scattering": true,
-        "attentional_pool": true,
+        "attentional_pool": false,
         "pool_type": "avg"
     },
     "vision_cfg": {

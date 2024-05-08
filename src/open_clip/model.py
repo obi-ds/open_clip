@@ -86,12 +86,12 @@ class CLIPTextCfg:
 
 @dataclass
 class CLIPECGCfg:
-
-    scattering_j: int = 6
-    scattering_q: int = 8
-    scattering_t: int = None
-    windowed: bool = False
-    use_scattering: bool = True
+    use_scattering: bool = False
+    scattering_j: int = 12
+    scattering_q: int = 12
+    scattering_t: int = 64
+    windowed: bool = True
+    sample_windows: bool = True
     layers: Union[Tuple[int, int, int, int], int] = 12
     width: int = 768
     heads: int = 12
@@ -104,7 +104,7 @@ class CLIPECGCfg:
     attn_pooler_queries: int = 256  # n_queries for attentional pooler
     attn_pooler_heads: int = 8  # n heads for attentional_pooling
     final_ln_after_pool: bool = False  # apply final LayerNorm after pooling
-    pool_type: str = 'tok'
+    pool_type: str = 'avg'
     output_tokens: bool = False
 
 
