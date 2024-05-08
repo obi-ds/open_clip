@@ -5,7 +5,7 @@ from typing import Union
 
 from .demographics import DemographicPredictionPrompt
 from .labs import LabPredictionPrompt
-from .instruct_tokenizer import GPT2InstructTokenizer, InstructTokenizer
+from .instruct_tokenizer import HFInstructTokenizer, InstructTokenizer
 
 
 class InstructPrompt(object):
@@ -13,7 +13,7 @@ class InstructPrompt(object):
     def __init__(
             self,
             task_list,
-            instruct_tokenizer: Union[GPT2InstructTokenizer, InstructTokenizer],
+            instruct_tokenizer: Union[HFInstructTokenizer, InstructTokenizer],
     ):
         self._task_list = task_list
         self._instruct_tokenizer = instruct_tokenizer

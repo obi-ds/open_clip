@@ -1,5 +1,5 @@
 {
-    "embed_dim": 512,
+    "embed_dim": 768,
     "multimodal_cfg": {
         "width": 768,
         "context_length": 128,
@@ -12,15 +12,14 @@
         "attn_pooler_heads": 8
     },
     "ecg_cfg": {
-        "scattering_j": 12,
-        "scattering_q": 12,
-        "scattering_t": 64,
         "layers": 12,
         "width": 768,
         "patch_dropout": 0.1,
         "output_tokens": true,
         "windowed": true,
-        "use_scattering": true
+        "use_scattering": true,
+        "attentional_pool": false,
+        "pool_type": "tok"
     },
     "vision_cfg": {
         "layers": 12,

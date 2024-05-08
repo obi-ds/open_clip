@@ -1,8 +1,8 @@
 {
-    "embed_dim": 512,
+    "embed_dim": 768,
     "multimodal_cfg": {
         "width": 768,
-        "context_length": 64,
+        "context_length": 128,
         "vocab_size": 64000,
         "mlp_ratio": 4,
         "layers": 12,
@@ -12,13 +12,14 @@
         "attn_pooler_heads": 8
     },
     "ecg_cfg": {
-        "scattering_j": 12,
-        "scattering_q": 12,
-        "scattering_t": 64,
         "layers": 12,
         "width": 768,
-        "patch_dropout": 0.0,
-        "output_tokens": true
+        "patch_dropout": 0.1,
+        "output_tokens": true,
+        "windowed": true,
+        "use_scattering": true,
+        "attentional_pool": true,
+        "pool_type": "avg"
     },
     "vision_cfg": {
         "layers": 12,
@@ -26,13 +27,12 @@
         "output_tokens": true
     },
     "text_cfg": {
-        "context_length": 64,
+        "context_length": 128,
         "vocab_size": 64000,
         "layers": 12,
         "heads": 12,
         "width": 768,
         "embed_cls": true,
-        "pad_id": 0,
         "output_tokens": true
     },
     "custom_text": true

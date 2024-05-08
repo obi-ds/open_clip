@@ -189,7 +189,7 @@ class CodeLabelPredictionTaskEvaluation(CodeLabelPredictionTask):
         Args:
             code (str): The code to evaluate
             label (str): The label to evaluate
-            ignore_instruction (bool): Whether to ignore instruction while computing loss etc
+            ignore_instruction (bool): Whether to ignore instruction while computing loss etc.
             seq2seq (bool)
 
         Returns:
