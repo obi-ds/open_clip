@@ -91,7 +91,7 @@ class CLIPECGCfg:
     scattering_q: int = 12
     scattering_t: int = 64
     windowed: bool = True
-    sample_windows: bool = True
+    sample_windows: float = 0.8
     layers: Union[Tuple[int, int, int, int], int] = 12
     width: int = 768
     heads: int = 12

@@ -17,6 +17,7 @@
         "patch_dropout": 0.0,
         "output_tokens": true,
         "windowed": true,
+        "sample_windows": 0.8,
         "use_scattering": false,
         "attentional_pool": false,
         "pool_type": "avg"
