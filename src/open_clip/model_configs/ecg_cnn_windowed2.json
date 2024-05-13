@@ -17,7 +17,7 @@
         "patch_dropout": 0.0,
         "output_tokens": true,
         "windowed": true,
-        "sample_windows": true,
+        "sample_windows": 0.8,
         "use_scattering": false,
         "attentional_pool": true,
         "pool_type": "tok"
@@ -33,6 +33,7 @@
         "layers": 12,
         "heads": 12,
         "width": 768,
+        "pad_id": 0,
         "embed_cls": true,
         "output_tokens": true
     },
