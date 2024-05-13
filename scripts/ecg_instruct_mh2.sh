@@ -475,3 +475,372 @@ torchrun \
     --seed 0 \
     --model ecg_cnn_windowed2
  
+
+ #### continue from Prajwal's run
+
+
+
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type icddataset \
+    --name ecg_k_1_diagnosis_random_weighted_scatter_global_biogpt_frozen_future_250_trial_6 \
+    --workers 8 \
+    --batch-size 512 \
+    --epochs 250 \
+    --lr 5e-5 \
+    --beta1 0.9 \
+    --beta2 0.98 \
+    --eps 1e-6 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 3000 \
+    --lr-scheduler cosine \
+    --lr-cooldown-end 5e-6 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 10 \
+    --val-frequency 10 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --model ecg_scatter_global_biogpt \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 \
+    --max_seq_length 64 \
+    --pad_id 1 \
+    --distance-threshold 60 \
+    --negatives-type random \
+    --tasks diagnosis \
+    --fixed-position-range \
+    --future-only \
+    --lock-text \
+    --update-code-counts \
+    --seed 0
+
+
+# Baseline 3: ecg_k_1_diagnosis_random_cnn_windowed_biogpt_frozen_future_250_trial_1
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type icddataset \
+    --workers 8 \
+    --batch-size 256 \
+    --accum-freq 2 \
+    --epochs 250 \
+    --lr 5e-5 \
+    --beta1 0.9 \
+    --beta2 0.98 \
+    --eps 1e-6 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 3000 \
+    --lr-scheduler cosine \
+    --lr-cooldown-end 5e-6 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 10 \
+    --val-frequency 10 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 \
+    --max_seq_length 64 \
+    --pad_id 1 \
+    --distance-threshold 60 \
+    --negatives-type random \
+    --tasks diagnosis \
+    --fixed-position-range \
+    --future-only \
+    --lock-text \
+    --name ecg_k_1_diagnosis_random_cnn_windowed_biogpt2_frozen_future_250_trial_1 \
+    --model ecg_cnn_windowed_biogpt2 \
+    --seed 0
+
+
+
+# Baseline 3: ecg_k_1_diagnosis_random_cnn_windowed_biogpt_frozen_future_250_trial_1
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type icddataset \
+    --workers 8 \
+    --batch-size 256 \
+    --accum-freq 2 \
+    --epochs 250 \
+    --lr 5e-5 \
+    --beta1 0.9 \
+    --beta2 0.98 \
+    --eps 1e-6 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 3000 \
+    --lr-scheduler cosine \
+    --lr-cooldown-end 5e-6 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 10 \
+    --val-frequency 10 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 \
+    --max_seq_length 64 \
+    --pad_id 1 \
+    --distance-threshold 60 \
+    --negatives-type random_cached \
+    --tasks diagnosis \
+    --fixed-position-range \
+    --future-only \
+    --lock-text \
+    --name ecg_k_1_diagnosis_random_cached_cnn_windowed_biogpt2_frozen_future_250_trial_1 \
+    --model ecg_cnn_windowed_biogpt2 \
+    --seed 0
+
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type icddataset \
+    --workers 8 \
+    --batch-size 200 \
+    --accum-freq 2 \
+    --epochs 250 \
+    --lr 5e-5 \
+    --beta1 0.9 \
+    --beta2 0.98 \
+    --eps 1e-6 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 3000 \
+    --lr-scheduler cosine \
+    --lr-cooldown-end 5e-6 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 10 \
+    --val-frequency 10 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 \
+    --max_seq_length 64 \
+    --pad_id 1 \
+    --distance-threshold 60 \
+    --negatives-type random \
+    --tasks diagnosis \
+    --fixed-position-range \
+    --future-only \
+    --lock-text \
+    --name ecg_k_1_diagnosis_random_cnn_windowed_biogpt3_attention_frozen_future_250_trial_1 \
+    --model ecg_cnn_windowed_biogpt3 \
+    --seed 0
+
+
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type icddataset \
+    --workers 8 \
+    --batch-size 200 \
+    --accum-freq 2 \
+    --epochs 250 \
+    --lr 5e-5 \
+    --beta1 0.9 \
+    --beta2 0.98 \
+    --eps 1e-6 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 3000 \
+    --lr-scheduler cosine \
+    --lr-cooldown-end 5e-6 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 10 \
+    --val-frequency 10 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --demographic-file=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/demographics_2404.parquet \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 1 1 2 \
+    --k-shot-demographics 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 2 \
+    --max_seq_length 64 \
+    --pad_id 1 \
+    --distance-threshold 60 \
+    --negatives-type random \
+    --tasks demographics diagnosis \
+    --task-shuffle \
+    --fixed-position-range \
+    --future-only \
+    --lock-text \
+    --update-code-counts \
+    --name ecg_diagnosis_demographic_random_weighted_cnn_windowed_biogpt3_attention_frozen_future_250_trial_1 \
+    --model ecg_cnn_windowed_biogpt3 \
+    --seed 0
+
+
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type icddataset \
+    --workers 8 \
+    --batch-size 200 \
+    --accum-freq 2 \
+    --epochs 250 \
+    --lr 5e-5 \
+    --beta1 0.9 \
+    --beta2 0.98 \
+    --eps 1e-6 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 3000 \
+    --lr-scheduler cosine \
+    --lr-cooldown-end 5e-6 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 10 \
+    --val-frequency 10 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --demographic-file=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/demographics_2404.parquet \
+    --labs-folder=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 \
+    --k-shot-demographics 0 0 0 1 \
+    --k-shot-labs 0 0 0 1 \
+    --max_seq_length 64 \
+    --pad_id 1 \
+    --distance-threshold 60 \
+    --negatives-type random \
+    --tasks labs demographics diagnosis \
+    --task-shuffle \
+    --fixed-position-range \
+    --future-only \
+    --lock-text \
+    --update-code-counts \
+    --name ecg_labs_diagnosis_demographic_random_weighted_cnn_windowed_biogpt3_attention_frozen_future_250_trial_1 \
+    --model ecg_cnn_windowed_biogpt3 \
+    --seed 0
+
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type icddataset \
+    --workers 8 \
+    --batch-size 256 \
+    --accum-freq 2 \
+    --epochs 250 \
+    --lr 5e-5 \
+    --beta1 0.9 \
+    --beta2 0.98 \
+    --eps 1e-6 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 3000 \
+    --lr-scheduler cosine \
+    --lr-cooldown-end 5e-6 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 10 \
+    --val-frequency 10 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --demographic-file=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/demographics_2404.parquet \
+    --labs-folder=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 \
+    --k-shot-demographics 0 0 0 1 \
+    --k-shot-labs 0 0 0 1 \
+    --max_seq_length 64 \
+    --pad_id 1 \
+    --distance-threshold 60 \
+    --negatives-type random \
+    --tasks labs demographics diagnosis \
+    --task-shuffle \
+    --fixed-position-range \
+    --future-only \
+    --lock-text \
+    --name ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt2_frozen_future_250_trial_2 \
+    --model ecg_cnn_windowed_biogpt2 \
+    --seed 0
