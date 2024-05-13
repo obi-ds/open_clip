@@ -1,0 +1,201 @@
+import copy
+import os
+import sys
+from pathlib import Path
+
+import pandas as pd
+import torch
+from torch.nn import functional as F
+
+from eval_args import get_eval_attributes
+from open_clip import get_cast_dtype
+from open_clip.factory import get_tokenizer, create_model_and_transforms
+from training.data import get_wds_dataset_icd_instruct
+from training.instruct.codes.processing import (
+    EncounterDataframeProcess,
+)
+from training.params import parse_args
+from training.precision import get_autocast, get_input_dtype
+
+gpu, start, end = sys.argv[1], sys.argv[2], sys.argv[3]
+
+os.environ["CUDA_VISIBLE_DEVICES"] = gpu
+
+
+def get_eval_dataloader(args, eval_code, tokenizer):
+    args = copy.deepcopy(args)
+    args.eval_code = eval_code
+    eval_dataset_image = get_wds_dataset_icd_instruct(
+        args,
+        preprocess_img=lambda x: x,
+        is_train=False,
+        tokenizer=tokenizer,
+        return_sample=True,
+        eval_mode=True
+    )
+    return eval_dataset_image.dataloader
+
+
+def get_eos_token_id(model_name, tokenizer):
+    if 'gpt' in model_name:
+        return tokenizer.tokenizer.encode('\n')[0]
+        # return tokenizer.tokenizer.eos_token_id
+    else:
+        return tokenizer.eot_token_id
+
+
+def compute_generative_loss(logits, labels, ignore_index=-100, reduction='mean'):
+    if logits.dim() == 2:
+        logits = logits.unsqueeze(1)
+        labels = labels.unsqueeze(1)
+    return F.cross_entropy(logits.permute(0, 2, 1), labels, ignore_index=ignore_index, reduction=reduction)
+
+
+def compute_probability(loss):
+    mask = loss != 0
+    loss_mean = (loss * mask).sum(dim=1) / mask.sum(dim=1)
+    return torch.exp(-loss_mean)
+
+
+def get_token_scores(model_name, logits, tokens):
+    if 'gpt' in model_name:
+        convert_function = tokenizer.tokenizer.convert_tokens_to_ids
+    else:
+        def clip_encode(token):
+            return tokenizer.encode(token)[0]
+
+        convert_function = clip_encode
+    return {token: logits[:, convert_function(token)] for token in tokens}
+
+
+def convert_instructions_list_to_string(instructions):
+    full_string = ''
+    for instruction in instructions:
+        full_string += instruction[0] + instruction[1]
+    return full_string
+
+
+def evaluate_label(dataloader, tokens, eos_token_id, args, ignore_index=-100):
+    all_labels, all_metadata = [], []
+    all_scores = {token: [] for token in tokens}
+    all_scores['probability'] = []
+
+    with torch.no_grad():
+        for i, batch in enumerate(dataloader):
+            images, texts, sample_metadata = batch
+            images = images.to(device=device, dtype=input_dtype, non_blocking=True)
+            texts = texts.to(device=device, non_blocking=True)
+
+            # with autocast():
+            model_out = model(images, texts)
+            model_logits = model_out['logits']
+            model_labels = model_out['labels']
+
+            # Ignore loss/probability of pad and eos tokens
+            # labels[labels == eos_token_id] = ignore_index
+            # masked_logits = logits[labels != ignore_index]
+
+            mask = (model_labels != ignore_index) & (model_labels != eos_token_id)
+            labels = model_labels[mask]
+            logits = model_logits[mask]
+
+            loss = compute_generative_loss(
+                logits=logits,
+                labels=labels,
+                reduction='none'
+            )
+
+            token_scores = get_token_scores(model_name=args.model, logits=logits, tokens=tokens)
+            probability = compute_probability(loss)
+
+            all_scores['probability'].extend(probability.cpu().tolist())
+            for token, scores in token_scores.items():
+                all_scores[token].extend(scores.cpu().tolist())
+
+            all_labels.extend(labels.cpu().tolist())
+
+            all_metadata.extend([
+                {
+                    args.patient_id_column: metadata[args.patient_id_column],
+                    args.sample_result_date_column: metadata[args.sample_result_date_column],
+                    'TestTime': metadata['TestTime'] if 'TestTime' in metadata else 'NA',
+                    'DATE_TIME': metadata['DATE_TIME'] if 'DATE_TIME' in metadata else 'NA',
+                    'file': metadata['file']
+                }
+                for metadata in sample_metadata if
+                encounter_dataframe_process.check_patient_id(patient_id=metadata[args.patient_id_column])
+            ])
+
+            if len(all_metadata) != len(all_scores[tokens[0]]) or len(all_metadata) != len(all_labels):
+                raise ValueError()
+
+    return all_metadata, all_scores, all_labels
+
+
+def get_eval_dataframe(metadata, scores, labels):
+    metadata_df = pd.DataFrame(metadata)
+    scores_df = pd.DataFrame(scores)
+    eval_df = pd.concat([metadata_df, scores_df], axis=1)
+    eval_df['labels'] = labels
+    return eval_df
+
+
+for file_suffix, args_str, model_type, model_path in get_eval_attributes():
+    args_str = args_str.replace('"', '')
+    args = parse_args(args_str.split())
+    print('Dataset: ', args.val_data)
+    print('Model: ', model_path)
+    encounter_dataframe = pd.read_parquet(
+        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
+    )
+
+    encounter_dataframe_process = EncounterDataframeProcess(
+        encounter_dataframe=encounter_dataframe,
+        patient_id_column=args.patient_id_column,
+        contact_date_column=args.contact_date_column,
+        time_difference_column=args.time_difference_column,
+        code_column=args.code_column,
+        position_column=args.position_column,
+    )
+
+    model, _, preprocess_val = create_model_and_transforms(
+        model_type,
+        pretrained=model_path,
+    )
+
+    tokenizer = get_tokenizer(model_type, context_length=args.max_seq_length)
+
+    autocast = get_autocast(args.precision)
+    cast_dtype = get_cast_dtype(args.precision)
+    input_dtype = get_input_dtype(args.precision)
+
+    device = torch.device('cuda')
+    model = model.eval()
+    model = model.to(device)
+
+    # phecodes_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
+    # test_phecodes_df = pd.read_csv(phecodes_file, encoding='ISO-8859-1')
+    # test_phecodes = test_phecodes_df['phecode']
+
+    phecodes_file = './eval_code_list.csv'
+    test_phecodes = pd.read_csv(phecodes_file)['0']
+
+    print('Number of codes: ', len(test_phecodes))
+
+    prefix = Path(model_path).parent.parent.name
+    epoch = Path(model_path).name.split('.')[0]
+
+    filepath = f'/mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/{file_suffix}/{prefix}/{epoch}/' \
+               f'{args.eval_start_time}-{args.eval_end_time}'
+
+    os.makedirs(filepath, exist_ok=True)
+
+    for phecode in test_phecodes[int(start): int(end)]:
+        print('PHECODE: ', phecode)
+        dataloader = get_eval_dataloader(args=args, eval_code=phecode, tokenizer=tokenizer)
+        eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
+        print('EOS Token ID: ', eos_token_id)
+        metadata, scores, labels = evaluate_label(dataloader=dataloader, tokens=['yes', 'no'],
+                                                  eos_token_id=eos_token_id, args=args)
+        eval_df = get_eval_dataframe(metadata, scores, labels)
+        eval_df.to_parquet(f'{filepath}/{phecode}.parquet')

@@ -877,7 +877,7 @@ class GlobalECGTransformer(nn.Module):
 
         self.global_average_pool = global_average_pool
         if attentional_pool:
-            self.attn_pool = AttentionalPooler(output_dim, width, n_head=attn_pooler_heads, n_queries=n_queries)
+            self.attn_pool = AttentionalPooler(output_dim, width, n_head=attn_pooler_heads, n_queries=attn_pooler_queries)
             self.ln_post = norm_layer(output_dim)
             self.proj = nn.Parameter(scale * torch.randn(output_dim, output_dim))
         else:
@@ -951,7 +951,7 @@ class WindowedECGTransformer(nn.Module):
     def __init__(self,
                  window_size: int = 600,
                  num_windows: int = 5,
-                 sample_windows: bool = True,
+                 sample_windows: float = 0.8,
                  layers: int = 2,
                  width: int = 768,
                  heads: int = 12,
@@ -1097,7 +1097,7 @@ class WindowedECGTransformer(nn.Module):
 
 
     def forward(self, x):
-        if self.training and self.sample_windows:
+        if self.training and random.random() < self.sample_windows:
             x = self._sample_windows(x)
         else:
             x = x.unfold(dimension=2, size=self.window_size, step=self.stride)
