@@ -20,7 +20,7 @@
         "sample_windows": 0.0,
         "use_scattering": false,
         "attentional_pool": false,
-        "pool_type": "avg",
+        "pool_type": "prefix",
         "reg_tokens": 4
     },
     "vision_cfg": {

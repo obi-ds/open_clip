@@ -977,7 +977,7 @@ class WindowedECGTransformer(nn.Module):
         super().__init__()
 
         print(layers, window_size, num_windows)
-        assert pool_type in ('tok', 'avg', 'none')
+        assert pool_type in ('prefix', 'tok', 'avg', 'none')
         # TODO attentional_pool has dimension mismatch (width vs output_size)
         # Given normalized_shape=[768], expected input with shape [*, 768], but got input of size[256, 4, 512]
         # open_clip/transformer.py", line 239, in forward
@@ -1082,8 +1082,10 @@ class WindowedECGTransformer(nn.Module):
 
 
     def _global_pool(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.pool_type == 'avg':
-            pooled, tokens = x[:, 1:].mean(dim=1), x[:, 1:]
+        if self.pool_type == 'prefix':
+            pooled, tokens = x[:, :self.prefix_tokens].mean(dim=1), x[:, self.prefix_tokens:]
+        elif self.pool_type == 'avg':
+            pooled, tokens = x.mean(dim=1), x[:, self.prefix_tokens:]
         elif self.pool_type == 'tok':
             pooled, tokens = x[:, 0], x[:, 1:]
         else:
@@ -1486,7 +1488,6 @@ class ECGVisionTransformer(nn.Module):
             return pooled, tokens
 
         return pooled
-
 
 def text_global_pool(x, text: Optional[torch.Tensor] = None, pool_type: str = 'argmax'):
     if pool_type == 'first':
