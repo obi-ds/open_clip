@@ -875,7 +875,8 @@ class GlobalECGTransformer(nn.Module):
             norm_layer=norm_layer,
         )
 
-        self.global_average_pool = global_average_pool
+        # TODO implement this, supposed to simplify training - or check if it's the same as 'avg' pool type
+        #self.global_average_pool = global_average_pool
         if attentional_pool:
             self.attn_pool = AttentionalPooler(output_dim, width, n_head=attn_pooler_heads, n_queries=attn_pooler_queries)
             self.ln_post = norm_layer(output_dim)
@@ -973,7 +974,8 @@ class WindowedECGTransformer(nn.Module):
                  use_scattering: bool = False,
                  scattering_j: int = 6,
                  scattering_q: int = 8,
-                 scattering_t: int = None
+                 scattering_t: int = None,
+                 reg_tokens: int = 0,
                  ):
         super().__init__()
 
@@ -991,6 +993,9 @@ class WindowedECGTransformer(nn.Module):
         self.stride = (total_length - window_size) // (num_windows - 1)
         scale = width ** -0.5
         self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
+        self.reg_token = nn.Parameter(scale * torch.randn(1, reg_tokens, width)) if reg_tokens > 0 else None
+        self.prefix_tokens = 1 + reg_tokens
+
         self.patch_dropout = PatchDropout(patch_dropout) if patch_dropout > 0. else nn.Identity()
         self.ln_pre = nn.Identity() if no_ln_pre else norm_layer(width)
 
@@ -1003,11 +1008,12 @@ class WindowedECGTransformer(nn.Module):
             self.scattering_signal_length = dummy_output.shape[1]
             self.scattering_output_size = dummy_output.shape[0]
             self.scattering_output_dim = (dummy_output.shape[-1] - 1) * dummy_output.shape[-2]
-            self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * (2500 // self.stride) + 1, width))
+            self.positional_embedding = \
+                nn.Parameter(torch.randn(1, num_leads * (2500 // self.stride) +  self.prefix_tokens, width))
 
-            self.input_projection = nn.Linear(in_features=(
-                    (self.scattering_output_size - 1) * self.scattering_signal_length), 
-                    out_features=width)
+            self.input_projection = nn.Linear(
+                in_features=((self.scattering_output_size - 1) * self.scattering_signal_length), 
+                out_features=width)
             
         else:
             # use a CNN instead of scattering transform
@@ -1016,7 +1022,7 @@ class WindowedECGTransformer(nn.Module):
             
             # CNN channels , pooling dimensions, avg and max pooling
             self.cnn_output_dim = 64*4*2
-            self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * num_windows + 1, width))
+            self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * num_windows + self.prefix_tokens, width))
             self.input_projection = nn.Linear(in_features=self.cnn_output_dim, out_features=width)
 
         # Transformer network
@@ -1122,6 +1128,11 @@ class WindowedECGTransformer(nn.Module):
 
         # concatenate the CLS token, and add the position tokens to each lead
         x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
+
+        # add the reg tokens if they exist
+        if self.reg_token is not None:
+            x = torch.cat([self.reg_token.expand(batch_size, -1, -1), x], dim=1)
+
         x = x + self.positional_embedding
         x = self.patch_dropout(x)
         x = self.ln_pre(x)
