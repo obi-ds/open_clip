@@ -17,6 +17,7 @@
         "scattering_t": 64,
         "layers": 12,
         "width": 1024,
+        "windowed": false,
         "patch_dropout": 0.0,
         "output_tokens": true
     },
