@@ -2,7 +2,7 @@
     "embed_dim": 1024,
     "multimodal_cfg": {
         "width": 1024,
-        "context_length": 64,
+        "context_length": 100,
         "vocab_size": 42384,
         "mlp_ratio": 4,
         "layers": 12,
@@ -17,7 +17,7 @@
         "patch_dropout": 0.0,
         "output_tokens": true,
         "windowed": true,
-        "sample_windows": 0.3,
+        "sample_windows": 0.0,
         "use_scattering": false,
         "attentional_pool": false,
         "pool_type": "avg"
@@ -31,7 +31,7 @@
         "hf_model_name": "microsoft/biogpt",
         "hf_tokenizer_name": "microsoft/biogpt",
         "hf_proj_type": "linear",
-        "context_length": 64,
+        "context_length": 100,
         "vocab_size": 42384,
         "pad_id": 1,
         "hf_pooler_type": null,
