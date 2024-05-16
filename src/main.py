@@ -434,8 +434,16 @@ def main(args):
     print('Token IDS: ', (eos_token_id, pos_token_id, neg_token_id))
 
     evaluation_codes = args.training_eval_codes
-    for eval_code in evaluation_codes:
-        pass
+    eval_data_objects = [
+        get_eval_data_object(
+            args=args,
+            eval_code=eval_code,
+            tokenizer=tokenizer,
+            eval_start_time=0,
+            eval_end_time=180
+        )
+        for eval_code in evaluation_codes
+    ]
 
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
@@ -455,6 +463,19 @@ def main(args):
                 negative_token_id=neg_token_id,
                 tb_writer=writer
             )
+
+            for eval_data_object, eval_code in zip(eval_data_objects, evaluation_codes):
+                evaluate_instruct_basic(
+                    model=model,
+                    data=eval_data_object,
+                    epoch=completed_epoch,
+                    args=args,
+                    eot_token_id=eos_token_id,
+                    positive_token_id=pos_token_id,
+                    negative_token_id=neg_token_id,
+                    tb_writer=writer,
+                    prefix=f'{eval_code.lower()}_'
+                )
 
         # Saving checkpoints.
         if args.save_logs:
@@ -540,7 +561,7 @@ def get_token_id(model_name, tokenizer, token):
 def get_eval_data_object(args, eval_code, tokenizer, eval_start_time, eval_end_time):
     args = copy.deepcopy(args)
     args.eval_code = eval_code
-    args.tasks = 'eval'
+    args.tasks = ['eval']
     args.eval_mode = True
     args.eval_start_time = eval_start_time
     args.eval_end_time = eval_end_time
@@ -552,7 +573,7 @@ def get_eval_data_object(args, eval_code, tokenizer, eval_start_time, eval_end_t
         return_sample=False,
         eval_mode=True
     )
-    return eval_dataset
+    return {'val': eval_dataset}
 
 
 if __name__ == "__main__":
