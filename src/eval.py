@@ -1,6 +1,7 @@
 import copy
 import os
 import sys
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -17,9 +18,55 @@ from training.instruct.codes.processing import (
 from training.params import parse_args
 from training.precision import get_autocast, get_input_dtype
 
-gpu, start, end = sys.argv[1], sys.argv[2], sys.argv[3]
+from main import get_token_id, get_eos_token_id
 
-os.environ["CUDA_VISIBLE_DEVICES"] = gpu
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--gpu",
+    type=int,
+    required=True,
+    help="The GPU to run eval on",
+)
+parser.add_argument(
+    "--batch-size",
+    type=int,
+    required=True,
+    help="The batch size",
+)
+parser.add_argument(
+    "--start",
+    type=int,
+    required=True,
+    help="The start position of the phecode file",
+)
+parser.add_argument(
+    "--end",
+    type=int,
+    required=True,
+    help="The end position of the phecode file",
+)
+parser.add_argument(
+    "--model-type",
+    type=str,
+    reequired=True,
+    help="The config file used to train the model",
+)
+parser.add_argument(
+    "--model-folder",
+    type=str,
+    required=True,
+    help="The path to the model we are evaluating",
+)
+parser.add_argument(
+    "--eval-every-epoch",
+    type=int,
+    required=True,
+    help="Evaluate the models at every epoch",
+)
+
+args = parse_args(sys.argv[1:])
+
+os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
 
 def get_eval_dataloader(args, eval_code, tokenizer):
@@ -36,14 +83,6 @@ def get_eval_dataloader(args, eval_code, tokenizer):
     return eval_dataset_image.dataloader
 
 
-def get_eos_token_id(model_name, tokenizer):
-    if 'gpt' in model_name:
-        return tokenizer.tokenizer.encode('\n')[0]
-        # return tokenizer.tokenizer.eos_token_id
-    else:
-        return tokenizer.eot_token_id
-
-
 def compute_generative_loss(logits, labels, ignore_index=-100, reduction='mean'):
     if logits.dim() == 2:
         logits = logits.unsqueeze(1)
@@ -58,14 +97,7 @@ def compute_probability(loss):
 
 
 def get_token_scores(model_name, logits, tokens):
-    if 'gpt' in model_name:
-        convert_function = tokenizer.tokenizer.convert_tokens_to_ids
-    else:
-        def clip_encode(token):
-            return tokenizer.encode(token)[0]
-
-        convert_function = clip_encode
-    return {token: logits[:, convert_function(token)] for token in tokens}
+    return {token: logits[:, get_token_id(model_name, tokenizer, token)] for token in tokens}
 
 
 def convert_instructions_list_to_string(instructions):
@@ -139,14 +171,18 @@ def get_eval_dataframe(metadata, scores, labels):
     eval_df['labels'] = labels
     return eval_df
 
+for file_suffix, args_str, model_type, model_path in get_eval_attributes(
+        model_type=args.model_type,
+        model_folder=args.model_folder,
+        eval_every_epoch=args.eval_every_epoch,
+        batch_size=args.batch_size
+    ):
 
-for file_suffix, args_str, model_type, model_path in get_eval_attributes():
-    args_str = args_str.replace('"', '')
-    args = parse_args(args_str.split())
     print('Dataset: ', args.val_data)
     print('Model: ', model_path)
     encounter_dataframe = pd.read_parquet(
-        args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
+        args.encounter_file,
+        columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
     )
 
     encounter_dataframe_process = EncounterDataframeProcess(
@@ -180,6 +216,9 @@ for file_suffix, args_str, model_type, model_path in get_eval_attributes():
     phecodes_file = './eval_code_list.csv'
     test_phecodes = pd.read_csv(phecodes_file)['0']
 
+    codes = ['CV_416.214', 'CV_424.4', 'CV_416.42', 'EM_249', 'NS_324.11', 'CA_132', 'ID_092.2', 'EM_256.4', 'GU_627.2',
+             'GU_626.1']
+
     print('Number of codes: ', len(test_phecodes))
 
     prefix = Path(model_path).parent.parent.name
@@ -190,7 +229,7 @@ for file_suffix, args_str, model_type, model_path in get_eval_attributes():
 
     os.makedirs(filepath, exist_ok=True)
 
-    for phecode in test_phecodes[int(start): int(end)]:
+    for phecode in test_phecodes[int(args.start): int(args.end)]:
         print('PHECODE: ', phecode)
         dataloader = get_eval_dataloader(args=args, eval_code=phecode, tokenizer=tokenizer)
         eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
@@ -199,3 +238,4 @@ for file_suffix, args_str, model_type, model_path in get_eval_attributes():
                                                   eos_token_id=eos_token_id, args=args)
         eval_df = get_eval_dataframe(metadata, scores, labels)
         eval_df.to_parquet(f'{filepath}/{phecode}.parquet')
+
