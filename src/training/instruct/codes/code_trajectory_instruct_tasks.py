@@ -98,9 +98,8 @@ class CodeLabelPredictionTask(object):
             ]
         else:
             self._position_ranges = [
-                (-1, 30), (30, 60), (60, 90), (90, 120), (120, 150), (150, 180),
-                (180, 210), (210, 240), (240, 270), (270, 300), (300, 330),
-                (330, 360), (360, np.inf)
+                (-7, 30), (30, 90), (90, 180),
+                (180, 360), (360, np.inf)
             ]
         # We mainly use this to exclude any codes or encounters occurring in the (360, inf) time period
         if prediction_range_limit is None:
@@ -233,11 +232,12 @@ class CodeLabelPredictionTask(object):
                 for label, (encounter_history, counts) in enumerate(zip(histories, sample_counts))
             ]
 
-            self._document_count += 1
-            for label, codes in enumerate(sampled_codes):
-                self.update_code_counts(
-                    codes=codes[self._code_column], label=label
-                )
+            if self._update_code_counts:
+                self._document_count += 1
+                for label, codes in enumerate(sampled_codes):
+                    self.update_code_counts(
+                        codes=codes[self._code_column], label=label
+                    )
 
             label_samples = [
                 self.prepare_sampled_codes(
@@ -493,8 +493,11 @@ class CodeLabelPredictionTask(object):
             .rename(columns={self._code_column: 'count'})
             .reset_index()
         )
-        dynamic_idf_scores = self.get_dynamic_idf(codes=tf_idf[self._code_column], label=label)
-        tf_idf[self._weights_column] = tf_idf['count'] * tf_idf[self._idf_column] * dynamic_idf_scores
+        if self._update_code_counts:
+            weights = self.get_dynamic_idf(codes=tf_idf[self._code_column], label=label)
+        else:
+            weights = tf_idf[self._idf_column]
+        tf_idf[self._weights_column] = tf_idf['count'] * weights
         return tf_idf
 
     def prepare_sampled_codes(
@@ -767,16 +770,14 @@ class CodeLabelPredictionTask(object):
         else:
             return np.ones(len(codes))
 
-    def get_weights_for_negative_sampling(self, epsilon=1e-8):
+    @staticmethod
+    def get_weights_for_negative_sampling():
         """
         Weights for negative sampling
         Returns:
 
         """
-        if self._update_code_counts and self._document_count:
-            return np.log10((self._document_count + epsilon) / self._code_counts_negative[self._tf_column])
-        else:
-            return None
+        return None
 
 
 class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
