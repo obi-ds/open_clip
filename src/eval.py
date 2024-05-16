@@ -182,6 +182,20 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
 
     print('Dataset: ', args.val_data)
     print('Model: ', model_path)
+
+    prefix = Path(model_path).parent.parent.name
+    epoch = Path(model_path).name.split('.')[0]
+
+    filepath = f'/mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/{file_suffix}/{prefix}/' \
+               f'{epoch}/' \
+               f'{args.eval_start_time}-{args.eval_end_time}'
+
+    if os.path.exists(filepath):
+        print('Skipping: This result already exists')
+        continue
+
+    os.makedirs(filepath, exist_ok=True)
+
     encounter_dataframe = pd.read_parquet(
         args.encounter_file,
         columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
@@ -223,14 +237,6 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
     test_phecodes = test_phecodes[test_phecodes.isin(codes)]
 
     print('Number of codes: ', len(test_phecodes))
-
-    prefix = Path(model_path).parent.parent.name
-    epoch = Path(model_path).name.split('.')[0]
-
-    filepath = f'/mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/{file_suffix}/{prefix}/{epoch}/' \
-               f'{args.eval_start_time}-{args.eval_end_time}'
-
-    os.makedirs(filepath, exist_ok=True)
 
     for phecode in test_phecodes[int(eval_args.start): int(eval_args.end)]:
         print('PHECODE: ', phecode)
