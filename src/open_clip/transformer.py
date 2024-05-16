@@ -1611,17 +1611,3 @@ class ECGVisionTransformer(nn.Module):
             return pooled, tokens
 
         return pooled
-
-def text_global_pool(x, text: Optional[torch.Tensor] = None, pool_type: str = 'argmax'):
-    if pool_type == 'first':
-        pooled, tokens = x[:, 0], x[:, 1:]
-    elif pool_type == 'last':
-        pooled, tokens = x[:, -1], x[:, :-1]
-    elif pool_type == 'argmax':
-        # take features from the eot embedding (eot_token is the highest number in each sequence)
-        assert text is not None
-        pooled, tokens = x[torch.arange(x.shape[0]), text.argmax(dim=-1)], x
-    else:
-        pooled = tokens = x
-
-    return pooled, tokens
