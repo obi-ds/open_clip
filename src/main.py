@@ -433,6 +433,10 @@ def main(args):
     neg_token_id = get_token_id(model_name=args.model, tokenizer=tokenizer, token='no')
     print('Token IDS: ', (eos_token_id, pos_token_id, neg_token_id))
 
+    evaluation_codes = args.training_eval_codes
+    for eval_code in evaluation_codes:
+        pass
+
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
@@ -528,10 +532,27 @@ def get_eos_token_id(model_name, tokenizer):
 def get_token_id(model_name, tokenizer, token):
     if 'biogpt' in model_name or 'bio_gpt' in model_name:
         return tokenizer.tokenizer.encode(token)[1]
-    if 'gpt' in model_name:
+    elif 'gpt' in model_name:
         return tokenizer.tokenizer.convert_tokens_to_ids(token)
     else:
         return tokenizer.encode(token)[0]
+
+def get_eval_data_object(args, eval_code, tokenizer, eval_start_time, eval_end_time):
+    args = copy.deepcopy(args)
+    args.eval_code = eval_code
+    args.tasks = 'eval'
+    args.eval_mode = True
+    args.eval_start_time = eval_start_time
+    args.eval_end_time = eval_end_time
+    eval_dataset = get_wds_dataset_icd_instruct(
+        args,
+        preprocess_img=lambda x: x,
+        is_train=False,
+        tokenizer=tokenizer,
+        return_sample=False,
+        eval_mode=True
+    )
+    return eval_dataset
 
 
 if __name__ == "__main__":
