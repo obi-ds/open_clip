@@ -19,7 +19,7 @@ from .hf_model import BioGPTTextEncoder
 from .modified_resnet import ModifiedResNet
 from .timm_model import TimmModel
 from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer,\
-    text_global_pool, GlobalECGTransformer, WindowedECGTransformer
+    text_global_pool, GlobalECGTransformer, WindowedECGTransformer, ECGVisionTransformer
 from .utils import to_2tuple
 
 
@@ -90,7 +90,9 @@ class CLIPECGCfg:
     scattering_j: int = 12
     scattering_q: int = 12
     scattering_t: int = 64
-    windowed: bool = True
+    type: str = 'global'
+    windowed: bool = False
+    window_size: int = 50
     sample_windows: float = 0.8
     layers: Union[Tuple[int, int, int, int], int] = 12
     width: int = 768
@@ -105,6 +107,7 @@ class CLIPECGCfg:
     attn_pooler_heads: int = 8  # n heads for attentional_pooling
     final_ln_after_pool: bool = False  # apply final LayerNorm after pooling
     pool_type: str = 'avg'
+    reg_tokens: int = 0
     output_tokens: bool = False
 
 
@@ -251,34 +254,12 @@ def _build_ecg_tower(
     if isinstance(ecg_cfg, dict):
         ecg_cfg = CLIPECGCfg(**ecg_cfg)
 
-    print(ecg_cfg.windowed)
-
     # Initialize the model
     heads = ecg_cfg.width // ecg_cfg.head_width
     norm_layer = LayerNormFp32 if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
     act_layer = nn.GELU
 
-    if not ecg_cfg.windowed:
-        print('Global ECG')
-        model = GlobalECGTransformer(
-            scattering_j=ecg_cfg.scattering_j,
-            scattering_q=ecg_cfg.scattering_q,
-            scattering_t=ecg_cfg.scattering_t,
-            width=ecg_cfg.width,
-            layers=ecg_cfg.layers,
-            heads=heads,
-            patch_dropout=ecg_cfg.patch_dropout,
-            mlp_ratio=ecg_cfg.mlp_ratio,
-            ls_init_value=ecg_cfg.ls_init_value,
-            attentional_pool=ecg_cfg.attentional_pool,
-            attn_pooler_queries=ecg_cfg.attn_pooler_queries,
-            attn_pooler_heads=ecg_cfg.attn_pooler_heads,
-            output_tokens=ecg_cfg.output_tokens,
-            output_dim=embed_dim,
-            act_layer=act_layer,
-            norm_layer=norm_layer,
-        )
-    else:
+    if ecg_cfg.type == 'windowed':
         model = WindowedECGTransformer(
             scattering_j=ecg_cfg.scattering_j,
             scattering_q=ecg_cfg.scattering_q,
@@ -298,7 +279,48 @@ def _build_ecg_tower(
             output_dim=embed_dim,
             act_layer=act_layer,
             norm_layer=norm_layer,
+            reg_tokens=ecg_cfg.reg_tokens,
         )
+    elif ecg_cfg.type == 'ecgvision':
+        model = ECGVisionTransformer(
+            window_size=ecg_cfg.window_size,
+            width=ecg_cfg.width,
+            layers=ecg_cfg.layers,
+            heads=heads,
+            patch_dropout=ecg_cfg.patch_dropout,
+            mlp_ratio=ecg_cfg.mlp_ratio,
+            ls_init_value=ecg_cfg.ls_init_value,
+            attentional_pool=ecg_cfg.attentional_pool,
+            attn_pooler_queries=ecg_cfg.attn_pooler_queries,
+            attn_pooler_heads=ecg_cfg.attn_pooler_heads,
+            pool_type=ecg_cfg.pool_type,
+            output_tokens=ecg_cfg.output_tokens,
+            output_dim=embed_dim,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+            reg_tokens=ecg_cfg.reg_tokens,
+        )
+    elif ecg_cfg.type == 'global':
+        model = GlobalECGTransformer(
+            scattering_j=ecg_cfg.scattering_j,
+            scattering_q=ecg_cfg.scattering_q,
+            scattering_t=ecg_cfg.scattering_t,
+            width=ecg_cfg.width,
+            layers=ecg_cfg.layers,
+            heads=heads,
+            patch_dropout=ecg_cfg.patch_dropout,
+            mlp_ratio=ecg_cfg.mlp_ratio,
+            ls_init_value=ecg_cfg.ls_init_value,
+            attentional_pool=ecg_cfg.attentional_pool,
+            attn_pooler_queries=ecg_cfg.attn_pooler_queries,
+            attn_pooler_heads=ecg_cfg.attn_pooler_heads,
+            output_tokens=ecg_cfg.output_tokens,
+            output_dim=embed_dim,
+            act_layer=act_layer,
+            norm_layer=norm_layer,
+        )
+    else:
+        raise ValueError(f"Unknown ECG type: {ecg_cfg.type}")
 
     return model
 

@@ -12,12 +12,13 @@
         "attn_pooler_heads": 8
     },
     "ecg_cfg": {
+        "type": "ecgvision",
         "layers": 12,
         "width": 1024,
         "patch_dropout": 0.0,
         "output_tokens": true,
-        "windowed": true,
-        "sample_windows": 0.3,
+        "windowed": false,
+        "sample_windows": 0.0,
         "use_scattering": false,
         "attentional_pool": false,
         "pool_type": "avg"

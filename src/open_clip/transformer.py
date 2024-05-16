@@ -875,7 +875,8 @@ class GlobalECGTransformer(nn.Module):
             norm_layer=norm_layer,
         )
 
-        self.global_average_pool = global_average_pool
+        # TODO implement this, supposed to simplify training - or check if it's the same as 'avg' pool type
+        #self.global_average_pool = global_average_pool
         if attentional_pool:
             self.attn_pool = AttentionalPooler(output_dim, width, n_head=attn_pooler_heads, n_queries=attn_pooler_queries)
             self.ln_post = norm_layer(output_dim)
@@ -970,12 +971,13 @@ class WindowedECGTransformer(nn.Module):
                  use_scattering: bool = False,
                  scattering_j: int = 6,
                  scattering_q: int = 8,
-                 scattering_t: int = None
+                 scattering_t: int = None,
+                 reg_tokens: int = 0,
                  ):
         super().__init__()
 
         print(layers, window_size, num_windows)
-        assert pool_type in ('tok', 'avg', 'none')
+        assert pool_type in ('prefix', 'tok', 'avg', 'none')
         # TODO attentional_pool has dimension mismatch (width vs output_size)
         # Given normalized_shape=[768], expected input with shape [*, 768], but got input of size[256, 4, 512]
         # open_clip/transformer.py", line 239, in forward
@@ -988,6 +990,9 @@ class WindowedECGTransformer(nn.Module):
         self.stride = (total_length - window_size) // (num_windows - 1)
         scale = width ** -0.5
         self.cls_token = nn.Parameter(scale * torch.randn(1, 1, width))
+        self.reg_token = nn.Parameter(scale * torch.randn(1, reg_tokens, width)) if reg_tokens > 0 else None
+        self.prefix_tokens = 1 + reg_tokens
+
         self.patch_dropout = PatchDropout(patch_dropout) if patch_dropout > 0. else nn.Identity()
         self.ln_pre = nn.Identity() if no_ln_pre else norm_layer(width)
 
@@ -1000,11 +1005,12 @@ class WindowedECGTransformer(nn.Module):
             self.scattering_signal_length = dummy_output.shape[1]
             self.scattering_output_size = dummy_output.shape[0]
             self.scattering_output_dim = (dummy_output.shape[-1] - 1) * dummy_output.shape[-2]
-            self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * (2500 // self.stride) + 1, width))
+            self.positional_embedding = \
+                nn.Parameter(torch.randn(1, num_leads * (2500 // self.stride) +  self.prefix_tokens, width))
 
-            self.input_projection = nn.Linear(in_features=(
-                    (self.scattering_output_size - 1) * self.scattering_signal_length), 
-                    out_features=width)
+            self.input_projection = nn.Linear(
+                in_features=((self.scattering_output_size - 1) * self.scattering_signal_length), 
+                out_features=width)
             
         else:
             # use a CNN instead of scattering transform
@@ -1013,7 +1019,7 @@ class WindowedECGTransformer(nn.Module):
             
             # CNN channels , pooling dimensions, avg and max pooling
             self.cnn_output_dim = 64*4*2
-            self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * num_windows + 1, width))
+            self.positional_embedding = nn.Parameter(torch.randn(1, num_leads * num_windows + self.prefix_tokens, width))
             self.input_projection = nn.Linear(in_features=self.cnn_output_dim, out_features=width)
 
         # Transformer network
@@ -1076,8 +1082,10 @@ class WindowedECGTransformer(nn.Module):
 
 
     def _global_pool(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        if self.pool_type == 'avg':
-            pooled, tokens = x[:, 1:].mean(dim=1), x[:, 1:]
+        if self.pool_type == 'prefix':
+            pooled, tokens = x[:, :self.prefix_tokens].mean(dim=1), x[:, self.prefix_tokens:]
+        elif self.pool_type == 'avg':
+            pooled, tokens = x.mean(dim=1), x[:, self.prefix_tokens:]
         elif self.pool_type == 'tok':
             pooled, tokens = x[:, 0], x[:, 1:]
         else:
@@ -1119,6 +1127,11 @@ class WindowedECGTransformer(nn.Module):
 
         # concatenate the CLS token, and add the position tokens to each lead
         x = torch.cat([self.cls_token.expand(batch_size, -1, -1), x], dim=1)
+
+        # add the reg tokens if they exist
+        if self.reg_token is not None:
+            x = torch.cat([self.reg_token.expand(batch_size, -1, -1), x], dim=1)
+
         x = x + self.positional_embedding
         x = self.patch_dropout(x)
         x = self.ln_pre(x)
@@ -1252,53 +1265,170 @@ class EnhancedCNN(nn.Module):
         return x
 
 
+class ECGFeatureExtractor(nn.Module):
+    def __init__(self, initial_kernel_num=64, normalization_weights_path=None):
+        super(ECGFeatureExtractor, self).__init__()
+        self.initial_conv = nn.Sequential(
+            nn.Conv2d(1, initial_kernel_num, kernel_size=(7, 3), stride=(2, 1), padding='same'),
+            nn.BatchNorm2d(initial_kernel_num),
+            nn.ReLU()
+        )
+        self.multi_conv2d_1 = MultiConv2D(initial_kernel_num)
+        self.multi_conv2d_2 = MultiConv2D(initial_kernel_num)
+        self.pool = nn.MaxPool2d(kernel_size=(2, 1))
+
+        # Load normalization weights if provided
+        if normalization_weights_path:
+            normalization_weights = torch.load(normalization_weights_path)
+            self.mean_voltages = normalization_weights['mean_voltages']
+            self.std_voltages = normalization_weights['std_voltages']
+        else:
+            self.mean_voltages = torch.tensor(
+                [-4.62180513, -3.64374298,  0.88234237,  4.08940749, -2.79633746,
+                 -1.38680143, -5.51003369, -4.81544609, -4.50942346, -3.6665998 ,
+                 -3.37208951, -3.29693622])
+            self.std_voltages = torch.tensor(
+                [148.85924418, 171.704402, 164.00372902, 138.56079863,
+                 131.20193065, 150.56085525, 185.1619762 , 256.89095455,
+                 269.78030527, 248.16310052, 230.36923571, 186.81054338])
+
+    def forward(self, x):
+        # normalize input if weights are provided
+        if self.mean_voltages is not None and self.std_voltages is not None:
+            x = (x - self.mean_voltages) / self.std_voltages
+
+        x = self.initial_conv(x)
+        x = self.multi_conv2d_1(x)
+        x = self.multi_conv2d_2(x)
+        x = self.pool(x)
+        return x
+
+class MultiConv2D(nn.Module):
+    def __init__(self, num_kernel, activation=nn.ReLU()):
+        super(MultiConv2D, self).__init__()
+        self.activation = activation
+        self.kreg = None  # No regularization in this example
+
+        self.sk = nn.Sequential(
+            nn.Conv2d(1, int(num_kernel * 3), kernel_size=1, padding='same'),
+            nn.BatchNorm2d(int(num_kernel * 3))
+        )
+
+        self.a = nn.Sequential(
+            nn.Conv2d(1, int(num_kernel), kernel_size=1, padding='same'),
+            nn.BatchNorm2d(int(num_kernel)),
+            activation,
+            nn.Conv2d(int(num_kernel), num_kernel, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(num_kernel),
+            activation
+        )
+
+        self.b = nn.Sequential(
+            nn.Conv2d(1, int(num_kernel), kernel_size=1, padding='same'),
+            nn.BatchNorm2d(int(num_kernel)),
+            activation,
+            nn.Conv2d(int(num_kernel), num_kernel, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(num_kernel),
+            activation,
+            nn.Conv2d(num_kernel, num_kernel, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(num_kernel),
+            activation
+        )
+
+        self.c = nn.Sequential(
+            nn.Conv2d(1, int(num_kernel), kernel_size=1, padding='same'),
+            nn.BatchNorm2d(int(num_kernel)),
+            activation
+        )
+
+    def forward(self, x):
+        sk = self.sk(x)
+
+        a = self.a(x)
+        b = self.b(x)
+        c = self.c(x)
+
+        res = torch.cat([a, b, c], dim=1)
+        res = res + sk
+        res = F.relu(res)
+        return res
+
+
 class ECGVisionTransformer(nn.Module):
     output_tokens: torch.jit.Final[bool]
 
     def __init__(
             self,
-            image_size: int,
-            patch_size: int,
+            window_size: int,
             width: int,
             layers: int,
             heads: int,
             mlp_ratio: float,
             ls_init_value: float = None,
             attentional_pool: bool = False,
+            input_length: int = 2500,
+            n_leads: int = 12,
             attn_pooler_queries: int = 256,
             attn_pooler_heads: int = 8,
             output_dim: int = 512,
             patch_dropout: float = 0.,
             no_ln_pre: bool = False,
+            reg_tokens: int = 0,
             pos_embed_type: str = 'learnable',
             pool_type: str = 'tok',
             final_ln_after_pool: bool = False,
             act_layer: Callable = nn.GELU,
             norm_layer: Callable = LayerNorm,
             output_tokens: bool = False,
-            in_channels: int = 3
+            normalization_weights_path: str = None
     ):
         super().__init__()
         assert pool_type in ('tok', 'avg', 'none')
         self.output_tokens = output_tokens
-        # TODO: Recompute with 1D
-        image_height, image_width = self.image_size = to_2tuple(image_size)
-        patch_height, patch_width = self.patch_size = to_2tuple(patch_size)
-        self.grid_size = (image_height // patch_height, image_width // patch_width)
+        # image_height, image_width = self.image_size = to_2tuple(image_size)
+        # patch_height, patch_width = self.patch_size = to_2tuple(patch_size)
+        # self.grid_size = (image_height // patch_height, image_width // patch_width)
+
+        # TODO get this working on the GPU
+        # # Load normalization weights if provided
+        # if normalization_weights_path:
+        #     normalization_weights = torch.load(normalization_weights_path)
+        #     self.mean_voltages = normalization_weights['mean_voltages']
+        #     self.std_voltages = normalization_weights['std_voltages']
+        # else:
+        #     self.mean_voltages = torch.tensor(
+        #         [-4.62180513, -3.64374298,  0.88234237,  4.08940749, -2.79633746,
+        #          -1.38680143, -5.51003369, -4.81544609, -4.50942346, -3.6665998 ,
+        #          -3.37208951, -3.29693622])
+        #     self.std_voltages = torch.tensor(
+        #         [148.85924418, 171.704402, 164.00372902, 138.56079863,
+        #          131.20193065, 150.56085525, 185.1619762 , 256.89095455,
+        #          269.78030527, 248.16310052, 230.36923571, 186.81054338])
+
+        # use window size to determine the grid size
+        self.grid_size = input_length // window_size
+
+        kernel_size = (n_leads, window_size)
+        stride = (n_leads, window_size)
+
         self.final_ln_after_pool = final_ln_after_pool  # currently ignored w/ attn pool enabled
         self.output_dim = output_dim
-        # TODO: 1D Convolution
+
         self.conv1 = nn.Conv2d(
-            in_channels=in_channels, out_channels=width, kernel_size=patch_size, stride=patch_size, bias=False
+            in_channels=1, out_channels=width, kernel_size=kernel_size, stride=stride, bias=False
+            # in_channels=n_leads, out_channels=width, kernel_size=kernel_size, stride=stride, bias=False
         )
+
+        # # Move normalization tensors to the correct device
+        # self.mean_voltages = self.mean_voltages.to(self.conv1.weight.device)
+        # self.std_voltages = self.std_voltages.to(self.conv1.weight.device)
 
         # class embeddings and positional embeddings
         scale = width ** -0.5
         self.class_embedding = nn.Parameter(scale * torch.randn(width))
-        if pos_embed_type == 'learnable':
-            self.positional_embedding = nn.Parameter(
-                scale * torch.randn(self.grid_size[0] * self.grid_size[1] + 1, width)
-            )
+        self.reg_token = nn.Parameter(scale * torch.randn(reg_tokens, width)) if reg_tokens > 0 else None
+        self.prefix = 1 + reg_tokens
+        self.positional_embedding = nn.Parameter(scale * torch.randn(self.grid_size + self.prefix, width))
 
         # setting a patch_dropout of 0. would mean it is disabled and this function would be the identity fn
         self.patch_dropout = PatchDropout(patch_dropout) if patch_dropout > 0. else nn.Identity()
@@ -1422,12 +1552,26 @@ class ECGVisionTransformer(nn.Module):
         return pooled, tokens
 
     def forward(self, x: torch.Tensor):
-        x = self.conv1(x)  # shape = [*, width, grid, grid]
-        x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
-        x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
+
+        # TODO implement normalization
+        # if self.mean_voltages is not None and self.std_voltages is not None:
+        #     x = (x - self.mean_voltages.view(1, -1, 1)) / self.std_voltages.view(1, -1, 1)
+
+        # add log transform of inputs
+        x = torch.sign(x) * torch.log1p(torch.abs(x))
+
+        x = x.unsqueeze(1)  # shape = [batch_size, 1, n_leads, input_length]
+        x = self.conv1(x)  # shape = [batch_size, width, grid_size, 1]
+        x = x.squeeze(2)  # Remove the extra dimension, shape = [batch_size, width, grid_size]
+        x = x.permute(0, 2, 1)  # shape = [batch_size, grid_size, width]
 
         # class embeddings and positional embeddings
         x = torch.cat([_expand_token(self.class_embedding, x.shape[0]).to(x.dtype), x], dim=1)
+
+        # add the reg tokens if they exist
+        if self.reg_token is not None:
+            x = torch.cat([self.reg_token.expand(x.shape[0], -1, -1).to(x.dtype), x], dim=1)
+
         # shape = [*, grid ** 2 + 1, width]
         x = x + self.positional_embedding.to(x.dtype)
 
@@ -1467,3 +1611,17 @@ class ECGVisionTransformer(nn.Module):
             return pooled, tokens
 
         return pooled
+
+def text_global_pool(x, text: Optional[torch.Tensor] = None, pool_type: str = 'argmax'):
+    if pool_type == 'first':
+        pooled, tokens = x[:, 0], x[:, 1:]
+    elif pool_type == 'last':
+        pooled, tokens = x[:, -1], x[:, :-1]
+    elif pool_type == 'argmax':
+        # take features from the eot embedding (eot_token is the highest number in each sequence)
+        assert text is not None
+        pooled, tokens = x[torch.arange(x.shape[0]), text.argmax(dim=-1)], x
+    else:
+        pooled = tokens = x
+
+    return pooled, tokens
