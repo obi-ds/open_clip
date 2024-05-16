@@ -1281,12 +1281,13 @@ class ECGVisionTransformer(nn.Module):
         super().__init__()
         assert pool_type in ('tok', 'avg', 'none')
         self.output_tokens = output_tokens
+        # TODO: Recompute with 1D
         image_height, image_width = self.image_size = to_2tuple(image_size)
         patch_height, patch_width = self.patch_size = to_2tuple(patch_size)
         self.grid_size = (image_height // patch_height, image_width // patch_width)
         self.final_ln_after_pool = final_ln_after_pool  # currently ignored w/ attn pool enabled
         self.output_dim = output_dim
-
+        # TODO: 1D Convolution
         self.conv1 = nn.Conv2d(
             in_channels=in_channels, out_channels=width, kernel_size=patch_size, stride=patch_size, bias=False
         )
@@ -1296,17 +1297,8 @@ class ECGVisionTransformer(nn.Module):
         self.class_embedding = nn.Parameter(scale * torch.randn(width))
         if pos_embed_type == 'learnable':
             self.positional_embedding = nn.Parameter(
-                scale * torch.randn(self.grid_size[0] * self.grid_size[1] + 1, width))
-        elif pos_embed_type == 'sin_cos_2d':
-            # fixed sin-cos embedding
-            assert self.grid_size[0] == self.grid_size[1], \
-                'currently sin cos 2d pos embedding only supports square input'
-            self.positional_embedding = nn.Parameter(
-                torch.zeros(self.grid_size[0] * self.grid_size[1] + 1, width), requires_grad=False)
-            pos_embed_type = get_2d_sincos_pos_embed(width, self.grid_size[0], cls_token=True)
-            self.positional_embedding.data.copy_(torch.from_numpy(pos_embed_type).float())
-        else:
-            raise ValueError
+                scale * torch.randn(self.grid_size[0] * self.grid_size[1] + 1, width)
+            )
 
         # setting a patch_dropout of 0. would mean it is disabled and this function would be the identity fn
         self.patch_dropout = PatchDropout(patch_dropout) if patch_dropout > 0. else nn.Identity()
@@ -1475,18 +1467,3 @@ class ECGVisionTransformer(nn.Module):
             return pooled, tokens
 
         return pooled
-
-
-def text_global_pool(x, text: Optional[torch.Tensor] = None, pool_type: str = 'argmax'):
-    if pool_type == 'first':
-        pooled, tokens = x[:, 0], x[:, 1:]
-    elif pool_type == 'last':
-        pooled, tokens = x[:, -1], x[:, :-1]
-    elif pool_type == 'argmax':
-        # take features from the eot embedding (eot_token is the highest number in each sequence)
-        assert text is not None
-        pooled, tokens = x[torch.arange(x.shape[0]), text.argmax(dim=-1)], x
-    else:
-        pooled = tokens = x
-
-    return pooled, tokens
