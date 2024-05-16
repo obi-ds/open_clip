@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 from torch.nn import functional as F
 
-from eval_args import get_eval_attributes
+from eval_args import get_model_details_for_eval
 from open_clip import get_cast_dtype
 from open_clip.factory import get_tokenizer, create_model_and_transforms
 from training.data import get_wds_dataset_icd_instruct
@@ -23,7 +23,7 @@ from main import get_token_id, get_eos_token_id
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--gpu",
-    type=int,
+    type=str,
     required=True,
     help="The GPU to run eval on",
 )
@@ -48,7 +48,7 @@ parser.add_argument(
 parser.add_argument(
     "--model-type",
     type=str,
-    reequired=True,
+    required=True,
     help="The config file used to train the model",
 )
 parser.add_argument(
@@ -64,10 +64,9 @@ parser.add_argument(
     help="Evaluate the models at every epoch",
 )
 
-args = parse_args(sys.argv[1:])
+eval_args = parser.parse_args(sys.argv[1:])
 
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-
+os.environ["CUDA_VISIBLE_DEVICES"] = str(eval_args.gpu)
 
 def get_eval_dataloader(args, eval_code, tokenizer):
     args = copy.deepcopy(args)
@@ -171,12 +170,15 @@ def get_eval_dataframe(metadata, scores, labels):
     eval_df['labels'] = labels
     return eval_df
 
-for file_suffix, args_str, model_type, model_path in get_eval_attributes(
-        model_type=args.model_type,
-        model_folder=args.model_folder,
-        eval_every_epoch=args.eval_every_epoch,
-        batch_size=args.batch_size
+for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
+        model_type=eval_args.model_type,
+        model_folder=eval_args.model_folder,
+        eval_every_epoch=eval_args.eval_every_epoch,
+        batch_size=eval_args.batch_size
     ):
+
+    args_str = args_str.replace('"', '')
+    args = parse_args(args_str.split())
 
     print('Dataset: ', args.val_data)
     print('Model: ', model_path)
@@ -218,6 +220,7 @@ for file_suffix, args_str, model_type, model_path in get_eval_attributes(
 
     codes = ['CV_416.214', 'CV_424.4', 'CV_416.42', 'EM_249', 'NS_324.11', 'CA_132', 'ID_092.2', 'EM_256.4', 'GU_627.2',
              'GU_626.1']
+    test_phecodes = test_phecodes[test_phecodes.isin(codes)]
 
     print('Number of codes: ', len(test_phecodes))
 
@@ -229,7 +232,7 @@ for file_suffix, args_str, model_type, model_path in get_eval_attributes(
 
     os.makedirs(filepath, exist_ok=True)
 
-    for phecode in test_phecodes[int(args.start): int(args.end)]:
+    for phecode in test_phecodes[int(eval_args.start): int(eval_args.end)]:
         print('PHECODE: ', phecode)
         dataloader = get_eval_dataloader(args=args, eval_code=phecode, tokenizer=tokenizer)
         eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
