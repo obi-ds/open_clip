@@ -1385,10 +1385,10 @@ class ECGVisionTransformer(nn.Module):
         super().__init__()
         assert pool_type in ('tok', 'avg', 'none')
         self.output_tokens = output_tokens
-        #image_height, image_width = self.image_size = to_2tuple(image_size)
-        #patch_height, patch_width = self.patch_size = to_2tuple(patch_size)
-        #self.grid_size = (image_height // patch_height, image_width // patch_width)
-        
+        # image_height, image_width = self.image_size = to_2tuple(image_size)
+        # patch_height, patch_width = self.patch_size = to_2tuple(patch_size)
+        # self.grid_size = (image_height // patch_height, image_width // patch_width)
+
         # TODO get this working on the GPU
         # # Load normalization weights if provided
         # if normalization_weights_path:
@@ -1405,7 +1405,6 @@ class ECGVisionTransformer(nn.Module):
         #          131.20193065, 150.56085525, 185.1619762 , 256.89095455,
         #          269.78030527, 248.16310052, 230.36923571, 186.81054338])
 
-
         # use window size to determine the grid size
         self.grid_size = input_length // window_size
 
@@ -1417,7 +1416,7 @@ class ECGVisionTransformer(nn.Module):
 
         self.conv1 = nn.Conv2d(
             in_channels=1, out_channels=width, kernel_size=kernel_size, stride=stride, bias=False
-            #in_channels=n_leads, out_channels=width, kernel_size=kernel_size, stride=stride, bias=False
+            # in_channels=n_leads, out_channels=width, kernel_size=kernel_size, stride=stride, bias=False
         )
 
         # # Move normalization tensors to the correct device
@@ -1429,8 +1428,8 @@ class ECGVisionTransformer(nn.Module):
         self.class_embedding = nn.Parameter(scale * torch.randn(width))
         self.reg_token = nn.Parameter(scale * torch.randn(reg_tokens, width)) if reg_tokens > 0 else None
         self.prefix = 1 + reg_tokens
-        self.positional_embedding = nn.Parameter(scale * torch.randn(self.grid_size + self.prefix, width))  
-        
+        self.positional_embedding = nn.Parameter(scale * torch.randn(self.grid_size + self.prefix, width))
+
         # setting a patch_dropout of 0. would mean it is disabled and this function would be the identity fn
         self.patch_dropout = PatchDropout(patch_dropout) if patch_dropout > 0. else nn.Identity()
 
@@ -1566,14 +1565,12 @@ class ECGVisionTransformer(nn.Module):
         x = x.squeeze(2)  # Remove the extra dimension, shape = [batch_size, width, grid_size]
         x = x.permute(0, 2, 1)  # shape = [batch_size, grid_size, width]
 
-
         # class embeddings and positional embeddings
         x = torch.cat([_expand_token(self.class_embedding, x.shape[0]).to(x.dtype), x], dim=1)
 
         # add the reg tokens if they exist
         if self.reg_token is not None:
             x = torch.cat([self.reg_token.expand(x.shape[0], -1, -1).to(x.dtype), x], dim=1)
-            
 
         # shape = [*, grid ** 2 + 1, width]
         x = x + self.positional_embedding.to(x.dtype)
@@ -1614,17 +1611,3 @@ class ECGVisionTransformer(nn.Module):
             return pooled, tokens
 
         return pooled
-
-def text_global_pool(x, text: Optional[torch.Tensor] = None, pool_type: str = 'argmax'):
-    if pool_type == 'first':
-        pooled, tokens = x[:, 0], x[:, 1:]
-    elif pool_type == 'last':
-        pooled, tokens = x[:, -1], x[:, :-1]
-    elif pool_type == 'argmax':
-        # take features from the eot embedding (eot_token is the highest number in each sequence)
-        assert text is not None
-        pooled, tokens = x[torch.arange(x.shape[0]), text.argmax(dim=-1)], x
-    else:
-        pooled = tokens = x
-
-    return pooled, tokens

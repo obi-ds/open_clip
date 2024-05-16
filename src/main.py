@@ -433,6 +433,18 @@ def main(args):
     neg_token_id = get_token_id(model_name=args.model, tokenizer=tokenizer, token='no')
     print('Token IDS: ', (eos_token_id, pos_token_id, neg_token_id))
 
+    evaluation_codes = args.training_eval_codes
+    eval_data_objects = [
+        get_eval_data_object(
+            args=args,
+            eval_code=eval_code,
+            tokenizer=tokenizer,
+            eval_start_time=0,
+            eval_end_time=180
+        )
+        for eval_code in evaluation_codes
+    ]
+
     for epoch in range(start_epoch, args.epochs):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
@@ -451,6 +463,19 @@ def main(args):
                 negative_token_id=neg_token_id,
                 tb_writer=writer
             )
+
+            for eval_data_object, eval_code in zip(eval_data_objects, evaluation_codes):
+                evaluate_instruct_basic(
+                    model=model,
+                    data=eval_data_object,
+                    epoch=completed_epoch,
+                    args=args,
+                    eot_token_id=eos_token_id,
+                    positive_token_id=pos_token_id,
+                    negative_token_id=neg_token_id,
+                    tb_writer=writer,
+                    prefix=f'{eval_code.lower()}_'
+                )
 
         # Saving checkpoints.
         if args.save_logs:
@@ -528,10 +553,27 @@ def get_eos_token_id(model_name, tokenizer):
 def get_token_id(model_name, tokenizer, token):
     if 'biogpt' in model_name or 'bio_gpt' in model_name:
         return tokenizer.tokenizer.encode(token)[1]
-    if 'gpt' in model_name:
+    elif 'gpt' in model_name:
         return tokenizer.tokenizer.convert_tokens_to_ids(token)
     else:
         return tokenizer.encode(token)[0]
+
+def get_eval_data_object(args, eval_code, tokenizer, eval_start_time, eval_end_time):
+    args = copy.deepcopy(args)
+    args.eval_code = eval_code
+    args.tasks = ['eval']
+    args.eval_mode = True
+    args.eval_start_time = eval_start_time
+    args.eval_end_time = eval_end_time
+    eval_dataset = get_wds_dataset_icd_instruct(
+        args,
+        preprocess_img=lambda x: x,
+        is_train=False,
+        tokenizer=tokenizer,
+        return_sample=False,
+        eval_mode=True
+    )
+    return {'val': eval_dataset}
 
 
 if __name__ == "__main__":
