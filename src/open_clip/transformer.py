@@ -1429,6 +1429,7 @@ class ECGVisionTransformer(nn.Module):
         self.reg_token = nn.Parameter(scale * torch.randn(reg_tokens, width)) if reg_tokens > 0 else None
         self.prefix = 1 + reg_tokens
         self.positional_embedding = nn.Parameter(scale * torch.randn(self.grid_size + self.prefix, width))
+        print(f'ECG positional embedding shape: {self.positional_embedding.shape}')
 
         # setting a patch_dropout of 0. would mean it is disabled and this function would be the identity fn
         self.patch_dropout = PatchDropout(patch_dropout) if patch_dropout > 0. else nn.Identity()
