@@ -249,7 +249,6 @@ def create_model(
                 model = ECGCoCa(
                     **model_cfg,
                     **model_kwargs,
-                    pad_id=model_cfg['text_cfg']['pad_id'],
                     cast_dtype=cast_dtype
                 )
             elif "multimodal_cfg" in model_cfg:

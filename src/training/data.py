@@ -489,7 +489,7 @@ def get_wds_dataset_icd_instruct(
     )
 
     image_key, text_key = get_sample_keys(args)
-    if return_sample or args.eval_mode:
+    if return_sample:
         rename = wds.rename(image=image_key, text=text_key, labels=text_key)
         return_tuple = wds.to_tuple("image", "text", "labels")
     else:

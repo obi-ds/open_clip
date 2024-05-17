@@ -51,13 +51,6 @@ def get_all_code_label_prediction_task(args):
         time_bins
     ) = get_code_label_task_objects(args)
 
-    # samples_per_worker = get_samples_per_worker(
-    #     num_samples=args.train_num_samples,
-    #     epochs=args.epochs,
-    #     world_size=args.world_size,
-    #     num_workers=args.workers
-    # )
-
     return CodeLabelPredictionTask(
         encounter_dataframe_process=encounter_dataframe_process,
         dataframe_sampling=dataframe_sampling,
@@ -470,26 +463,6 @@ def get_lab_dataframe_process(lab_dataframes, args):
         code_column=args.code_column,
         position_column=args.position_column,
     )
-
-
-def get_samples_per_worker(
-        num_samples,
-        epochs,
-        world_size,
-        num_workers
-):
-    """
-
-    Args:
-        num_samples:
-        epochs:
-        world_size:
-        num_workers:
-
-    Returns:
-
-    """
-    return math.floor((num_samples * epochs) / (world_size * num_workers))
 
 
 def get_example_separator(args):

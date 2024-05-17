@@ -101,5 +101,12 @@ def get_code_instruct_arguments():
         action="store_true",
         help="Update lab counts and IDFs"
     )
+    parser.add_argument(
+        "--training-eval-codes",
+        type=str,
+        nargs='+',
+        help="The codes we want to evaluate during training",
+    )
+
 
     return parser
