@@ -14,7 +14,7 @@ python eval.py \
 --epoch-start 30 \
 --eval-every-epoch 10 \
 --file-suffix 24_03_mgh_val \
---output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/test/
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/
 
 #python eval.py \
 #--gpu 3 \
