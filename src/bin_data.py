@@ -1,11 +1,12 @@
 import os
 import sys
+import argparse
 
 import blosc
 import pandas as pd
 import webdataset as wds
 
-from bin_args import get_args
+from bin_args import get_args_for_binning
 from open_clip import get_cast_dtype
 from training.data import get_sample_keys
 from training.instruct.codes.processing import (
@@ -14,8 +15,69 @@ from training.instruct.codes.processing import (
 from training.params import parse_args
 from training.precision import get_autocast, get_input_dtype
 
-start, end = sys.argv[1], sys.argv[2]
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--phecode-file",
+    type=str,
+    required=True,
+    help="The location to the phecode file",
+)
+parser.add_argument(
+    "--start",
+    type=int,
+    required=True,
+    help="The start position of the phecode file",
+)
+parser.add_argument(
+    "--end",
+    type=int,
+    required=True,
+    help="The end position of the phecode file",
+)
+parser.add_argument(
+    "--bin-data",
+    type=str,
+    required=True,
+    help="The path where the shards are located",
+)
+parser.add_argument(
+    "--num-samples",
+    type=str,
+    required=True,
+    help="The number of samples in the shards",
+)
+parser.add_argument(
+    "--output-folder",
+    type=str,
+    required=True,
+    help="Where to write the binned data",
+)
+parser.add_argument(
+    "--file-suffix",
+    type=str,
+    required=True,
+    help="A suffix to distinguish between different dataset",
+)
+parser.add_argument(
+    "--dataset-type",
+    type=str,
+    required=True,
+    help="A suffix to distinguish between ecg and cyto",
+)
+parser.add_argument(
+    "--code-column",
+    type=str,
+    default='phecode',
+    help="Column containing the codes",
+)
+parser.add_argument(
+    "--result-date-column",
+    type=str,
+    default='TestDate',
+    help="Column containing the codes",
+)
 
+bin_data_args = parser.parse_args(sys.argv[1:])
 
 def get_encounter_history(patient_id, current_time, encounter_dataframe_process):
     return encounter_dataframe_process.get_patient_encounter_history_with_position(
@@ -101,9 +163,18 @@ def evaluate_label(dataloader, eval_code, args):
 
 tokenizer = None
 
-for file_suffix, args_str in get_args():
+for file_suffix, args_str in get_args_for_binning(
+        bin_data=bin_data_args.bin_data,
+        num_samples=bin_data_args.num_samples,
+        file_suffix=bin_data_args.file_suffix,
+        model_type=bin_data_args.dataset_type,
+        result_date_column=bin_data_args.result_date_column,
+        code_column=bin_data_args.code_column
+    ):
     args_str = args_str.replace('"', '')
     args = parse_args(args_str.split())
+
+    print('Dataset: ', args.val_data)
 
     encounter_dataframe = pd.read_parquet(
         args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
@@ -122,20 +193,20 @@ for file_suffix, args_str in get_args():
     cast_dtype = get_cast_dtype(args.precision)
     input_dtype = get_input_dtype(args.precision)
 
-    phecodes_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
-    test_phecodes_df = pd.read_csv(phecodes_file, encoding='ISO-8859-1')
-    test_phecodes = test_phecodes_df['phecode']
+    # phecodes_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
+    test_phecodes_df = pd.read_csv(bin_data_args.phecode_file, encoding='ISO-8859-1')
+    test_phecodes = test_phecodes_df[bin_data_args.code_column]
 
     # phecodes_file = './eval_code_list.csv'
     # test_phecodes = pd.read_csv(phecodes_file)['0']
 
-    filepath = f'/mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/time_bins/{file_suffix}'
+    filepath = f'{bin_data_args.output_folder}/{file_suffix}'
 
     os.makedirs(filepath, exist_ok=True)
 
     dataloader = get_eval_dataloader(args=args)
 
-    for phecode in test_phecodes[int(start): int(end)]:
+    for phecode in test_phecodes[int(bin_data_args.start): int(bin_data_args.end)]:
         print('PHECODE: ', phecode)
         binned_status_df = evaluate_label(dataloader=dataloader, eval_code=phecode, args=args)
         binned_status_df.to_parquet(f'{filepath}/{phecode}.parquet')
