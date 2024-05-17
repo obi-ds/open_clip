@@ -34,6 +34,12 @@ parser.add_argument(
     help="The batch size",
 )
 parser.add_argument(
+    "--phecode-file",
+    type=str,
+    required=True,
+    help="The location to the phecode file",
+)
+parser.add_argument(
     "--start",
     type=int,
     required=True,
@@ -44,6 +50,18 @@ parser.add_argument(
     type=int,
     required=True,
     help="The end position of the phecode file",
+)
+parser.add_argument(
+    "--eval-data",
+    type=str,
+    required=True,
+    help="The path where the shards are located",
+)
+parser.add_argument(
+    "--num-samples",
+    type=str,
+    required=True,
+    help="The number of samples in the shards",
 )
 parser.add_argument(
     "--model-type",
@@ -69,6 +87,31 @@ parser.add_argument(
     required=True,
     help="Start evaluating from this epoch",
 )
+parser.add_argument(
+    "--code-column",
+    type=str,
+    default='phecode',
+    help="Column containing the codes",
+)
+parser.add_argument(
+    "--result-date-column",
+    type=str,
+    default='TestDate',
+    help="Column containing the codes",
+)
+parser.add_argument(
+    "--output-folder",
+    type=str,
+    required=True,
+    help="Where to write the binned data",
+)
+parser.add_argument(
+    "--file-suffix",
+    type=str,
+    required=True,
+    help="A suffix to distinguish between different dataset",
+)
+
 
 eval_args = parser.parse_args(sys.argv[1:])
 
@@ -180,8 +223,13 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
         model_type=eval_args.model_type,
         model_folder=eval_args.model_folder,
         eval_every_epoch=eval_args.eval_every_epoch,
+        eval_data=eval_args.eval_data,
+        num_samples=eval_args.num_samples,
         batch_size=eval_args.batch_size,
-        epoch_start=eval_args.epoch_start
+        epoch_start=eval_args.epoch_start,
+        code_column=eval_args.code_column,
+        file_suffix=eval_args.file_suffix,
+        result_date_column=eval_args.result_date_column
     ):
 
     args_str = args_str.replace('"', '')
@@ -193,7 +241,7 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
     prefix = Path(model_path).parent.parent.name
     epoch = Path(model_path).name.split('.')[0]
 
-    filepath = f'/mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/{file_suffix}/{prefix}/' \
+    filepath = f'{eval_args.output_folder}{file_suffix}/{prefix}/' \
                f'{epoch}/' \
                f'{args.eval_start_time}-{args.eval_end_time}'
 
@@ -236,12 +284,15 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
     # test_phecodes_df = pd.read_csv(phecodes_file, encoding='ISO-8859-1')
     # test_phecodes = test_phecodes_df['phecode']
 
-    phecodes_file = './eval_code_list.csv'
-    test_phecodes = pd.read_csv(phecodes_file)['0']
+    # phecodes_file = './eval_code_list.csv'
+    # test_phecodes = pd.read_csv(phecodes_file)['0']
+    #
+    # codes = ['CV_416.214', 'CV_424.4', 'CV_416.42', 'EM_249', 'NS_324.11', 'CA_132', 'ID_092.2', 'EM_256.4', 'GU_627.2',
+    #          'GU_626.1']
+    # test_phecodes = test_phecodes[test_phecodes.isin(codes)]
 
-    codes = ['CV_416.214', 'CV_424.4', 'CV_416.42', 'EM_249', 'NS_324.11', 'CA_132', 'ID_092.2', 'EM_256.4', 'GU_627.2',
-             'GU_626.1']
-    test_phecodes = test_phecodes[test_phecodes.isin(codes)]
+    test_phecodes_df = pd.read_csv(eval_args.phecode_file, encoding='ISO-8859-1')
+    test_phecodes = test_phecodes_df[eval_args.code_column]
 
     print('Number of codes: ', len(test_phecodes))
 
