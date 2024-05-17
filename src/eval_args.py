@@ -49,12 +49,12 @@ def get_args_str(model_type, batch_size):
         --eval-end-time 180 \
         --seed 0'.replace('"', '')
 
-def get_model_details_for_eval(model_type, model_folder, eval_every_epoch, batch_size):
+def get_model_details_for_eval(model_type, model_folder, eval_every_epoch, batch_size, epoch_start):
     model_details = list()
     for file in glob(model_folder + '*pt'):
         file = Path(file)
         epoch = int(file.name.split('_')[1].split('.')[0])
-        if epoch % eval_every_epoch == 0 and epoch >= 150:
+        if epoch % eval_every_epoch == 0 and epoch >= epoch_start:
             model_details.append(
                 ['24_03_mgh_val', get_args_str(model_type, batch_size), model_type, str(file)]
             )

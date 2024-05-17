@@ -63,6 +63,12 @@ parser.add_argument(
     required=True,
     help="Evaluate the models at every epoch",
 )
+parser.add_argument(
+    "--epoch-start",
+    type=int,
+    required=True,
+    help="Start evaluating from this epoch",
+)
 
 eval_args = parser.parse_args(sys.argv[1:])
 
@@ -174,7 +180,8 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
         model_type=eval_args.model_type,
         model_folder=eval_args.model_folder,
         eval_every_epoch=eval_args.eval_every_epoch,
-        batch_size=eval_args.batch_size
+        batch_size=eval_args.batch_size,
+        epoch_start=eval_args.epoch_start
     ):
 
     args_str = args_str.replace('"', '')

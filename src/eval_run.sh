@@ -43,3 +43,13 @@ python eval.py \
 --eval-every-epoch 10 \
 --start 0 \
 --end 10
+
+python eval.py \
+--gpu 0 \
+--batch-size 350 \
+--model-type ecg_vision_biogpt2 \
+--model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg-diagnosis_demographic-ecg_vision_biogpt2-frozen_future_250_trial_1/checkpoints/ \
+--eval-every-epoch 10 \
+--start 0 \
+--end 10 \
+--epoch-start 50
