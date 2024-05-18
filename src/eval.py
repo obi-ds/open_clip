@@ -111,6 +111,12 @@ parser.add_argument(
     required=True,
     help="A suffix to distinguish between different dataset",
 )
+parser.add_argument(
+    "--overwrite",
+    type=bool,
+    default=False,
+    help="Overwrite existing results",
+)
 
 
 eval_args = parser.parse_args(sys.argv[1:])
@@ -200,7 +206,8 @@ def evaluate_label(dataloader, tokens, eos_token_id, args, ignore_index=-100):
                     args.sample_result_date_column: metadata[args.sample_result_date_column],
                     'TestTime': metadata['TestTime'] if 'TestTime' in metadata else 'NA',
                     'DATE_TIME': metadata['DATE_TIME'] if 'DATE_TIME' in metadata else 'NA',
-                    'file': metadata['file']
+                    'ResultDTS': metadata['ResultDTS'] if 'ResultDTS' in metadata else 'NA',
+                    'file': metadata['file'] if 'file' in metadata else 'NA',
                 }
                 for metadata in sample_metadata if
                 encounter_dataframe_process.check_patient_id(patient_id=metadata[args.patient_id_column])
@@ -245,9 +252,9 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
                f'{epoch}/' \
                f'{args.eval_start_time}-{args.eval_end_time}'
 
-    if os.path.exists(filepath):
-        print('Skipping: This result already exists')
-        continue
+    # if os.path.exists(filepath) and not args.overwrite:
+    #     print('Skipping: This result already exists')
+    #     continue
 
     os.makedirs(filepath, exist_ok=True)
 
@@ -291,7 +298,12 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
     #          'GU_626.1']
     # test_phecodes = test_phecodes[test_phecodes.isin(codes)]
 
-    test_phecodes_df = pd.read_csv(eval_args.phecode_file, encoding='ISO-8859-1')
+    #test_phecodes_df = pd.read_csv(eval_args.phecode_file, encoding='ISO-8859-1')
+    if eval_args.phecode_file.endswith('phecodeX_info.csv'):
+        test_phecodes_df = pd.read_csv(eval_args.phecode_file, encoding='ISO-8859-1')
+    else:
+        test_phecodes_df = pd.read_csv(eval_args.phecode_file, sep='\t')
+    
     test_phecodes = test_phecodes_df[eval_args.code_column]
 
     print('Number of codes: ', len(test_phecodes))
