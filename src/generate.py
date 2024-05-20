@@ -134,9 +134,9 @@ def get_true_category(gen_category, patient_demographics, current_time, metadata
     elif gen_category.lower() == 'sex':
         return get_true_sex(patient_demographics)
     elif gen_category.lower() == 'height':
-        return get_true_height(patient_demographics)
+        return get_true_height(metadata)
     elif gen_category.lower() == 'weight':
-        return get_true_weight(patient_demographics)
+        return get_true_weight(metadata)
     elif gen_category.lower().replace(' ', '') == 'qrsduration':
         return get_true_qrs_duration(metadata)
     elif gen_category.lower().replace(' ', '') == 'qtinterval':
@@ -162,12 +162,12 @@ def get_true_sex(patient_demographics):
     return patient_demographics['SexDSC']
 
 
-def get_true_height(patient_demographics):
-    return patient_demographics.get('HeightIN', None)
+def get_true_height(metadata):
+    return metadata.get('HeightIN', None)
 
 
-def get_true_weight(patient_demographics):
-    return patient_demographics.get('WeightLBS', None)
+def get_true_weight(metadata):
+    return metadata.get('WeightLBS', None)
 
 
 def get_true_qrs_duration(metadata):
