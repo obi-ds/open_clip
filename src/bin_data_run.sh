@@ -22,3 +22,84 @@ python bin_data.py \
 --dataset-type ecg \
 --result-date TestDate \
 --code-column phecode
+
+# parallel commands run 90 jobs in parallel, 10 codes each, up to 845 codes in file
+
+# mgh_val_2403_sampled
+parallel -j 90 --progress --eta --delay 1 "/home/mhomilius/mambaforge/envs/med_instruct/bin/python bin_data.py \
+--start {1} \
+--end {2}  \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_800.tsv \
+--bin-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403_sampled/shard_{000..001}.tar' \
+--num-samples 6400 \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/time_bins \
+--file-suffix 24_03_mgh_val_subset \
+--dataset-type ecg \
+--result-date TestDate \
+--code-column phecode" ::: $(seq 0 10 835) :::+ $(seq 10 10 845)
+
+# mgh_test_2403_sampled
+parallel -j 90 --progress --eta --delay 1 "/home/mhomilius/mambaforge/envs/med_instruct/bin/python bin_data.py \
+--start {1} \
+--end {2}  \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_800.tsv \
+--bin-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_test_2403_sampled/shard_{000..004}.tar' \
+--num-samples 16000 \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/time_bins \
+--file-suffix 24_03_mgh_val_subset \
+--dataset-type ecg \
+--result-date TestDate \
+--code-column phecode" ::: $(seq 0 10 835) :::+ $(seq 10 10 845)
+
+# cyto data binning test run
+python bin_data.py \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_800.tsv \
+--start 0 \
+--end 10 \
+--bin-data="/mnt/obi0/phi/ehr_projects/sysmex_datasets/processed_23-06-02/mgh_train_enc180d_v2/shard_{000..004}.tar" \
+--num-samples 64000 \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/cyto/time_bins \
+--file-suffix 26_06_mgh_val \
+--dataset-type cyto \
+--result-date ResultDTS \
+--code-column phecode
+
+
+# mgh_val_enc180d_v2_sampled
+parallel -j 90 --progress --eta --delay 1 "/home/mhomilius/mambaforge/envs/med_instruct/bin/python bin_data.py \
+--start {1} \
+--end {2}  \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_800.tsv \
+--bin-data='/mnt/obi0/phi/ehr_projects/sysmex_datasets/processed_23-06-02/mgh_val_enc180d_v2_sampled/shard_{000..001}.tar' \
+--num-samples 25600 \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/cyto/time_bins \
+--file-suffix 26_06_mgh_val_subset \
+--dataset-type cyto \
+--result-date ResultDTS \
+--code-column phecode" ::: $(seq 0 10 835) :::+ $(seq 10 10 845)
+
+# mgh_test_enc180d_v2_sampled
+parallel -j 40 --progress --eta --delay 1 "/home/mhomilius/mambaforge/envs/med_instruct/bin/python bin_data.py \
+--start {1} \
+--end {2}  \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_800.tsv \
+--bin-data='/mnt/obi0/phi/ehr_projects/sysmex_datasets/processed_23-06-02/mgh_test_enc180d_v2_sampled/shard_{000..005}.tar' \
+--num-samples 76800 \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/cyto/time_bins \
+--file-suffix 26_06_mgh_test_subset \
+--dataset-type cyto \
+--result-date ResultDTS \
+--code-column phecode" ::: $(seq 0 10 835) :::+ $(seq 10 10 845)
+
+# bwh_all_enc180d_v2_sampled
+parallel -j 40 --progress --eta --delay 1 "/home/mhomilius/mambaforge/envs/med_instruct/bin/python bin_data.py \
+--start {1} \
+--end {2}  \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_800.tsv \
+--bin-data='/mnt/obi0/phi/ehr_projects/sysmex_datasets/processed_23-06-02/bwh_all_enc180d_v2_sampled/shard_{000..006}.tar' \
+--num-samples 89600 \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/cyto/time_bins \
+--file-suffix 26_06_bwh_all_subset \
+--dataset-type cyto \
+--result-date ResultDTS \
+--code-column phecode" ::: $(seq 0 10 835) :::+ $(seq 10 10 845)

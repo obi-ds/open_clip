@@ -190,15 +190,15 @@ torchrun \
 
 export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 torchrun \
-    --nnodes=1 --nproc_per_node=0 --master_addr=localhost --master_port=2135 \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2130 \
     -m main \
     --train-data="/mnt/obi0/phi/ehr_projects/sysmex_datasets/processed_23-06-02/mgh_train_enc180d_v2/shard_{000..058}.tar"  \
     --val-data="/mnt/obi0/phi/ehr_projects/sysmex_datasets/processed_23-06-02/mgh_train_enc180d_v2/shard_{000..004}.tar"  \
     --train-num-samples 742400 \
     --val-num-samples 64000 \
     --dataset-type icddataset \
-    --workers 8 \
-    --batch-size 256 \
+    --workers 6 \
+    --batch-size 196 \
     --accum-freq 4 \
     --epochs 250 \
     --lr 5e-5 \
@@ -226,7 +226,6 @@ torchrun \
     --demographic-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/demographics_2404.parquet" \
     --labs-folder="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs" \
     --time-difference-normalize 1 \
-    --time-difference-normalize 1 \
     --number-of-instructions 1 \
     --k-shot 1 1 1 1 1 2 2 2 3 4 \
     --k-shot-demographics 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 2 2 2 3 4 \
@@ -240,7 +239,8 @@ torchrun \
     --future-only \
     --seed 0 \
     --training-eval-codes MS_700.11 BI_170.1 ID_092.2 CA_121.1 \
-    --model coca_cyto_base
+    --model coca_cyto_base \
+    --name cyto-diagnosis_demographic-coca_cyto_base-future_250_trial_6
 
 
     # ID_092.2  Sepsis

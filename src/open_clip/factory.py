@@ -157,8 +157,11 @@ def load_checkpoint(model, checkpoint_path, strict=True):
     position_id_key = 'text.transformer.embeddings.position_ids'
     if position_id_key in state_dict and not hasattr(model, position_id_key):
         del state_dict[position_id_key]
-    resize_pos_embed(state_dict, model)
-    resize_text_pos_embed(state_dict, model)
+
+    # TODO never resized pos embeds for ECGCoCa
+    if not isinstance(model, ECGCoCa):
+        resize_pos_embed(state_dict, model)
+        resize_text_pos_embed(state_dict, model)
     incompatible_keys = model.load_state_dict(state_dict, strict=strict)
     return incompatible_keys
 
