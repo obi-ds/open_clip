@@ -111,6 +111,12 @@ parser.add_argument(
     required=True,
     help="A suffix to distinguish between different dataset",
 )
+parser.add_argument(
+    "--overwrite",
+    type=bool,
+    default=False,
+    help="Overwrite existing results",
+)
 
 
 eval_args = parser.parse_args(sys.argv[1:])
@@ -200,7 +206,8 @@ def evaluate_label(dataloader, tokens, eos_token_id, args, ignore_index=-100):
                     args.sample_result_date_column: metadata[args.sample_result_date_column],
                     'TestTime': metadata['TestTime'] if 'TestTime' in metadata else 'NA',
                     'DATE_TIME': metadata['DATE_TIME'] if 'DATE_TIME' in metadata else 'NA',
-                    'file': metadata['file']
+                    'ResultDTS': metadata['ResultDTS'] if 'ResultDTS' in metadata else 'NA',
+                    'file': metadata['file'] if 'file' in metadata else 'NA',
                 }
                 for metadata in sample_metadata if
                 encounter_dataframe_process.check_patient_id(patient_id=metadata[args.patient_id_column])
@@ -245,9 +252,9 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
                f'{epoch}/' \
                f'{args.eval_start_time}-{args.eval_end_time}'
 
-    if os.path.exists(filepath):
-        print('Skipping: This result already exists')
-        continue
+    # if os.path.exists(filepath) and not args.overwrite:
+    #     print('Skipping: This result already exists')
+    #     continue
 
     os.makedirs(filepath, exist_ok=True)
 
@@ -280,24 +287,24 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
     model = model.eval()
     model = model.to(device)
 
-    # phecodes_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
-    # test_phecodes_df = pd.read_csv(phecodes_file, encoding='ISO-8859-1')
-    # test_phecodes = test_phecodes_df['phecode']
-
-    # phecodes_file = './eval_code_list.csv'
-    # test_phecodes = pd.read_csv(phecodes_file)['0']
-    #
-    # codes = ['CV_416.214', 'CV_424.4', 'CV_416.42', 'EM_249', 'NS_324.11', 'CA_132', 'ID_092.2', 'EM_256.4', 'GU_627.2',
-    #          'GU_626.1']
-    # test_phecodes = test_phecodes[test_phecodes.isin(codes)]
-
-    test_phecodes_df = pd.read_csv(eval_args.phecode_file, encoding='ISO-8859-1')
+    #test_phecodes_df = pd.read_csv(eval_args.phecode_file, encoding='ISO-8859-1')
+    if eval_args.phecode_file.endswith('phecodeX_info.csv'):
+        test_phecodes_df = pd.read_csv(eval_args.phecode_file, encoding='ISO-8859-1')
+    else:
+        test_phecodes_df = pd.read_csv(eval_args.phecode_file, sep='\t')
+    
     test_phecodes = test_phecodes_df[eval_args.code_column]
 
     print('Number of codes: ', len(test_phecodes))
 
     for phecode in test_phecodes[int(eval_args.start): int(eval_args.end)]:
         print('PHECODE: ', phecode)
+        if os.path.exists(f'{filepath}/{phecode}.parquet'):
+            print('Skipping: This result already exists')
+            continue
+
+        # create empty placeholder file
+        open(f'{filepath}/{phecode}.parquet', 'a').close()
         dataloader = get_eval_dataloader(args=args, eval_code=phecode, tokenizer=tokenizer)
         eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
         print('EOS Token ID: ', eos_token_id)
@@ -305,4 +312,3 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
                                                   eos_token_id=eos_token_id, args=args)
         eval_df = get_eval_dataframe(metadata, scores, labels)
         eval_df.to_parquet(f'{filepath}/{phecode}.parquet')
-

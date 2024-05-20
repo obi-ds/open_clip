@@ -121,7 +121,10 @@ def evaluate_label(dataloader, eval_code, args):
     all_sample_history = []
     all_metadata = []
 
-    for batch in dataloader:
+    print('Starting pass')
+
+    for i, batch in enumerate(dataloader):
+        print(i)
         _, sample_metadata = batch
 
         sample_encounter_history = [
@@ -138,7 +141,8 @@ def evaluate_label(dataloader, eval_code, args):
                 args.sample_result_date_column: metadata[args.sample_result_date_column],
                 'TestTime': metadata['TestTime'] if 'TestTime' in metadata else 'NA',
                 'DATE_TIME': metadata['DATE_TIME'] if 'DATE_TIME' in metadata else 'NA',
-                'file': metadata['file']
+                'ResultDTS': metadata['ResultDTS'] if 'ResultDTS' in metadata else 'NA',
+                'file': metadata['file'] if 'file' in metadata else 'NA'
             }
             for metadata in sample_metadata if
             encounter_dataframe_process.check_patient_id(patient_id=metadata[args.patient_id_column])
@@ -146,14 +150,11 @@ def evaluate_label(dataloader, eval_code, args):
 
     print('Forward pass complete')
 
-    # binned_status_df = Parallel(n_jobs=128)(delayed(binned_sample_status)(x, eval_code) for x in all_sample_history)
-
     binned_status_df = [binned_sample_status(x, eval_code) for x in all_sample_history]
 
     print('Bin complete')
 
     binned_status_df = pd.concat(binned_status_df)
-
     metadata_df = pd.DataFrame(all_metadata)
 
     print('Meta complete')
@@ -173,8 +174,10 @@ for file_suffix, args_str in get_args_for_binning(
     ):
     args_str = args_str.replace('"', '')
     args = parse_args(args_str.split())
+    # added
+    args.model = bin_data_args.dataset_type
 
-    print('Dataset: ', args.val_data)
+    print('Dataset: ', args.val_data, ' start: ', bin_data_args.start, ' end: ', bin_data_args.end)
 
     encounter_dataframe = pd.read_parquet(
         args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
@@ -193,15 +196,13 @@ for file_suffix, args_str in get_args_for_binning(
     cast_dtype = get_cast_dtype(args.precision)
     input_dtype = get_input_dtype(args.precision)
 
-    # phecodes_file = '/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info.csv'
-    test_phecodes_df = pd.read_csv(bin_data_args.phecode_file, encoding='ISO-8859-1')
+    if bin_data_args.phecode_file.endswith('phecodeX_info.csv'):
+        test_phecodes_df = pd.read_csv(bin_data_args.phecode_file, encoding='ISO-8859-1')
+    else:
+        test_phecodes_df = pd.read_csv(bin_data_args.phecode_file, sep='\t')
+
     test_phecodes = test_phecodes_df[bin_data_args.code_column]
-
-    # phecodes_file = './eval_code_list.csv'
-    # test_phecodes = pd.read_csv(phecodes_file)['0']
-
     filepath = f'{bin_data_args.output_folder}/{file_suffix}'
-
     os.makedirs(filepath, exist_ok=True)
 
     dataloader = get_eval_dataloader(args=args)
