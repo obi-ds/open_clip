@@ -53,14 +53,13 @@ python eval.py \
 
 
 # biogpt 5 on bwh dataset
-# this runs the full dataset
-sleep 6h && \
+# this runs the full dataset    
 parallel -j 8 --progress --eta --delay 1 "
 python eval.py \
 --gpu {1} \
 --start {2} \
 --end {3} \
---batch-size 256 \
+--batch-size 512 \
 --model-type ecg_cnn_windowed_biogpt5 \
 --model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
 --phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
@@ -130,22 +129,22 @@ python eval.py \
 
 # ecg biogpt5 24_03_mgh_val on GPU2
 #ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1_epoch_150
-parallel -j 2 --progress --eta --delay 1 "
-python eval.py \
---gpu {1} \
---start {2} \
---end {3} \
---batch-size 64 \
---model-type ecg_cnn_windowed_biogpt5 \
---model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
---phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
---code-column phecode \
---eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar' \
---num-samples 35200 \
---epoch-start 150 \
---eval-every-epoch 150 \
---file-suffix 24_03_mgh_val \
---output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: 0 1 :::+ 0 90 :::+ 90 180 
+    parallel -j 2 --progress --eta --delay 1 "
+    python eval.py \
+    --gpu {1} \
+    --start {2} \
+    --end {3} \
+    --batch-size 64 \
+    --model-type ecg_cnn_windowed_biogpt5 \
+    --model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
+    --phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
+    --code-column phecode \
+    --eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar' \
+    --num-samples 35200 \
+    --epoch-start 150 \
+    --eval-every-epoch 150 \
+    --file-suffix 24_03_mgh_val \
+    --output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: 0 1 :::+ 0 90 :::+ 90 180 
 
 
 # ecg biogpt5 24_03_mgh_val on GPU3,4,6
