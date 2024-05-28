@@ -1,10 +1,24 @@
 from glob import glob
 from pathlib import Path
-def get_args_str(eval_data, num_samples, model_type, batch_size, result_date_column, code_column):
+def get_args_str(
+        eval_data,
+        num_samples,
+        model_type,
+        batch_size,
+        result_date_column,
+        code_column,
+        demographic_prompt_attributes
+):
     if 'gpt' in model_type:
         pad_id = 1
     else:
         pad_id = 0
+    if demographic_prompt_attributes is None:
+        tasks = 'eval'
+        demographic_prompt_attributes = 'null'
+    else:
+        tasks = 'demographics_prompt eval'
+
     return f'--train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{{0000..0078}}.tar"  \
         --val-data="{eval_data}"  \
         --train-num-samples 252800 \
@@ -44,16 +58,26 @@ def get_args_str(eval_data, num_samples, model_type, batch_size, result_date_col
         --pad_id {pad_id} \
         --distance-threshold 60 \
         --negatives-type random \
-        --tasks eval \
+        --tasks {tasks} \
+        --demographic-prompt-attributes {demographic_prompt_attributes} \
         --eval-mode \
         --eval-start-time 0 \
         --eval-end-time 180 \
         --seed 0'.replace('"', '')
 
 def get_model_details_for_eval(
-        file_suffix, model_type,
-        model_folder, eval_every_epoch, batch_size,
-        epoch_start, eval_data, num_samples, code_column, result_date_column):
+        file_suffix,
+        model_type,
+        model_folder,
+        eval_every_epoch,
+        batch_size,
+        epoch_start,
+        eval_data,
+        num_samples,
+        code_column,
+        result_date_column,
+        demographic_prompt_attributes
+):
     model_details = list()
     for file in glob(model_folder + '*pt'):
         file = Path(file)
@@ -68,7 +92,8 @@ def get_model_details_for_eval(
                         eval_data=eval_data,
                         num_samples=num_samples,
                         code_column=code_column,
-                        result_date_column=result_date_column
+                        result_date_column=result_date_column,
+                        demographic_prompt_attributes=demographic_prompt_attributes
                     ),
                     model_type,
                     str(file)
