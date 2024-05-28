@@ -231,10 +231,13 @@ def get_demographic_prompt(args):
     Returns:
 
     """
+    demographic_dataframe = get_demographic_dataframe(filepath=args.demographic_file)
     demographic_instructions = get_patient_demographics_instruction_template(
         example_separator=get_example_separator(args=args)
     )
-    demographic_dataframe_process = None
+    demographic_dataframe_process = DemographicDataframeProcess(
+        demographic_dataframe=demographic_dataframe
+    )
     return DemographicPredictionPrompt(
         demographic_dataframe_process=demographic_dataframe_process,
         demographic_instructions=demographic_instructions,
