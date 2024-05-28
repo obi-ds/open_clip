@@ -72,6 +72,45 @@ python eval.py \
 --result-date-column TestDate_x \
 --output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: $(seq 0 7) :::+ $(seq 0 23 180) :::+ $(seq 23 23 190)
 
+
+parallel -j 4 --progress --eta --delay 1 "
+python eval.py \
+--gpu {1} \
+--start 0 \
+--end 180 \
+--batch-size 512 \
+--model-type ecg_cnn_windowed_biogpt5 \
+--model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
+--code-column phecode \
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/bwh/bwh_all_23_10_23/shard_{0000..0033}.tar' \
+--num-samples 105600 \
+--epoch-start 150 \
+--eval-every-epoch 150 \
+--file-suffix 23_10_bwh_all \
+--result-date-column TestDate_x \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: $(seq 4 7)
+
+
+
+python eval.py \
+--gpu 0 \
+--start 0 \
+--end 180 \
+--batch-size 512 \
+--model-type ecg_cnn_windowed_biogpt5 \
+--model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
+--code-column phecode \
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/bwh/bwh_all_23_10_23/shard_{0000..0033}.tar' \
+--num-samples 105600 \
+--epoch-start 150 \
+--eval-every-epoch 150 \
+--file-suffix 23_10_bwh_all \
+--result-date-column TestDate_x \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/
+
+
 # --phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
 python eval.py \
 --gpu 0 \
