@@ -566,7 +566,6 @@ def text_global_pool(x, text: Optional[torch.Tensor] = None, pool_type: str = 'a
 
     return pooled, tokens
 
-
 class TextTransformer(nn.Module):
     output_tokens: torch.jit.Final[bool]
 
