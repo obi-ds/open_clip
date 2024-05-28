@@ -18,8 +18,19 @@ from functools import partial
 from .hf_model import BioGPTTextEncoder
 from .modified_resnet import ModifiedResNet
 from .timm_model import TimmModel
-from .transformer import LayerNormFp32, LayerNorm, QuickGELU, Attention, VisionTransformer, TextTransformer,\
-    text_global_pool, GlobalECGTransformer, WindowedECGTransformer, ECGVisionTransformer
+from .transformer import (
+    LayerNormFp32,
+    LayerNorm,
+    QuickGELU,
+    Attention,
+    VisionTransformer,
+    TextTransformer,
+    text_global_pool,
+    GlobalECGTransformer,
+    WindowedECGTransformer,
+    ECGVisionTransformer
+)
+from transformers import AutoConfig
 from .utils import to_2tuple
 
 
@@ -34,8 +45,10 @@ class CLIPVisionCfg:
     in_channels: int = 3
 
     ls_init_value: Optional[float] = None  # layer scale initial value
-    patch_dropout: float = 0.  # what fraction of patches to dropout during training (0 would mean disabled and no patches dropped) - 0.5 to 0.75 recommended in the paper for optimal results
-    attentional_pool: bool = False  # whether to use attentional pooler in the last embedding layer (overrides pool_type)
+    patch_dropout: float = 0.  # what fraction of patches to dropout during training (0 would mean disabled and no
+    # patches dropped) - 0.5 to 0.75 recommended in the paper for optimal results
+    attentional_pool: bool = False  # whether to use attentional pooler in the last embedding layer (overrides
+    # pool_type)
     attn_pooler_queries: int = 256  # n_queries for attentional pooler
     attn_pooler_heads: int = 8  # n heads for attentional_pooling
     no_ln_pre: bool = False  # disable pre transformer LayerNorm
@@ -100,8 +113,10 @@ class CLIPECGCfg:
     head_width: int = 64
     mlp_ratio: float = 4.0
     ls_init_value: Optional[float] = None  # layer scale initial value
-    patch_dropout: float = 0.0  # what fraction of patches to dropout during training (0 would mean disabled and no patches dropped) - 0.5 to 0.75 recommended in the paper for optimal results
-    global_average_pool: bool = False  # whether to global average pool the last embedding layer, instead of using CLS token (https://arxiv.org/abs/2205.01580)
+    patch_dropout: float = 0.0  # what fraction of patches to dropout during training (0 would mean disabled and no
+    # patches dropped) - 0.5 to 0.75 recommended in the paper for optimal results
+    global_average_pool: bool = False  # whether to global average pool the last embedding layer, instead of using
+    # CLS token (https://arxiv.org/abs/2205.01580)
     attentional_pool: bool = False  # whether to use attentional pooler in the last embedding layer
     attn_pooler_queries: int = 256  # n_queries for attentional pooler
     attn_pooler_heads: int = 8  # n heads for attentional_pooling
@@ -109,6 +124,24 @@ class CLIPECGCfg:
     pool_type: str = 'avg'
     reg_tokens: int = 0
     output_tokens: bool = False
+
+
+@dataclass
+class MocaVisionEncoderConfig:
+    hf_model_name: Optional[str] = None
+    image_input_type: str = None
+    patch_size: int = None
+    image_size: Union[Tuple[int, int], int] = None
+    in_channels: int = None
+
+
+@dataclass
+class MocaTextDecoderConfig:
+    hf_model_name: Optional[str] = None
+    hf_tokenizer_name: Optional[str] = None
+    hf_model_pretrained: bool = True
+    pool_type: str = None
+    ignore_index: int = -100
 
 
 def get_cast_dtype(precision: str):
@@ -525,11 +558,11 @@ def convert_to_custom_text_state_dict(state_dict: dict):
         new_state_dict = {}
         for k, v in state_dict.items():
             if any(k.startswith(p) for p in (
-                'text_projection',
-                'positional_embedding',
-                'token_embedding',
-                'transformer',
-                'ln_final',
+                    'text_projection',
+                    'positional_embedding',
+                    'token_embedding',
+                    'transformer',
+                    'ln_final',
             )):
                 k = 'text.' + k
             new_state_dict[k] = v
