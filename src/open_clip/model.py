@@ -133,6 +133,11 @@ class MocaVisionEncoderConfig:
     patch_size: int = None
     image_size: Union[Tuple[int, int], int] = None
     in_channels: int = None
+    # No pre convolution norm: normalization = None
+    # LayerNorm: normalization = 1
+    # InstanceNorm: normalization = in_channels
+    # GroupNorm: normalization = 1 < x < in_channels
+    normalization: int = None
 
 
 @dataclass
@@ -140,7 +145,7 @@ class MocaTextDecoderConfig:
     hf_model_name: Optional[str] = None
     hf_tokenizer_name: Optional[str] = None
     hf_model_pretrained: bool = True
-    pool_type: str = None
+    projection_type: str = None
     ignore_index: int = -100
 
 
