@@ -22,7 +22,8 @@ class InstructTasks(object):
         if args.task_shuffle:
             random.shuffle(self._task_list)
 
-        # TODO: Add bos sentence token at the start
+        if args.add_img_token:
+            task_instructions.append([self.get_img_sep_token_instruction(), '', True, False])
 
         for task in self._task_list:
             if isinstance(task, DemographicPredictionPrompt):
@@ -58,11 +59,11 @@ class InstructTasks(object):
         else:
             return self._instruct_tokenizer.get_eos_token() + '\n'
 
-    def get_task_begin_instruction(self):
+    def get_img_sep_token_instruction(self):
         if self._instruct_tokenizer is None:
             return '\n'
         else:
-            return self._instruct_tokenizer.get_eos_token() + '\n'
+            return self._instruct_tokenizer.get_bos_token() + '\n'
 
     @staticmethod
     def get_ignore_instruction_demographics(focal_loss):

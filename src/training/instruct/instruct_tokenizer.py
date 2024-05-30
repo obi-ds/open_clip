@@ -285,6 +285,14 @@ class InstructTokenizer(object):
         """
         return '<end_of_text>'
 
+    def get_bos_token(self):
+        """
+
+        Returns:
+
+        """
+        return '<start_of_text>'
+
 
 class HFInstructTokenizer(InstructTokenizer):
     """
@@ -343,3 +351,11 @@ class HFInstructTokenizer(InstructTokenizer):
 
         """
         return self._tokenizer.tokenizer.eos_token
+
+    def get_bos_token(self):
+        """
+
+        Returns:
+
+        """
+        return self._tokenizer.tokenizer.bos_token

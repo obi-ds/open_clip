@@ -101,7 +101,11 @@ class DemographicPredictionPrompt(DemographicPredictionTask):
         # Get the task instruction
         all_instructions.append(self.get_task_instruction())
 
-        instruction_samples = [patient_demographics[self._attribute_index_map[attribute]] for attribute in attributes]
+        instruction_samples = [
+            patient_demographics[self._attribute_index_map[attribute]]
+            for attribute in attributes
+            if attribute == patient_demographics[self._attribute_index_map[attribute]][0]
+        ]
 
         # Convert samples to text instructions (prompt)
         all_instructions.extend(

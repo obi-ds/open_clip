@@ -523,5 +523,27 @@ class FocalLoss(ClipLoss):
 
         return clip_loss, caption_loss
 
+class MoCaLoss(nn.Module):
+    def __init__(
+            self,
+            ignore_index
+    ):
+        super().__init__()
 
+        self.caption_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
+    def forward(self, logits, labels, logit_scale, output_dict=False):
+
+        logits = logits[:, :, :].contiguous()
+        labels = labels[:, :].contiguous()
+
+        caption_loss = self.caption_loss(
+            logits.view(-1, logits.size(-1)),
+            labels.view(-1),
+        )
+        caption_loss = caption_loss * logit_scale
+
+        if output_dict:
+            return {"caption_loss": caption_loss}
+
+        return caption_loss
