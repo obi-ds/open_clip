@@ -23,7 +23,7 @@ class InstructTasks(object):
             random.shuffle(self._task_list)
 
         if args.add_img_token:
-            task_instructions.append([self.get_task_begin_instruction(), '', True, False])
+            task_instructions.append([self.get_img_sep_token_instruction(), '', True, False])
 
         for task in self._task_list:
             if isinstance(task, DemographicPredictionPrompt):
@@ -59,7 +59,7 @@ class InstructTasks(object):
         else:
             return self._instruct_tokenizer.get_eos_token() + '\n'
 
-    def get_task_begin_instruction(self):
+    def get_img_sep_token_instruction(self):
         if self._instruct_tokenizer is None:
             return '\n'
         else:
