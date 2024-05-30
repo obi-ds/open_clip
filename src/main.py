@@ -433,7 +433,7 @@ def main(args):
     neg_token_id = get_token_id(model_name=args.model, tokenizer=tokenizer, token='no')
     print('Token IDS: ', (eos_token_id, pos_token_id, neg_token_id))
 
-    evaluation_codes = args.training_eval_codes
+    evaluation_codes = args.training_eval_codes if args.training_eval_codes else []
     eval_data_objects = [
         get_eval_data_object(
             args=args,
