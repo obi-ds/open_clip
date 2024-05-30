@@ -541,7 +541,7 @@ class MoCaLoss(nn.Module):
             logits.view(-1, logits.size(-1)),
             labels.view(-1),
         )
-        caption_loss = caption_loss
+        caption_loss = caption_loss * logit_scale
 
         if output_dict:
             return {"caption_loss": caption_loss}
