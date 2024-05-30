@@ -636,10 +636,10 @@ def compute_generative_metrics(
     metrics[f'{prefix}accuracy'] = accuracy_score(labels, predictions)
     metrics[f'{prefix}auc'] = roc_auc_score(diagnosis_labels, diagnosis_scores)
 
-    if len(no_context_diagnosis_labels):
+    if len(no_context_diagnosis_labels) and len(set(no_context_diagnosis_labels)) > 1:
         metrics[f'{prefix}auc_no_context'] = roc_auc_score(no_context_diagnosis_labels, no_context_diagnosis_scores)
 
-    if len(context_diagnosis_labels):
+    if len(context_diagnosis_labels) and len(set(context_diagnosis_labels)) > 1:
         metrics[f'{prefix}auc_context'] = roc_auc_score(context_diagnosis_labels, context_diagnosis_scores)
 
     return metrics
