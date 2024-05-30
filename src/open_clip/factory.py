@@ -351,29 +351,37 @@ def create_loss(args):
         )
     elif 'moca' in args.model.lower():
         return MoCaLoss(ignore_index=-100)
-    elif 'ecg' in args.model.lower() or 'cyto' in args.model.lower():
-        if args.focal_loss:
-            return FocalLoss(
-                local_loss=args.local_loss,
-                gather_with_grad=args.gather_with_grad,
-                cache_labels=True,
-                rank=args.rank,
-                world_size=args.world_size,
-                use_horovod=args.horovod,
-            )
-        else:
-            return CaptionLoss(
-                local_loss=args.local_loss,
-                gather_with_grad=args.gather_with_grad,
-                cache_labels=True,
-                rank=args.rank,
-                world_size=args.world_size,
-                use_horovod=args.horovod,
-            )
-    elif "coca" in args.model.lower():
+    elif args.loss_function == 'clip':
+        return ClipLoss(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod,
+        )
+    elif args.loss_function == 'coca':
         return CoCaLoss(
             caption_loss_weight=args.coca_caption_loss_weight,
             clip_loss_weight=args.coca_contrastive_loss_weight,
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod,
+        )
+    elif args.loss_function == 'focal':
+        return FocalLoss(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod,
+        )
+    elif args.loss_function == 'lm':
+        return CaptionLoss(
             local_loss=args.local_loss,
             gather_with_grad=args.gather_with_grad,
             cache_labels=True,
@@ -387,14 +395,8 @@ def create_loss(args):
             rank=args.rank,
             world_size=args.world_size,
         )
-    return ClipLoss(
-        local_loss=args.local_loss,
-        gather_with_grad=args.gather_with_grad,
-        cache_labels=True,
-        rank=args.rank,
-        world_size=args.world_size,
-        use_horovod=args.horovod,
-    )
+    else:
+        raise ValueError(f'Invalid loss function: {args.loss_function}')
 
 
 def create_model_and_transforms(
