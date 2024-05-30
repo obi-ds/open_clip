@@ -1,0 +1,114 @@
+# Test run
+
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+torchrun \
+    --nnodes=1 --nproc_per_node=8 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type icddataset \
+    --workers 8 \
+    --batch-size 64 \
+    --accum-freq 8 \
+    --epochs 325 \
+    --lr 5e-5 \
+    --beta1 0.9 \
+    --beta2 0.98 \
+    --eps 1e-6 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 4000 \
+    --lr-scheduler cosine \
+    --lr-cooldown-end 5e-6 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 10 \
+    --val-frequency 10 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --demographic-file=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/demographics_2404.parquet \
+    --labs-folder=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 1 1 1 1 2 2 2 3 4 \
+    --k-shot-demographics 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 2 2 2 3 4 \
+    --k-shot-labs 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 2 2 2 3 4 \
+    --max_seq_length 128 \
+    --pad_id 1 \
+    --add-img-token \
+    --distance-threshold 60 \
+    --negatives-type random \
+    --tasks labs demographics diagnosis \
+    --task-shuffle \
+    --fixed-position-range \
+    --future-only \
+    --name test_moca_1 \
+    --model ecg_moca_biogpt \
+    --seed 0
+
+
+
+# TEST
+
+export CUDA_VISIBLE_DEVICES='0,1'
+torchrun \
+    --nnodes=1 --nproc_per_node=2 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type icddataset \
+    --workers 8 \
+    --batch-size 16 \
+    --accum-freq 1 \
+    --epochs 325 \
+    --lr 1e-6 \
+    --beta1 0.9 \
+    --beta2 0.98 \
+    --eps 1e-6 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 4000 \
+    --lr-scheduler cosine \
+    --lr-cooldown-end 5e-6 \
+    --coca-caption-loss-weight 1.0 \
+    --coca-contrastive-loss-weight 0.0 \
+    --precision amp \
+    --save-frequency 1 \
+    --val-frequency 1 \
+    --zeroshot-frequency 0 \
+    --local-loss \
+    --gather-with-grad \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --demographic-file=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/demographics_2404.parquet \
+    --labs-folder=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 1 1 1 1 2 2 2 3 4 \
+    --k-shot-demographics 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 2 2 2 3 4 \
+    --k-shot-labs 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 2 2 2 3 4 \
+    --training-eval-codes CV_424.4 \
+    --max_seq_length 64 \
+    --pad_id 1 \
+    --add-img-token \
+    --distance-threshold 60 \
+    --negatives-type random \
+    --tasks diagnosis \
+    --task-shuffle \
+    --fixed-position-range \
+    --future-only \
+    --name test_moca_32 \
+    --model ecg_moca_biogpt \
+    --seed 0
