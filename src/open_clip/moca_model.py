@@ -35,6 +35,7 @@ class MoCa(nn.Module):
             ignore_index=-100,
             **kwargs
     ):
+        print('MoCa Model')
         super().__init__()
         vision_cfg = (
             MocaVisionEncoderConfig(**vision_cfg)
