@@ -423,7 +423,6 @@ def evaluate_instruct_basic(
                         negative_token_id=negative_token_id,
                         eot_token_id=eot_token_id,
                         ignore_index=ignore_index,
-                        max_seq_length=args.max_seq_length,
                         device=device
                     )
 
@@ -570,7 +569,6 @@ def get_masks(
         negative_token_id,
         ignore_index,
         eot_token_id,
-        max_seq_length,
         device
 
 ):
@@ -580,7 +578,7 @@ def get_masks(
     diagnosis_mask_flipped = torch.fliplr(diagnosis_mask)
 
     no_context_diagnosis_indexes = diagnosis_mask.long().argmax(dim=1)
-    context_diagnosis_indexes = -diagnosis_mask_flipped.long().argmax(dim=1) - 1 + max_seq_length
+    context_diagnosis_indexes = -diagnosis_mask_flipped.long().argmax(dim=1) - 1 + model_labels.shape[-1]
     first_context_indexes = (~diagnosis_mask & mask).long().argmax(dim=1)
 
     no_context_diagnosis_mask = (no_context_diagnosis_indexes != 0)
