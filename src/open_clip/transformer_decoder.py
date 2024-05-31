@@ -55,6 +55,13 @@ class CNNEncoder(nn.Module):
                 in_channels=in_channels,
                 normalization=normalization
             )
+        elif image_input_type == 'cyto':
+            self._encoder = CytoCNNEncoder(
+                patch_size=patch_size,
+                hidden_size=hidden_size,
+                in_channels=in_channels,
+                normalization=normalization
+            )
         else:
             raise NotImplementedError(f'CNN Encoder for {image_input_type} not implemented')
 
@@ -112,6 +119,52 @@ class ECGCNNEncoder(nn.Module):
         # the image. Since the HF transformer expects input as (batch_size, seq_len, hidden_size)
         # we permute the dimensions
         return self.conv1(self._norm(image)).permute(0, 2, 1)
+
+
+class CytoCNNEncoder(nn.Module):
+    """
+    CNN layer to encode the ECG to pass to the vision transformer
+    """
+    def __init__(
+            self,
+            patch_size: int,
+            hidden_size: int,
+            in_channels: int,
+            normalization: Optional[int]
+    ):
+        super().__init__()
+
+        if normalization is None:
+            self._norm = nn.Identity()
+        else:
+            self._norm = nn.GroupNorm(num_groups=normalization, num_channels=in_channels)
+        self.conv1 = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=hidden_size,
+            kernel_size=patch_size,
+            stride=patch_size,
+            bias=False
+        )
+
+    def forward(self, image):
+        """
+        Pass the Cyto sample through the defined CNN architecture
+
+        Args:
+            image:
+
+        Returns:
+
+        """
+        # The input is of shape (batch_size, grid, grid, channels)
+        image = self.conv1(self._norm(image))
+        # Output from above is (batch_size, hidden_size, grid, grid)
+        # We now flatten this
+        image = image.reshape(image.shape[0], image.shape[1], -1)
+        # We now end up with (batch_size, hidden_size, grid * grid)
+        # Since the HF transformer expects input as (batch_size, seq_len, hidden_size)
+        # we permute the dimensions
+        return image.permute(0, 2, 1)
 
 
 class VisionEncoder(nn.Module):
