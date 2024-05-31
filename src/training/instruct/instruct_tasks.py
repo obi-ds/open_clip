@@ -33,7 +33,7 @@ class InstructTasks(object):
             elif isinstance(task, DemographicPredictionTask):
                 instructions = task.process_sample(
                     sample=sample, args=args, ignore_instruction=self.get_ignore_instruction_demographics(
-                        focal_loss=args.focal_loss
+                        focal_loss=args.loss_function == 'focal'
                     )
                 )
             else:
