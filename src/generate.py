@@ -161,7 +161,7 @@ def get_true_attribute(gen_category, patient_demographics, current_time, metadat
     elif gen_category.lower().replace(' ', '') == 'taxis':
         return get_true_t_axis(metadata)
     else:
-        # print(f'We do not have labels for: {gen_category}. Will store labels as None')
+        # print(f'We do not have labels for: {gen_category}. Will store labels as None)
         return None
 
 
@@ -264,6 +264,8 @@ def generate_text(gen_dataloader, gen_category, prompt_tokens_full, gen_pad_toke
                 generated_sample = {
                     'PatientID': sample_metadata[gen_args.patient_id_column],
                     'SampleDate': sample_metadata[gen_args.sample_result_date_column],
+                    'SampleTime': sample_metadata['TestTime'],
+                    'SampleFile': sample_metadata['file'],
                     'TrueValue': true_category,
                     'PredictedValue': predicted_value,
                     'PredictedString': predicted_string,
@@ -344,18 +346,18 @@ for file_suffix, args_str, model_type, model_path in get_args_for_generation(
     model = model.eval()
     model = model.to(device)
 
-    dataloader = get_eval_dataloader(gen_args=args, gen_tokenizer=tokenizer)
     eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
 
     print('EOS Token ID: ', eos_token_id)
 
     for eval_attribute in eval_attributes[eval_args.start: eval_args.end]:
+        dataloader = get_eval_dataloader(gen_args=args, gen_tokenizer=tokenizer)
         print('Attribute: ', eval_attribute)
         prompt = get_prompt(attribute=eval_attribute)
-
         # This is the prompt that was used in training
         prompt_tokens_all = get_custom_prompt(gen_tokenizer=instruct_tokenizer, text=prompt, batch_size=args.batch_size)
         prompt_tokens_all = prompt_tokens_all.to(device=device, non_blocking=True)
+
         print('Generation Start')
         predicted_generated_dataset = generate_text(
             gen_dataloader=dataloader,

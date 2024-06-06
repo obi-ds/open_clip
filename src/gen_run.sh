@@ -147,10 +147,10 @@ python generate.py \
 --batch-size 2048 \
 --model-type ecg_cnn_windowed_biogpt5 \
 --model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
---attribute-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs/test_labs_with_name.csv" \
+--attribute-file='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs/test_labs_with_name.csv' \
 --attribute-name-column PromptName \
 --code-column phecode \
---eval-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar" \
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar' \
 --num-samples 35200 \
 --epoch-start 150 \
 --eval-every-epoch 150 \
@@ -158,21 +158,27 @@ python generate.py \
 --output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/model_generations/" ::: $(seq 0 6) :::+ $(seq 0 10 60) :::+ $(seq 10 10 70)
 
 
+parallel -j 7 --progress --eta --delay 1 "
+python lab_eval_labels.py {1} {2} " ::: $(seq 0 10 60) :::+ $(seq 10 10 70)
 
-python eval.py \
+
+
+parallel -j 7 --progress --eta --delay 1 "
+python generate.py \
 --gpu {1} \
 --start {2} \
 --end {3} \
---batch-size 256 \
+--batch-size 2048 \
 --model-type ecg_cnn_windowed_biogpt5 \
 --model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
---phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
+--attribute-file='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs/test_labs_with_name.csv' \
+--attribute-name-column PromptName \
 --code-column phecode \
---eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/bwh/bwh_all_23_10_23/shard_{0000..0033}.tar' \
---num-samples 105600 \
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar' \
+--num-samples 35200 \
 --epoch-start 150 \
 --eval-every-epoch 150 \
---file-suffix 23_10_bwh_all_with_demographics \
---result-date-column TestDate_x \
---demographic-prompt-attributes Age Sex \
---output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: $(seq 0 7) :::+ $(seq 0 23 180) :::+ $(seq 23 23 190)
+--file-suffix 24_03_mgh_val \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/model_generations/" ::: $(seq 0 6) :::+ $(seq 0 1 6) :::+ $(seq 1 1 7)
+
+
