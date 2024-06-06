@@ -6,13 +6,14 @@
         "patch_size": 20,
         "image_size": null,
         "in_channels": 12,
-        "normalization": 1
+        "normalization": 1,
+        "q_former": 128
     },
     "text_cfg": {
         "hf_tokenizer_name": "microsoft/biogpt",
         "hf_model_name": "microsoft/biogpt",
         "projection_type": "linear",
-        "pretrained": true
+        "pretrained": false
     },
     "custom_text": true
 }
