@@ -6,7 +6,7 @@ from typing import Optional
 from transformers import AutoConfig, AutoModelForCausalLM
 
 from .model import MocaVisionEncoderConfig, MocaTextDecoderConfig
-from .transformer_decoder import VisionEncoder, MultimodalDecoder
+from .transformer_decoder import VisionEncoder, MultimodalDecoder, QFormer
 
 from transformers import (
     BeamSearchScorer,
@@ -57,13 +57,20 @@ class MoCa(nn.Module):
 
         text = self.get_text_decoder(
             model_name_or_path=text_cfg.hf_model_name,
+            pretrained=text_cfg.pretrained
         )
+
+        if vision_cfg.q_former:
+            q_former = self.get_q_former(hidden_size=visual.get_hidden_size(), num_query_tokens=vision_cfg.q_former)
+        else:
+            q_former = None
 
         self._pad_token_id = self.get_pad_token_id(text)
 
         self._multimodal_decoder = MultimodalDecoder(
             vision_encoder=visual,
             text_decoder=text,
+            q_former=q_former,
             projection_type=text_cfg.projection_type,
             ignore_index=ignore_index
         )
@@ -108,21 +115,43 @@ class MoCa(nn.Module):
         )
 
     @staticmethod
-    def get_text_decoder(model_name_or_path):
+    def get_text_decoder(model_name_or_path, pretrained):
         """
         Return the text decoder model (from huggingface)
 
         Args:
             model_name_or_path:
+            pretrained:
 
         Returns:
 
         """
         config = AutoConfig.from_pretrained(model_name_or_path)
-        return AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
-            from_tf=bool(".ckpt" in model_name_or_path),
-            config=config,
+        if not pretrained:
+            return AutoModelForCausalLM.from_config(
+                config=config,
+            )
+        else:
+            return AutoModelForCausalLM.from_pretrained(
+                model_name_or_path,
+                from_tf=bool(".ckpt" in model_name_or_path),
+                config=config,
+            )
+
+    @staticmethod
+    def get_q_former(hidden_size: int, num_query_tokens: int):
+        """
+        Return the QFormer model object
+        Args:
+            hidden_size:
+            num_query_tokens:
+
+        Returns:
+
+        """
+        return QFormer(
+            hidden_size=hidden_size,
+            num_query_tokens=num_query_tokens
         )
 
     @staticmethod
