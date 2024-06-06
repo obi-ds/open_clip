@@ -12,7 +12,7 @@ import torch
 from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype, resize_text_pos_embed, set_model_preprocess_cfg
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, CaptionLoss, FocalLoss, MoCaLoss
+from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, CaptionLoss, FocalLoss, MoCaLoss, MoCaFocalLoss
 from .coca_model import CoCa, ECGCoCa, CytoCoCa
 from .moca_model import MoCa
 from .openai import load_openai_model
@@ -349,8 +349,6 @@ def create_loss(args):
             world_size=args.world_size,
             use_horovod=args.horovod,
         )
-    elif 'moca' in args.model.lower():
-        return MoCaLoss(ignore_index=-100)
     elif args.loss_function == 'clip':
         return ClipLoss(
             local_loss=args.local_loss,
@@ -372,23 +370,29 @@ def create_loss(args):
             use_horovod=args.horovod,
         )
     elif args.loss_function == 'focal':
-        return FocalLoss(
-            local_loss=args.local_loss,
-            gather_with_grad=args.gather_with_grad,
-            cache_labels=True,
-            rank=args.rank,
-            world_size=args.world_size,
-            use_horovod=args.horovod,
-        )
+        if 'moca' in args.model.lower():
+            return MoCaFocalLoss(ignore_index=-100)
+        else:
+            return FocalLoss(
+                local_loss=args.local_loss,
+                gather_with_grad=args.gather_with_grad,
+                cache_labels=True,
+                rank=args.rank,
+                world_size=args.world_size,
+                use_horovod=args.horovod,
+            )
     elif args.loss_function == 'lm':
-        return CaptionLoss(
-            local_loss=args.local_loss,
-            gather_with_grad=args.gather_with_grad,
-            cache_labels=True,
-            rank=args.rank,
-            world_size=args.world_size,
-            use_horovod=args.horovod,
-        )
+        if 'moca' in args.model.lower():
+            return MoCaLoss(ignore_index=-100)
+        else:
+            return CaptionLoss(
+                local_loss=args.local_loss,
+                gather_with_grad=args.gather_with_grad,
+                cache_labels=True,
+                rank=args.rank,
+                world_size=args.world_size,
+                use_horovod=args.horovod,
+            )
     elif args.siglip:
         assert not args.horovod, "Horovod not currently supported for SigLip"
         return SigLipLoss(
