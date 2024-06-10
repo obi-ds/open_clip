@@ -313,13 +313,28 @@ def main(args):
 
         named_parameters = list(model.named_parameters())
         gain_or_bias_params = [p for n, p in named_parameters if exclude(n, p) and p.requires_grad]
-        rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
+
+        if 'moca' in args.model:
+            text_include = lambda n, p: not exclude(n, p) and 'text_decoder' in n
+            vision_include = lambda n, p: not exclude(n, p) and 'text_decoder' not in n
+            vision_params = [p for n, p in named_parameters if vision_include(n, p) and p.requires_grad]
+            text_params = [p for n, p in named_parameters if text_include(n, p) and p.requires_grad]
+            text_lr = args.text_decoder_lr if args.text_decoder_lr is not None else args.lr
+            text_wd = args.text_decoder_wd if args.text_decoder_wd is not None else args.wd
+            optimizer_parameters = [
+                {"params": gain_or_bias_params, "weight_decay": 0.},
+                {"params": vision_params, "weight_decay": args.wd},
+                {"params": text_params, "weight_decay": text_wd, "lr": text_lr},
+            ]
+        else:
+            rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
+            optimizer_parameters = [
+                {"params": gain_or_bias_params, "weight_decay": 0.},
+                {"params": rest_params, "weight_decay": args.wd}
+            ]
 
         optimizer = optim.AdamW(
-            [
-                {"params": gain_or_bias_params, "weight_decay": 0.},
-                {"params": rest_params, "weight_decay": args.wd},
-            ],
+            optimizer_parameters,
             lr=args.lr,
             betas=(args.beta1, args.beta2),
             eps=args.eps,
@@ -541,6 +556,7 @@ def copy_codebase(args):
     print("Done copying code.")
     return 1
 
+
 def get_eos_token_id(model_name, tokenizer):
     if 'biogpt' in model_name or 'bio_gpt' in model_name:
         return tokenizer.tokenizer.eos_token_id
@@ -550,6 +566,7 @@ def get_eos_token_id(model_name, tokenizer):
     else:
         return tokenizer.eot_token_id
 
+
 def get_token_id(model_name, tokenizer, token):
     if 'biogpt' in model_name or 'bio_gpt' in model_name:
         return tokenizer.tokenizer.encode(token)[1]
@@ -557,6 +574,7 @@ def get_token_id(model_name, tokenizer, token):
         return tokenizer.tokenizer.convert_tokens_to_ids(token)
     else:
         return tokenizer.encode(token)[0]
+
 
 def get_eval_data_object(args, eval_code, tokenizer, eval_start_time, eval_end_time):
     args = copy.deepcopy(args)
