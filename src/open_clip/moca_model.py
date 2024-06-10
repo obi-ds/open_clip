@@ -46,6 +46,9 @@ class MoCa(nn.Module):
             if isinstance(text_cfg, dict) else text_cfg
         )
 
+        print('Vision Config: ', vision_cfg)
+        print('Text Config: ', text_cfg)
+
         visual = self.get_vision_encoder(
             image_input_type=vision_cfg.image_input_type,
             image_size=vision_cfg.image_size,
@@ -61,6 +64,7 @@ class MoCa(nn.Module):
         )
 
         if vision_cfg.q_former:
+            print('Using Q Former')
             q_former = self.get_q_former(hidden_size=visual.get_hidden_size(), num_query_tokens=vision_cfg.q_former)
         else:
             q_former = None
