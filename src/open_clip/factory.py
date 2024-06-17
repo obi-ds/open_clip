@@ -12,8 +12,9 @@ import torch
 from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype, resize_text_pos_embed, set_model_preprocess_cfg
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, CaptionLoss, FocalLoss
+from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, CaptionLoss, FocalLoss, MoCaLoss, MoCaFocalLoss
 from .coca_model import CoCa, ECGCoCa, CytoCoCa
+from .moca_model import MoCa
 from .openai import load_openai_model
 from .pretrained import is_pretrained_cfg, get_pretrained_cfg, download_pretrained,\
     list_pretrained_tags_by_model, download_pretrained_from_hf
@@ -147,6 +148,9 @@ def load_checkpoint(model, checkpoint_path, strict=True):
         return {}
 
     state_dict = load_state_dict(checkpoint_path)
+    if isinstance(model, MoCa):
+        incompatible_keys = model.load_state_dict(state_dict, strict=strict)
+        return incompatible_keys
     # detect old format and make compatible with new format
     if 'positional_embedding' in state_dict and not hasattr(model, 'positional_embedding'):
         state_dict = convert_to_custom_text_state_dict(state_dict)
@@ -248,7 +252,11 @@ def create_model(
 
         model_cfg = dict(model_cfg, **model_kwargs)  # merge cfg dict w/ kwargs (kwargs overrides cfg)
         if custom_text:
-            if "ecg_cfg" in model_cfg:
+            if 'moca' in model_name:
+                model = MoCa(
+                    **model_cfg,
+                )
+            elif "ecg_cfg" in model_cfg:
                 model = ECGCoCa(
                     **model_cfg,
                     **model_kwargs,
@@ -328,7 +336,8 @@ def create_model(
     if getattr(model.visual, 'image_size', None) is not None:
         # use image_size set on model creation (via config or force_image_size arg)
         force_preprocess_cfg['size'] = model.visual.image_size
-    set_model_preprocess_cfg(model, merge_preprocess_dict(preprocess_cfg, force_preprocess_cfg))
+    if 'moca' not in model_name:
+        set_model_preprocess_cfg(model, merge_preprocess_dict(preprocess_cfg, force_preprocess_cfg))
 
     return model
 
@@ -343,26 +352,16 @@ def create_loss(args):
             world_size=args.world_size,
             use_horovod=args.horovod,
         )
-    elif 'ecg' in args.model.lower() or 'cyto' in args.model.lower():
-        if args.focal_loss:
-            return FocalLoss(
-                local_loss=args.local_loss,
-                gather_with_grad=args.gather_with_grad,
-                cache_labels=True,
-                rank=args.rank,
-                world_size=args.world_size,
-                use_horovod=args.horovod,
-            )
-        else:
-            return CaptionLoss(
-                local_loss=args.local_loss,
-                gather_with_grad=args.gather_with_grad,
-                cache_labels=True,
-                rank=args.rank,
-                world_size=args.world_size,
-                use_horovod=args.horovod,
-            )
-    elif "coca" in args.model.lower():
+    elif args.loss_function == 'clip':
+        return ClipLoss(
+            local_loss=args.local_loss,
+            gather_with_grad=args.gather_with_grad,
+            cache_labels=True,
+            rank=args.rank,
+            world_size=args.world_size,
+            use_horovod=args.horovod,
+        )
+    elif args.loss_function == 'coca':
         return CoCaLoss(
             caption_loss_weight=args.coca_caption_loss_weight,
             clip_loss_weight=args.coca_contrastive_loss_weight,
@@ -373,20 +372,38 @@ def create_loss(args):
             world_size=args.world_size,
             use_horovod=args.horovod,
         )
+    elif args.loss_function == 'focal':
+        if 'moca' in args.model.lower():
+            return MoCaFocalLoss(ignore_index=-100)
+        else:
+            return FocalLoss(
+                local_loss=args.local_loss,
+                gather_with_grad=args.gather_with_grad,
+                cache_labels=True,
+                rank=args.rank,
+                world_size=args.world_size,
+                use_horovod=args.horovod,
+            )
+    elif args.loss_function == 'lm':
+        if 'moca' in args.model.lower():
+            return MoCaLoss(ignore_index=-100)
+        else:
+            return CaptionLoss(
+                local_loss=args.local_loss,
+                gather_with_grad=args.gather_with_grad,
+                cache_labels=True,
+                rank=args.rank,
+                world_size=args.world_size,
+                use_horovod=args.horovod,
+            )
     elif args.siglip:
         assert not args.horovod, "Horovod not currently supported for SigLip"
         return SigLipLoss(
             rank=args.rank,
             world_size=args.world_size,
         )
-    return ClipLoss(
-        local_loss=args.local_loss,
-        gather_with_grad=args.gather_with_grad,
-        cache_labels=True,
-        rank=args.rank,
-        world_size=args.world_size,
-        use_horovod=args.horovod,
-    )
+    else:
+        raise ValueError(f'Invalid loss function: {args.loss_function}')
 
 
 def create_model_and_transforms(
@@ -431,7 +448,7 @@ def create_model_and_transforms(
         **model_kwargs,
     )
 
-    if "ecg" in model_name or 'cyto' in model_name:
+    if "ecg" in model_name or 'cyto' in model_name or 'moca' in model_name:
         preprocess_train = lambda x: x
         preprocess_val = lambda x: x
 

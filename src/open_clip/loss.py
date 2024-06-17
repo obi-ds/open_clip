@@ -116,7 +116,7 @@ class ClipLoss(nn.Module):
         else:
             logits_per_image = logit_scale * image_features @ text_features.T
             logits_per_text = logit_scale * text_features @ image_features.T
-        
+
         return logits_per_image, logits_per_text
 
     def forward(self, image_features, text_features, logit_scale, output_dict=False):
@@ -126,9 +126,9 @@ class ClipLoss(nn.Module):
         labels = self.get_ground_truth(device, logits_per_image.shape[0])
 
         total_loss = (
-            F.cross_entropy(logits_per_image, labels) +
-            F.cross_entropy(logits_per_text, labels)
-        ) / 2
+                             F.cross_entropy(logits_per_image, labels) +
+                             F.cross_entropy(logits_per_text, labels)
+                     ) / 2
 
         return {"contrastive_loss": total_loss} if output_dict else total_loss
 
@@ -159,16 +159,19 @@ class CoCaLoss(ClipLoss):
         self.caption_loss = nn.CrossEntropyLoss(ignore_index=-100)
 
     def forward(self, image_features, text_features, logits, labels, logit_scale, output_dict=False):
-        
+
         clip_loss = torch.tensor(0)
-        
+
         if self.clip_loss_weight:
             clip_loss = super().forward(image_features, text_features, logit_scale)
             clip_loss = self.clip_loss_weight * clip_loss
 
+        logits = logits[:, :, :].contiguous()
+        labels = labels[:, :].contiguous()
+
         caption_loss = self.caption_loss(
-            logits.permute(0, 2, 1),
-            labels,
+            logits.view(-1, logits.size(-1)),
+            labels.view(-1),
         )
         caption_loss = caption_loss * self.caption_loss_weight
 
@@ -202,14 +205,14 @@ class DistillClipLoss(ClipLoss):
         labels = self.get_ground_truth(image_features.device, logits_per_image.shape[0])
 
         contrastive_loss = (
-            F.cross_entropy(logits_per_image, labels) +
-            F.cross_entropy(logits_per_text, labels)
-        ) / 2
+                                   F.cross_entropy(logits_per_image, labels) +
+                                   F.cross_entropy(logits_per_text, labels)
+                           ) / 2
 
         distill_loss = (
-            self.dist_loss(dist_logits_per_image, logits_per_image) +
-            self.dist_loss(dist_logits_per_text, logits_per_text)
-        ) / 2
+                               self.dist_loss(dist_logits_per_image, logits_per_image) +
+                               self.dist_loss(dist_logits_per_text, logits_per_text)
+                       ) / 2
 
         if output_dict:
             return {"contrastive_loss": contrastive_loss, "distill_loss": distill_loss}
@@ -298,7 +301,7 @@ class NeighbourExchangeBidir(torch.autograd.Function):
     @staticmethod
     def backward(ctx, *grad_outputs):
         return (None, None, None) + \
-            NeighbourExchangeBidir.apply(ctx.right_rank, ctx.left_rank, ctx.group, *grad_outputs)
+               NeighbourExchangeBidir.apply(ctx.right_rank, ctx.left_rank, ctx.group, *grad_outputs)
 
 
 def neighbour_exchange_bidir_with_grad(left_rank, right_rank, tensor_to_left, tensor_to_right, group=None):
@@ -315,6 +318,7 @@ class SigLipLoss(nn.Module):
       year={2023}
     }
     """
+
     def __init__(
             self,
             cache_labels=False,
@@ -413,6 +417,7 @@ class SigLipLoss(nn.Module):
                     text_features_to_right = text_features_from_left
 
         return {"contrastive_loss": loss} if output_dict else loss
+
 
 class CaptionLoss(ClipLoss):
     def __init__(
@@ -524,4 +529,80 @@ class FocalLoss(ClipLoss):
         return clip_loss, caption_loss
 
 
+class MoCaLoss(nn.Module):
+    def __init__(
+            self,
+            ignore_index
+    ):
+        super().__init__()
 
+        self.caption_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
+
+    def forward(self, logits, labels, logit_scale, output_dict=False):
+        logits = logits[:, :, :].contiguous()
+        labels = labels[:, :].contiguous()
+
+        caption_loss = self.caption_loss(
+            logits.view(-1, logits.size(-1)),
+            labels.view(-1),
+        )
+        caption_loss = caption_loss * logit_scale
+
+        if output_dict:
+            return {"caption_loss": caption_loss}
+
+        return caption_loss
+
+
+class MoCaFocalLoss(nn.Module):
+    def __init__(
+            self,
+            ignore_index,
+            alpha: Optional[Tensor] = None,
+            gamma: float = 1,
+            reduction: str = 'mean',
+    ):
+        super().__init__()
+        self._alpha = alpha
+        self._gamma = gamma
+        self._ignore_index = ignore_index
+        self._reduction = reduction
+        self.nll_loss = nn.NLLLoss(
+            weight=alpha,
+            reduction='none',
+            ignore_index=ignore_index
+        )
+
+    def forward(self, logits, labels, logit_scale, output_dict=False):
+
+        logits = logits[:, :, :].contiguous()
+        labels = labels[:, :].contiguous()
+
+        mask = labels != self._ignore_index
+
+        logits = logits[mask]
+        labels = labels[mask]
+
+        if len(labels) == 0:
+            return torch.tensor(0.).to(device=logits.device)
+
+        log_probabilities = F.log_softmax(logits, dim=-1)
+        negative_log_pt = self.nll_loss(log_probabilities, labels)
+
+        # get true class column from each row
+        indexes = torch.arange(len(log_probabilities))
+        pt = log_probabilities[indexes, labels].exp()
+
+        caption_loss = ((1 - pt) ** self._gamma) * negative_log_pt
+
+        if self._reduction == 'mean':
+            caption_loss = caption_loss.mean()
+        elif self._reduction == 'sum':
+            caption_loss = caption_loss.sum()
+
+        caption_loss = caption_loss * logit_scale
+
+        if output_dict:
+            return {"caption_loss": caption_loss}
+
+        return caption_loss

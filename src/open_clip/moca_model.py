@@ -1,137 +1,172 @@
-from typing import Optional
-
+"""Moca model"""
 import torch
 from torch import nn
 from torch.nn import functional as F
-import numpy as np
-from dataclasses import dataclass
+from typing import Optional
+from transformers import AutoConfig, AutoModelForCausalLM
 
-from .transformer import (
-    LayerNormFp32,
-    LayerNorm,
-    QuickGELU,
-    MultimodalTransformer,
+from .model import MocaVisionEncoderConfig, MocaTextDecoderConfig
+from .transformer_decoder import VisionEncoder, MultimodalDecoder, QFormer
+
+from transformers import (
+    BeamSearchScorer,
+    LogitsProcessorList,
+    TopPLogitsWarper,
+    TopKLogitsWarper,
+    RepetitionPenaltyLogitsProcessor,
+    MinLengthLogitsProcessor,
+    MaxLengthCriteria,
+    StoppingCriteriaList
 )
-from .model import CLIPTextCfg, CLIPVisionCfg, CLIPECGCfg, _build_vision_tower, _build_text_tower, _build_ecg_tower
 
-try:
-    from transformers import (
-        BeamSearchScorer,
-        LogitsProcessorList,
-        TopPLogitsWarper,
-        TopKLogitsWarper,
-        RepetitionPenaltyLogitsProcessor,
-        MinLengthLogitsProcessor,
-        MaxLengthCriteria,
-        StoppingCriteriaList
-    )
-
-    GENERATION_TYPES = {
-        "top_k": TopKLogitsWarper,
-        "top_p": TopPLogitsWarper,
-        "beam_search": "beam_search"
-    }
-    _has_transformers = True
-except ImportError as e:
-    GENERATION_TYPES = {
-        "top_k": None,
-        "top_p": None,
-        "beam_search": "beam_search"
-    }
-    _has_transformers = False
+GENERATION_TYPES = {
+    "top_k": TopKLogitsWarper,
+    "top_p": TopPLogitsWarper,
+    "beam_search": "beam_search"
+}
+_has_transformers = True
 
 
-@dataclass
-class MultimodalCfg(CLIPTextCfg):
-    mlp_ratio: int = 4
-    dim_head: int = 64
-    heads: int = 8
-    n_queries: int = 256
-    attn_pooler_heads: int = 8
-
-
-def _build_text_decoder_tower(
-        embed_dim,
-        multimodal_cfg,
-        quick_gelu: bool = False,
-        cast_dtype: Optional[torch.dtype] = None,
-):
-    multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
-    act_layer = QuickGELU if quick_gelu else nn.GELU
-    norm_layer = (
-        LayerNormFp32 if cast_dtype in (torch.float16, torch.bfloat16) else LayerNorm
-    )
-
-    decoder = MultimodalTransformer(
-        context_length=multimodal_cfg.context_length,
-        width=multimodal_cfg.width,
-        heads=multimodal_cfg.heads,
-        layers=multimodal_cfg.layers,
-        ls_init_value=multimodal_cfg.ls_init_value,
-        output_dim=embed_dim,
-        act_layer=act_layer,
-        norm_layer=norm_layer,
-    )
-
-    return decoder
-
-
-class CoCa(nn.Module):
+class MoCa(nn.Module):
     def __init__(
             self,
-            embed_dim,
-            multimodal_cfg: MultimodalCfg,
-            text_cfg: CLIPTextCfg,
-            vision_cfg: Optional[CLIPVisionCfg],
-            pad_id: int = 0,
-            quick_gelu: bool = False,
-            init_logit_scale: float = np.log(1 / 0.07),
-            init_logit_bias: Optional[float] = None,
-            cast_dtype: Optional[torch.dtype] = None,
+            vision_cfg: MocaVisionEncoderConfig,
+            text_cfg: MocaTextDecoderConfig,
+            ignore_index=-100,
+            **kwargs
     ):
+        print('MoCa Model')
         super().__init__()
-        multimodal_cfg = MultimodalCfg(**multimodal_cfg) if isinstance(multimodal_cfg, dict) else multimodal_cfg
-        text_cfg = CLIPTextCfg(**text_cfg) if isinstance(text_cfg, dict) else text_cfg
-
-        if vision_cfg is not None:
-            vision_cfg = CLIPVisionCfg(**vision_cfg) if isinstance(vision_cfg, dict) else vision_cfg
-
-        self.text = _build_text_tower(
-            embed_dim=embed_dim,
-            text_cfg=text_cfg,
-            quick_gelu=quick_gelu,
-            cast_dtype=cast_dtype,
+        vision_cfg = (
+            MocaVisionEncoderConfig(**vision_cfg)
+            if isinstance(vision_cfg, dict) else vision_cfg
+        )
+        text_cfg = (
+            MocaTextDecoderConfig(**text_cfg)
+            if isinstance(text_cfg, dict) else text_cfg
         )
 
-        vocab_size = (
-            text_cfg.vocab_size  # for hf models
-            if hasattr(text_cfg, "hf_model_name") and text_cfg.hf_model_name is not None
-            else text_cfg.vocab_size
+        print('Vision Config: ', vision_cfg)
+        print('Text Config: ', text_cfg)
+
+        visual = self.get_vision_encoder(
+            image_input_type=vision_cfg.image_input_type,
+            image_size=vision_cfg.image_size,
+            patch_size=vision_cfg.patch_size,
+            in_channels=vision_cfg.in_channels,
+            model_name_or_path=vision_cfg.hf_model_name,
+            normalization=vision_cfg.normalization
         )
 
-        if vision_cfg is not None:
-            self.visual = _build_vision_tower(
-                embed_dim=embed_dim,
-                vision_cfg=vision_cfg,
-                quick_gelu=quick_gelu,
-                cast_dtype=cast_dtype,
+        text = self.get_text_decoder(
+            model_name_or_path=text_cfg.hf_model_name,
+            pretrained=text_cfg.pretrained
+        )
+
+        if vision_cfg.q_former:
+            print('Using Q Former')
+            q_former = self.get_q_former(hidden_size=visual.get_hidden_size(), num_query_tokens=vision_cfg.q_former)
+        else:
+            q_former = None
+
+        self._pad_token_id = self.get_pad_token_id(text)
+
+        self._multimodal_decoder = MultimodalDecoder(
+            vision_encoder=visual,
+            text_decoder=text,
+            q_former=q_former,
+            projection_type=text_cfg.projection_type,
+            ignore_index=ignore_index
+        )
+
+        # Set these to None - so that it works with the existing open_clip implementation
+        self.visual = None
+        self.text = None
+
+        # The following are initialized so that the code works with existing clip code
+        self.logit_scale = torch.ones(1, requires_grad=False)
+
+    @staticmethod
+    def get_vision_encoder(
+            image_input_type: str,
+            image_size: int,
+            patch_size: int,
+            model_name_or_path: str,
+            in_channels: int,
+            normalization: Optional[int]
+    ):
+        """
+        Return the vision encoder object
+
+        Args:
+            image_input_type:
+            image_size:
+            patch_size:
+            model_name_or_path:
+            in_channels:
+            normalization:
+
+        Returns:
+
+        """
+        return VisionEncoder(
+            image_input_type=image_input_type,
+            image_size=image_size,
+            patch_size=patch_size,
+            model_name_or_path=model_name_or_path,
+            in_channels=in_channels,
+            normalization=normalization
+        )
+
+    @staticmethod
+    def get_text_decoder(model_name_or_path, pretrained):
+        """
+        Return the text decoder model (from huggingface)
+
+        Args:
+            model_name_or_path:
+            pretrained:
+
+        Returns:
+
+        """
+        config = AutoConfig.from_pretrained(model_name_or_path)
+        if not pretrained:
+            return AutoModelForCausalLM.from_config(
+                config=config,
+            )
+        else:
+            return AutoModelForCausalLM.from_pretrained(
+                model_name_or_path,
+                from_tf=bool(".ckpt" in model_name_or_path),
+                config=config,
             )
 
-        self.text_decoder = _build_text_decoder_tower(
-            vocab_size,
-            multimodal_cfg=multimodal_cfg,
-            quick_gelu=quick_gelu,
-            cast_dtype=cast_dtype,
+    @staticmethod
+    def get_q_former(hidden_size: int, num_query_tokens: int):
+        """
+        Return the QFormer model object
+        Args:
+            hidden_size:
+            num_query_tokens:
+
+        Returns:
+
+        """
+        return QFormer(
+            hidden_size=hidden_size,
+            num_query_tokens=num_query_tokens
         )
 
-        self.logit_scale = nn.Parameter(torch.ones([]) * init_logit_scale)
-        if init_logit_bias is not None:
-            self.logit_bias = nn.Parameter(torch.ones([]) * init_logit_bias)
-        else:
-            self.logit_bias = None
-        self.pad_id = pad_id
+    @staticmethod
+    def get_pad_token_id(text):
+        """
+        Get the id of the pad token
 
-        self.context_length = multimodal_cfg.context_length
+        Returns:
+
+        """
+        return text.config.pad_token_id
 
     @torch.jit.ignore
     def set_grad_checkpointing(self, enable: bool = True):
@@ -139,56 +174,50 @@ class CoCa(nn.Module):
         self.text.set_grad_checkpointing(enable)
         self.text_decoder.set_grad_checkpointing(enable)
 
-    def _encode_image(self, images, normalize: bool = True):
-        image_latent, tokens_embs = self.visual(images)
-        image_latent = F.normalize(image_latent, dim=-1) if normalize else image_latent
-        return image_latent, tokens_embs
-
-    def _encode_text(self, text, normalize: bool = True):
-        text_latent, token_emb = self.text(text)
-        text_latent = F.normalize(text_latent, dim=-1) if normalize else text_latent
-        return text_latent, token_emb
-
-    def encode_image(self, images, normalize: bool = True):
-        image_latent, _ = self._encode_image(images, normalize=normalize)
-        return image_latent
-
-    def encode_text(self, text, normalize: bool = True):
-        text_latent, _ = self._encode_text(text, normalize=normalize)
-        return text_latent
-
     def lock_text_tower(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
-        self.text.lock(unlocked_layers, freeze_layer_norm)
+        """
+        Lock text tower
+        Args:
+            unlocked_layers:
+            freeze_layer_norm:
+
+        Returns:
+
+        """
+        self._multimodal_decoder.lock_text_decoder(unlocked_layers, freeze_layer_norm)
 
     def forward(
             self,
-            image,
-            text: Optional[torch.Tensor] = None,
-            image_latent: Optional[torch.Tensor] = None,
-            image_embs: Optional[torch.Tensor] = None,
+            images,
+            texts,
     ):
-        if image_latent is None or image_embs is None:
-            image_latent, image_embs = self._encode_image(image)
 
-        if text is None:
-            return {"image_features": image_latent, "image_embs": image_embs}
+        if texts.dim() == 3:
+            labels = texts[:, 1, :]
+            input_ids = texts[:, 0, :]
+        else:
+            labels = None
+            input_ids = texts
 
-        text_latent, token_embs = self._encode_text(text)
+        # 0 for pad token positions
+        attention_mask = (
+            (input_ids != self._pad_token_id)
+            .to(dtype=torch.bool, device=input_ids.device)
+        )
 
-        # TODO: add assertion to avoid bugs?
-        labels = text[:, -token_embs.shape[1]:]
+        multimodal_logits, multimodal_labels = self._multimodal_decoder(
+            input_ids=input_ids,
+            images=images,
+            attention_mask=attention_mask,
+            labels=labels
+        )
 
-        logits = self.text_decoder(image_embs, token_embs)
-        out_dict = {
-            "image_features": image_latent,
-            "text_features": text_latent,
-            "logits": logits,
-            "labels": labels,
-            "logit_scale": self.logit_scale.exp()
+        return {
+            "logits": multimodal_logits,
+            "labels": multimodal_labels,
+            "logit_scale": self.logit_scale.to(device=multimodal_logits.device)
         }
-        if self.logit_bias is not None:
-            out_dict["logit_bias"] = self.logit_bias
-        return out_dict
+
 
     def generate(
         self,
@@ -282,7 +311,7 @@ class CoCa(nn.Module):
             while True:
                 x = out[:, -max_seq_len:]
                 cur_len = x.shape[1]
-                logits = self(image, x, image_latent=image_latent, image_embs=image_embs)["logits"][:, -1]
+                logits = self(image, x)["logits"][:, -1]
                 mask = (out[:, -1] == eos_token_id) | (out[:, -1] == pad_token_id)
                 sample = torch.ones((out.shape[0], 1), device=device, dtype=torch.long) * pad_token_id
 
@@ -304,7 +333,7 @@ class CoCa(nn.Module):
 
                 cur_len += 1
 
-                if all(stopping_criteria(out, None)):
+                if stopping_criteria(out, None):
                     break
 
             if num_dims == 1:
@@ -482,118 +511,3 @@ def prepare_inputs_for_generation(input_ids, image_inputs, past=None, **kwargs):
         "position_ids": position_ids,
         "attention_mask": attention_mask,
     }
-
-class ECGCoCa(CoCa):
-    def __init__(
-            self,
-            embed_dim,
-            multimodal_cfg: MultimodalCfg,
-            text_cfg: CLIPTextCfg,
-            ecg_cfg: CLIPECGCfg,
-            pad_id: int = 0,
-            vision_cfg: Optional[CLIPVisionCfg] = None,
-            quick_gelu: bool = False,
-            init_logit_scale: float = np.log(1 / 0.07),
-            init_logit_bias: Optional[float] = None,
-            cast_dtype: Optional[torch.dtype] = None
-    ):
-
-        super().__init__(
-            embed_dim=embed_dim,
-            multimodal_cfg=multimodal_cfg,
-            text_cfg=text_cfg,
-            vision_cfg=None,
-            quick_gelu=quick_gelu,
-            init_logit_scale=init_logit_scale,
-            init_logit_bias=init_logit_bias,
-            cast_dtype=cast_dtype,
-            pad_id=pad_id
-        )
-        self.visual = _build_ecg_tower(
-            embed_dim=embed_dim,
-            ecg_cfg=ecg_cfg,
-        )
-
-    def forward(
-            self,
-            image,
-            text: Optional[torch.Tensor] = None,
-            image_latent: Optional[torch.Tensor] = None,
-            image_embs: Optional[torch.Tensor] = None,
-    ):
-        labels = None
-        if text.dim() == 3:
-            labels = text[:, 1, :]
-            text = text[:, 0, :]
-
-        text_latent, token_embs = self._encode_text(text)
-        if image_latent is None or image_embs is None:
-            image_latent, image_embs = self._encode_image(image)
-
-        if labels is None:
-            labels = text[:, -token_embs.shape[1]:]
-
-        logits = self.text_decoder(image_embs, token_embs)
-
-        return {
-            "image_features": image_latent,
-            "text_features": text_latent,
-            "logits": logits,
-            "labels": labels,
-            "logit_scale": self.logit_scale.exp()
-        }
-
-class CytoCoCa(CoCa):
-    def __init__(
-            self,
-            embed_dim,
-            multimodal_cfg: MultimodalCfg,
-            text_cfg: CLIPTextCfg,
-            vision_cfg: Optional[CLIPVisionCfg] = None,
-            quick_gelu: bool = False,
-            init_logit_scale: float = np.log(1 / 0.07),
-            init_logit_bias: Optional[float] = None,
-            cast_dtype: Optional[torch.dtype] = None,
-            pad_id: int = 0,
-    ):
-
-        super().__init__(
-            embed_dim=embed_dim,
-            multimodal_cfg=multimodal_cfg,
-            text_cfg=text_cfg,
-            vision_cfg=vision_cfg,
-            quick_gelu=quick_gelu,
-            init_logit_scale=init_logit_scale,
-            init_logit_bias=init_logit_bias,
-            cast_dtype=cast_dtype,
-            pad_id=pad_id
-        )
-
-    def forward(
-            self,
-            image,
-            text: Optional[torch.Tensor] = None,
-            image_latent: Optional[torch.Tensor] = None,
-            image_embs: Optional[torch.Tensor] = None,
-    ):
-        labels = None
-        if text.dim() == 3:
-            labels = text[:, 1, :]
-            text = text[:, 0, :]
-
-        text_latent, token_embs = self._encode_text(text)
-        if image_latent is None or image_embs is None:
-            image_latent, image_embs = self._encode_image(image)
-
-        if labels is None:
-            labels = text[:, -token_embs.shape[1]:]
-
-        logits = self.text_decoder(image_embs, token_embs)
-
-        return {
-            "image_features": image_latent,
-            "text_features": text_latent,
-            "logits": logits,
-            "labels": labels,
-            "logit_scale": self.logit_scale.exp()
-        }

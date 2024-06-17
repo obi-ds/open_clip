@@ -117,6 +117,12 @@ parser.add_argument(
     default=False,
     help="Overwrite existing results",
 )
+parser.add_argument(
+    "--demographic-prompt-attributes",
+    nargs='+',
+    default=None,
+    help="The demographic attributes to use in the prompt"
+)
 
 
 eval_args = parser.parse_args(sys.argv[1:])
@@ -226,6 +232,8 @@ def get_eval_dataframe(metadata, scores, labels):
     eval_df['labels'] = labels
     return eval_df
 
+print('STARTING')
+
 for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
         model_type=eval_args.model_type,
         model_folder=eval_args.model_folder,
@@ -236,7 +244,8 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
         epoch_start=eval_args.epoch_start,
         code_column=eval_args.code_column,
         file_suffix=eval_args.file_suffix,
-        result_date_column=eval_args.result_date_column
+        result_date_column=eval_args.result_date_column,
+        demographic_prompt_attributes=eval_args.demographic_prompt_attributes
     ):
 
     args_str = args_str.replace('"', '')

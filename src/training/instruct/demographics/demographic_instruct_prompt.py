@@ -60,8 +60,9 @@ class DemographicPredictionPrompt(DemographicPredictionTask):
             seq2seq_column=seq2seq_column,
             seq2seq=seq2seq
         )
+        self._attribute_index_map = {'Age': 0, 'Sex': 1, 'Height': 2, 'Weight': 3}
 
-    def process_sample(self, sample, args, ignore_instruction=None, category=None):
+    def process_sample(self, sample, args, ignore_instruction=True, attributes=None):
         """
         Process sample
 
@@ -69,7 +70,7 @@ class DemographicPredictionPrompt(DemographicPredictionTask):
             sample:
             args:
             ignore_instruction:
-            category:
+            attributes:
 
         Returns:
 
@@ -78,13 +79,41 @@ class DemographicPredictionPrompt(DemographicPredictionTask):
         # Store all the prompt elements (input, output)
         all_instructions = list()
 
+        # If for some reason we don't have encounter data for this person - we ignore training
+        # on this person
+        if (
+                not self._demographic_dataframe_process.check_patient_id(patient_id=sample[args.patient_id_column])
+        ):
+            print('Missing demographics for patient: XXX')
+            return []
+
+        # Get the full encounter history
+        patient_demographics = self.get_patient_demographics(
+            patient_id=sample[args.patient_id_column],
+        )
+
+        patient_demographics = self.transform_demographics_for_task(
+            patient_demographics=patient_demographics,
+            sample=sample,
+            current_time=sample[args.sample_result_date_column]
+        )
+
         # Get the task instruction
         all_instructions.append(self.get_task_instruction())
 
+        instruction_samples = [
+            patient_demographics[self._attribute_index_map[attribute]]
+            for attribute in attributes
+            if attribute == patient_demographics[self._attribute_index_map[attribute]][0]
+        ]
+
         # Convert samples to text instructions (prompt)
-        all_instructions.append(self.get_category_prompt(category=category))
+        all_instructions.extend(
+            self.convert_samples_to_instructions(
+                instruction_samples=instruction_samples,
+                ignore_instruction=ignore_instruction,
+                seq2seq=self._seq2seq
+            )
+        )
 
         return all_instructions
-
-    def get_category_prompt(self, category):
-        return self._demographic_instructions.get_instruction_input(category=category), '', True, self._seq2seq

@@ -51,15 +51,22 @@ def get_instruct_arguments():
         help="Whether to shuffle the tasks"
     )
     parser.add_argument(
+        "--add-img-token",
+        default=False,
+        action="store_true",
+        help="Whether to add a special token to separate image and text - applicable for decoder only model"
+    )
+    parser.add_argument(
         "--eval-mode",
         default=False,
         action="store_true",
         help="Whether to run the main script in eval mode only"
     )
     parser.add_argument(
-        "--focal-loss",
-        default=False,
-        action="store_true",
-        help="Whether to train with focal loss"
+        "--loss-function",
+        default=None,
+        choices=['clip', 'coca', 'focal', 'lm'],
+        type=str,
+        help="What loss function to use for training"
     )
     return parser

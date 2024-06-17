@@ -467,6 +467,8 @@ def get_wds_dataset_icd_instruct(
             task_list.append(get_code_label_prediction_task_eval(args=args))
         elif task == 'tree_eval' and (args.eval_mode or eval_mode):
             task_list.append(get_tree_code_label_prediction_task_eval(args=args))
+        elif task == 'demographics_prompt' and (args.eval_mode or eval_mode):
+            task_list.append(get_demographic_prompt(args=args))
         else:
             raise ValueError('Invalid task type')
 

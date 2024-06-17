@@ -1,26 +1,10 @@
 from glob import glob
 from pathlib import Path
-def get_args_str(
-        eval_data,
-        num_samples,
-        model_type,
-        batch_size,
-        result_date_column,
-        code_column,
-        demographic_prompt_attributes
-):
+def get_args_str(eval_data, num_samples, model_type, batch_size, result_date_column, code_column):
     if 'gpt' in model_type:
         pad_id = 1
     else:
         pad_id = 0
-    if demographic_prompt_attributes is None:
-        tasks = 'eval'
-        demographic_prompt_attributes = 'null'
-    else:
-        print(f'Running code eval with the following attributes in the prompt: {demographic_prompt_attributes}')
-        tasks = 'demographics_prompt eval'
-        demographic_prompt_attributes = ' '.join(demographic_prompt_attributes)
-
     return f'--train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{{0000..0078}}.tar"  \
         --val-data="{eval_data}"  \
         --train-num-samples 252800 \
@@ -53,7 +37,6 @@ def get_args_str(
         --code-column {code_column} \
         --sample-result-date-column {result_date_column} \
         --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
-        --demographic-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/demographics_2404.parquet" \
         --time-difference-normalize 1 \
         --number-of-instructions 1 \
         --k-shot 1 \
@@ -61,26 +44,15 @@ def get_args_str(
         --pad_id {pad_id} \
         --distance-threshold 60 \
         --negatives-type random \
-        --tasks {tasks} \
-        --demographic-prompt-attributes {demographic_prompt_attributes} \
-        --eval-mode \
+        --tasks eval \
         --eval-start-time 0 \
         --eval-end-time 180 \
         --seed 0'.replace('"', '')
 
-def get_model_details_for_eval(
-        file_suffix,
-        model_type,
-        model_folder,
-        eval_every_epoch,
-        batch_size,
-        epoch_start,
-        eval_data,
-        num_samples,
-        code_column,
-        result_date_column,
-        demographic_prompt_attributes
-):
+def get_args_for_generation(
+        file_suffix, model_type,
+        model_folder, eval_every_epoch, batch_size,
+        epoch_start, eval_data, num_samples, code_column, result_date_column):
     model_details = list()
     for file in glob(model_folder + '*pt'):
         file = Path(file)
@@ -95,8 +67,7 @@ def get_model_details_for_eval(
                         eval_data=eval_data,
                         num_samples=num_samples,
                         code_column=code_column,
-                        result_date_column=result_date_column,
-                        demographic_prompt_attributes=demographic_prompt_attributes
+                        result_date_column=result_date_column
                     ),
                     model_type,
                     str(file)

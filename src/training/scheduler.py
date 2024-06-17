@@ -6,6 +6,10 @@ def assign_learning_rate(optimizer, new_lr):
         param_group["lr"] = new_lr
 
 
+def assign_learning_rate_for_group(optimizer, new_lr, group):
+    optimizer.param_groups[group]["lr"] = new_lr
+
+
 def _warmup_lr(base_lr, warmup_length, step):
     return base_lr * (step + 1) / warmup_length
 
@@ -18,6 +22,7 @@ def const_lr(optimizer, base_lr, warmup_length, steps):
             lr = base_lr
         assign_learning_rate(optimizer, lr)
         return lr
+
     return _lr_adjuster
 
 
@@ -33,10 +38,11 @@ def const_lr_cooldown(optimizer, base_lr, warmup_length, steps, cooldown_steps, 
                 e = step - start_cooldown_step
                 es = steps - start_cooldown_step
                 # linear decay if power == 1; polynomial decay otherwise;
-                decay = (1 - (e/es)) ** cooldown_power
+                decay = (1 - (e / es)) ** cooldown_power
                 lr = decay * (base_lr - cooldown_end_lr) + cooldown_end_lr
         assign_learning_rate(optimizer, lr)
         return lr
+
     return _lr_adjuster
 
 
@@ -50,4 +56,19 @@ def cosine_lr(optimizer, base_lr, warmup_length, steps):
             lr = 0.5 * (1 + np.cos(np.pi * e / es)) * base_lr
         assign_learning_rate(optimizer, lr)
         return lr
+
+    return _lr_adjuster
+
+
+def cosine_lr_multiple(optimizer, base_lr_list, warmup_length, steps):
+    def _lr_adjuster(step):
+        for group, base_lr in enumerate(base_lr_list):
+            if step < warmup_length:
+                lr = _warmup_lr(base_lr, warmup_length, step)
+            else:
+                e = step - warmup_length
+                es = steps - warmup_length
+                lr = 0.5 * (1 + np.cos(np.pi * e / es)) * base_lr
+            assign_learning_rate_for_group(optimizer, lr, group)
+
     return _lr_adjuster

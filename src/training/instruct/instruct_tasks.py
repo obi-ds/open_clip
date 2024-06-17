@@ -3,7 +3,7 @@ import torch
 import random
 from typing import Union
 
-from .demographics import DemographicPredictionTask
+from .demographics import DemographicPredictionTask, DemographicPredictionPrompt
 from .instruct_tokenizer import HFInstructTokenizer, InstructTokenizer
 
 
@@ -21,11 +21,19 @@ class InstructTasks(object):
         task_instructions = list()
         if args.task_shuffle:
             random.shuffle(self._task_list)
+
+        if args.add_img_token:
+            task_instructions.append([self.get_img_sep_token_instruction(), '', True, False])
+
         for task in self._task_list:
-            if isinstance(task, DemographicPredictionTask):
+            if isinstance(task, DemographicPredictionPrompt):
+                instructions = task.process_sample(
+                    sample=sample, args=args, attributes=args.demographic_prompt_attributes
+                )
+            elif isinstance(task, DemographicPredictionTask):
                 instructions = task.process_sample(
                     sample=sample, args=args, ignore_instruction=self.get_ignore_instruction_demographics(
-                        focal_loss=args.focal_loss
+                        focal_loss=args.loss_function == 'focal'
                     )
                 )
             else:
@@ -50,6 +58,12 @@ class InstructTasks(object):
             return '\n'
         else:
             return self._instruct_tokenizer.get_eos_token() + '\n'
+
+    def get_img_sep_token_instruction(self):
+        if self._instruct_tokenizer is None:
+            return '\n'
+        else:
+            return self._instruct_tokenizer.get_bos_token() + '\n'
 
     @staticmethod
     def get_ignore_instruction_demographics(focal_loss):
