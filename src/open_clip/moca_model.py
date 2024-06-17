@@ -175,8 +175,16 @@ class MoCa(nn.Module):
         self.text_decoder.set_grad_checkpointing(enable)
 
     def lock_text_tower(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
-        # FIXME: This might not work - check and fix accordingly
-        self.text.lock(unlocked_layers, freeze_layer_norm)
+        """
+        Lock text tower
+        Args:
+            unlocked_layers:
+            freeze_layer_norm:
+
+        Returns:
+
+        """
+        self._multimodal_decoder.lock_text_decoder(unlocked_layers, freeze_layer_norm)
 
     def forward(
             self,
