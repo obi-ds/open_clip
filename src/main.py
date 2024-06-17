@@ -34,7 +34,7 @@ from training.data import get_data, get_wds_dataset_icd_instruct
 from training.distributed import is_master, init_distributed_device, broadcast_object
 from training.logger import setup_logging
 from training.params import parse_args
-from training.scheduler import cosine_lr, const_lr, const_lr_cooldown
+from training.scheduler import cosine_lr, const_lr, const_lr_cooldown, cosine_lr_multiple
 from training.train import train_one_epoch, evaluate, evaluate_instruct_basic, get_step, log_metrics
 from training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
 
@@ -382,7 +382,10 @@ def main(args):
     if 'train' in data and optimizer is not None:
         total_steps = (data["train"].dataloader.num_batches // args.accum_freq) * args.epochs
         if args.lr_scheduler == "cosine":
-            scheduler = cosine_lr(optimizer, args.lr, args.warmup, total_steps)
+            # We changed this code to support scheduler when we have different learning rates for
+            # different layers/models
+            base_lr_list = [param_group["lr"] for param_group in optimizer.param_groups]
+            scheduler = cosine_lr_multiple(optimizer, base_lr_list, args.warmup, total_steps)
         elif args.lr_scheduler == "const":
             scheduler = const_lr(optimizer, args.lr, args.warmup, total_steps)
         elif args.lr_scheduler == "const-cooldown":
