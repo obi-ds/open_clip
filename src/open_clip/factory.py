@@ -148,6 +148,9 @@ def load_checkpoint(model, checkpoint_path, strict=True):
         return {}
 
     state_dict = load_state_dict(checkpoint_path)
+    if isinstance(model, MoCa):
+        incompatible_keys = model.load_state_dict(state_dict, strict=strict)
+        return incompatible_keys
     # detect old format and make compatible with new format
     if 'positional_embedding' in state_dict and not hasattr(model, 'positional_embedding'):
         state_dict = convert_to_custom_text_state_dict(state_dict)
