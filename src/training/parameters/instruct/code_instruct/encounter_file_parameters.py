@@ -94,7 +94,7 @@ def get_encounter_file_arguments():
     parser.add_argument(
         "--time-difference-normalize",
         type=int,
-        default=30,
+        default=1,
         help="Normalize the time differences by this number - to represent in terms of moths - this would be set to 30",
     )
     parser.add_argument(

@@ -10,29 +10,78 @@ from transformers import (
     BioGptConfig,
 )
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
+from .q_former import BertConfig, BertLMHeadModel
 
 
-# class AttentionalPooler(nn.Module):
-#     def __init__(
-#             self,
-#             d_model: int,
-#             hidden_size: int,
-#             n_head: int = 8,
-#             n_queries: int = 256,
-#             norm_layer: Callable = LayerNorm
-#     ):
-#         super().__init__()
-#         self.query = nn.Parameter(torch.randn(n_queries, d_model))
-#         self.attn = nn.MultiheadAttention(d_model, n_head, kdim=hidden_size, vdim=hidden_size)
-#         self.ln_q = norm_layer(d_model)
-#         self.ln_k = norm_layer(hidden_size)
-#
-#     def forward(self, x: torch.Tensor):
-#         x = self.ln_k(x).permute(1, 0, 2)  # NLD -> LND
-#         N = x.shape[1]
-#         q = self.ln_q(self.query)
-#         out = self.attn(q.unsqueeze(1).expand(-1, N, -1), x, x, need_weights=False)[0]
-#         return out.permute(1, 0, 2)  # LND -> NLD
+class QFormer(nn.Module):
+    """
+    Create QFormer model
+    """
+
+    def __init__(self, hidden_size: int, num_query_tokens: int):
+        super().__init__()
+        self._config = self.get_config(hidden_size=hidden_size, num_query_tokens=num_query_tokens)
+        self.model = self.get_model(config=self._config)
+        self.query_tokens = self.get_query_tokens(num_query_tokens=num_query_tokens, config=self._config)
+
+    @staticmethod
+    def get_config(hidden_size: int, num_query_tokens: int):
+        """
+        Get model config
+
+        Args:
+            hidden_size:
+            num_query_tokens:
+
+        Returns:
+
+        """
+        config = AutoConfig.from_pretrained('microsoft/biogpt')
+        config.encoder_width = hidden_size
+        config.hidden_size = hidden_size
+        # Insert cross-attention layer every other block
+        config.add_cross_attention = True
+        config.cross_attention_freq = 2
+        config.query_length = num_query_tokens
+        return config
+
+    @staticmethod
+    def get_query_tokens(num_query_tokens: int, config):
+        """
+        Get query tokens
+
+        Args:
+            num_query_tokens:
+            config:
+
+        Returns:
+
+        """
+        query_tokens = nn.Parameter(
+            torch.zeros(1, num_query_tokens, config.hidden_size)
+        )
+        query_tokens.data.normal_(mean=0.0, std=config.initializer_range)
+        return query_tokens
+
+    @staticmethod
+    def get_model(config):
+        """
+        Get the QFormer model
+        Args:
+            config:
+
+        Returns:
+
+        """
+        q_former = BertLMHeadModel(config=config)
+        q_former.cls = None
+        q_former.bert.embeddings.word_embeddings = None
+        q_former.bert.embeddings.position_embeddings = None
+        for layer in q_former.bert.encoder.layer:
+            layer.output = None
+            layer.intermediate = None
+        return q_former
+
 
 class CNNEncoder(nn.Module):
     """
@@ -50,6 +99,13 @@ class CNNEncoder(nn.Module):
         super().__init__()
         if image_input_type == 'ecg':
             self._encoder = ECGCNNEncoder(
+                patch_size=patch_size,
+                hidden_size=hidden_size,
+                in_channels=in_channels,
+                normalization=normalization
+            )
+        elif image_input_type == 'cyto':
+            self._encoder = CytoCNNEncoder(
                 patch_size=patch_size,
                 hidden_size=hidden_size,
                 in_channels=in_channels,
@@ -112,6 +168,52 @@ class ECGCNNEncoder(nn.Module):
         # the image. Since the HF transformer expects input as (batch_size, seq_len, hidden_size)
         # we permute the dimensions
         return self.conv1(self._norm(image)).permute(0, 2, 1)
+
+
+class CytoCNNEncoder(nn.Module):
+    """
+    CNN layer to encode the ECG to pass to the vision transformer
+    """
+    def __init__(
+            self,
+            patch_size: int,
+            hidden_size: int,
+            in_channels: int,
+            normalization: Optional[int]
+    ):
+        super().__init__()
+
+        if normalization is None:
+            self._norm = nn.Identity()
+        else:
+            self._norm = nn.GroupNorm(num_groups=normalization, num_channels=in_channels)
+        self.conv1 = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=hidden_size,
+            kernel_size=patch_size,
+            stride=patch_size,
+            bias=False
+        )
+
+    def forward(self, image):
+        """
+        Pass the Cyto sample through the defined CNN architecture
+
+        Args:
+            image:
+
+        Returns:
+
+        """
+        # The input is of shape (batch_size, grid, grid, channels)
+        image = self.conv1(self._norm(image))
+        # Output from above is (batch_size, hidden_size, grid, grid)
+        # We now flatten this
+        image = image.reshape(image.shape[0], image.shape[1], -1)
+        # We now end up with (batch_size, hidden_size, grid * grid)
+        # Since the HF transformer expects input as (batch_size, seq_len, hidden_size)
+        # we permute the dimensions
+        return image.permute(0, 2, 1)
 
 
 class VisionEncoder(nn.Module):
@@ -221,6 +323,7 @@ class MultimodalDecoder(nn.Module):
             self,
             vision_encoder,
             text_decoder,
+            q_former,
             projection_type: str,
             ignore_index: int
     ):
@@ -229,9 +332,11 @@ class MultimodalDecoder(nn.Module):
         # TODO: Support for multiple images/text - currently works with one image and one text
         self._vision_encoder = vision_encoder
         self._text_decoder = text_decoder
+        self._q_former = q_former
+        self._vision_layer_norm_final = self.get_vision_layer_norm(hidden_size=self._vision_encoder.get_hidden_size())
         self._text_embedding_scale = self.get_text_embedding_scale()
         self._ignore_index = ignore_index
-        # TODO: Also support attention projection
+        # TODO: Also support attention projection: with QFormer maybe we can skip implementing this
         self._projection_type = projection_type
         if self._projection_type == 'linear':
             self._projection = nn.Linear(self._vision_encoder.get_hidden_size(), self.get_hidden_size())
@@ -247,6 +352,24 @@ class MultimodalDecoder(nn.Module):
         """
         return self._text_decoder.config.hidden_size
 
+    def get_vision_layer_norm(self, hidden_size):
+        """
+        Get the layer norm to use
+
+        Args:
+            hidden_size:
+
+        Returns:
+
+        """
+        # Without Q Former we pass the latent representation from the vision model
+        # directly to the projection layer. We noticed nan loss when
+        # we included a layer norm
+        if self._q_former is None:
+            return nn.Identity()
+        else:
+            return nn.LayerNorm(hidden_size)
+
     def get_image_embeddings(self, image):
         """
         Pass the image through a vision model and return the embeddings
@@ -257,8 +380,18 @@ class MultimodalDecoder(nn.Module):
         Returns:
 
         """
-        hidden_states = self._vision_encoder(image)
-        hidden_states = self._projection(hidden_states[0])
+        hidden_states = self._vision_layer_norm_final(self._vision_encoder(image)[0])
+        if self._q_former is not None:
+            attention_mask = torch.ones(hidden_states.size()[:-1], dtype=torch.long).to(image.device)
+            query_tokens = self._q_former.query_tokens.expand(hidden_states.shape[0], -1, -1)
+            query_output = self._q_former.model.bert(
+                query_embeds=query_tokens,
+                encoder_hidden_states=hidden_states,
+                encoder_attention_mask=attention_mask,
+                return_dict=True,
+            )
+            hidden_states = query_output.last_hidden_state
+        hidden_states = self._projection(hidden_states)
         return hidden_states * self._text_embedding_scale
 
     def get_token_embeddings(self, input_ids):
@@ -401,6 +534,25 @@ class MultimodalDecoder(nn.Module):
         )
 
         return outputs[0], multi_modal_labels
+
+    def lock_text_decoder(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
+        """
+        Freeze text decoder
+
+        Args:
+            unlocked_layers:
+            freeze_layer_norm:
+
+        Returns:
+
+        """
+        if not unlocked_layers:  # full freezing
+            print('Text decoder frozen')
+            for n, p in self._text_decoder.named_parameters():
+                p.requires_grad = (not freeze_layer_norm) if "LayerNorm" in n.split(".") else False
+            return
+        else:
+            raise NotImplementedError()
 
 
 class VisionBioGPTModel(BioGptModel):
@@ -584,7 +736,7 @@ class VisionBioGPTModel(BioGptModel):
             all_hidden_states += (hidden_states,)
 
         # We removed the final layer norm - it leads to a loss with NaN
-        # maybe these values along with a projection and layer and scaling might
+        # maybe these values along with a projection and layer might
         # lead to small values when passed to the text decoder
         # hidden_states = self.layer_norm(hidden_states)
 

@@ -232,6 +232,8 @@ def get_eval_dataframe(metadata, scores, labels):
     eval_df['labels'] = labels
     return eval_df
 
+print('STARTING')
+
 for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
         model_type=eval_args.model_type,
         model_folder=eval_args.model_folder,

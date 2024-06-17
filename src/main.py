@@ -34,7 +34,7 @@ from training.data import get_data, get_wds_dataset_icd_instruct
 from training.distributed import is_master, init_distributed_device, broadcast_object
 from training.logger import setup_logging
 from training.params import parse_args
-from training.scheduler import cosine_lr, const_lr, const_lr_cooldown
+from training.scheduler import cosine_lr, const_lr, const_lr_cooldown, cosine_lr_multiple
 from training.train import train_one_epoch, evaluate, evaluate_instruct_basic, get_step, log_metrics
 from training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
 
@@ -313,13 +313,28 @@ def main(args):
 
         named_parameters = list(model.named_parameters())
         gain_or_bias_params = [p for n, p in named_parameters if exclude(n, p) and p.requires_grad]
-        rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
+
+        if 'moca' in args.model:
+            text_include = lambda n, p: not exclude(n, p) and 'text_decoder' in n
+            vision_include = lambda n, p: not exclude(n, p) and 'text_decoder' not in n
+            vision_params = [p for n, p in named_parameters if vision_include(n, p) and p.requires_grad]
+            text_params = [p for n, p in named_parameters if text_include(n, p) and p.requires_grad]
+            text_lr = args.text_decoder_lr if args.text_decoder_lr is not None else args.lr
+            text_wd = args.text_decoder_wd if args.text_decoder_wd is not None else args.wd
+            optimizer_parameters = [
+                {"params": gain_or_bias_params, "weight_decay": 0.},
+                {"params": vision_params, "weight_decay": args.wd},
+                {"params": text_params, "weight_decay": text_wd, "lr": text_lr},
+            ]
+        else:
+            rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
+            optimizer_parameters = [
+                {"params": gain_or_bias_params, "weight_decay": 0.},
+                {"params": rest_params, "weight_decay": args.wd}
+            ]
 
         optimizer = optim.AdamW(
-            [
-                {"params": gain_or_bias_params, "weight_decay": 0.},
-                {"params": rest_params, "weight_decay": args.wd},
-            ],
+            optimizer_parameters,
             lr=args.lr,
             betas=(args.beta1, args.beta2),
             eps=args.eps,
@@ -367,7 +382,10 @@ def main(args):
     if 'train' in data and optimizer is not None:
         total_steps = (data["train"].dataloader.num_batches // args.accum_freq) * args.epochs
         if args.lr_scheduler == "cosine":
-            scheduler = cosine_lr(optimizer, args.lr, args.warmup, total_steps)
+            # We changed this code to support scheduler when we have different learning rates for
+            # different layers/models
+            base_lr_list = [param_group["lr"] for param_group in optimizer.param_groups]
+            scheduler = cosine_lr_multiple(optimizer, base_lr_list, args.warmup, total_steps)
         elif args.lr_scheduler == "const":
             scheduler = const_lr(optimizer, args.lr, args.warmup, total_steps)
         elif args.lr_scheduler == "const-cooldown":
@@ -541,6 +559,7 @@ def copy_codebase(args):
     print("Done copying code.")
     return 1
 
+
 def get_eos_token_id(model_name, tokenizer):
     if 'biogpt' in model_name or 'bio_gpt' in model_name:
         return tokenizer.tokenizer.eos_token_id
@@ -550,6 +569,7 @@ def get_eos_token_id(model_name, tokenizer):
     else:
         return tokenizer.eot_token_id
 
+
 def get_token_id(model_name, tokenizer, token):
     if 'biogpt' in model_name or 'bio_gpt' in model_name:
         return tokenizer.tokenizer.encode(token)[1]
@@ -557,6 +577,7 @@ def get_token_id(model_name, tokenizer, token):
         return tokenizer.tokenizer.convert_tokens_to_ids(token)
     else:
         return tokenizer.encode(token)[0]
+
 
 def get_eval_data_object(args, eval_code, tokenizer, eval_start_time, eval_end_time):
     args = copy.deepcopy(args)

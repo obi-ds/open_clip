@@ -6,7 +6,7 @@ from typing import Optional
 from transformers import AutoConfig, AutoModelForCausalLM
 
 from .model import MocaVisionEncoderConfig, MocaTextDecoderConfig
-from .transformer_decoder import VisionEncoder, MultimodalDecoder
+from .transformer_decoder import VisionEncoder, MultimodalDecoder, QFormer
 
 from transformers import (
     BeamSearchScorer,
@@ -35,6 +35,7 @@ class MoCa(nn.Module):
             ignore_index=-100,
             **kwargs
     ):
+        print('MoCa Model')
         super().__init__()
         vision_cfg = (
             MocaVisionEncoderConfig(**vision_cfg)
@@ -44,6 +45,9 @@ class MoCa(nn.Module):
             MocaTextDecoderConfig(**text_cfg)
             if isinstance(text_cfg, dict) else text_cfg
         )
+
+        print('Vision Config: ', vision_cfg)
+        print('Text Config: ', text_cfg)
 
         visual = self.get_vision_encoder(
             image_input_type=vision_cfg.image_input_type,
@@ -56,13 +60,21 @@ class MoCa(nn.Module):
 
         text = self.get_text_decoder(
             model_name_or_path=text_cfg.hf_model_name,
+            pretrained=text_cfg.pretrained
         )
+
+        if vision_cfg.q_former:
+            print('Using Q Former')
+            q_former = self.get_q_former(hidden_size=visual.get_hidden_size(), num_query_tokens=vision_cfg.q_former)
+        else:
+            q_former = None
 
         self._pad_token_id = self.get_pad_token_id(text)
 
         self._multimodal_decoder = MultimodalDecoder(
             vision_encoder=visual,
             text_decoder=text,
+            q_former=q_former,
             projection_type=text_cfg.projection_type,
             ignore_index=ignore_index
         )
@@ -107,21 +119,43 @@ class MoCa(nn.Module):
         )
 
     @staticmethod
-    def get_text_decoder(model_name_or_path):
+    def get_text_decoder(model_name_or_path, pretrained):
         """
         Return the text decoder model (from huggingface)
 
         Args:
             model_name_or_path:
+            pretrained:
 
         Returns:
 
         """
         config = AutoConfig.from_pretrained(model_name_or_path)
-        return AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
-            from_tf=bool(".ckpt" in model_name_or_path),
-            config=config,
+        if not pretrained:
+            return AutoModelForCausalLM.from_config(
+                config=config,
+            )
+        else:
+            return AutoModelForCausalLM.from_pretrained(
+                model_name_or_path,
+                from_tf=bool(".ckpt" in model_name_or_path),
+                config=config,
+            )
+
+    @staticmethod
+    def get_q_former(hidden_size: int, num_query_tokens: int):
+        """
+        Return the QFormer model object
+        Args:
+            hidden_size:
+            num_query_tokens:
+
+        Returns:
+
+        """
+        return QFormer(
+            hidden_size=hidden_size,
+            num_query_tokens=num_query_tokens
         )
 
     @staticmethod
@@ -141,8 +175,16 @@ class MoCa(nn.Module):
         self.text_decoder.set_grad_checkpointing(enable)
 
     def lock_text_tower(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
-        # FIXME: This might not work - check and fix accordingly
-        self.text.lock(unlocked_layers, freeze_layer_norm)
+        """
+        Lock text tower
+        Args:
+            unlocked_layers:
+            freeze_layer_norm:
+
+        Returns:
+
+        """
+        self._multimodal_decoder.lock_text_decoder(unlocked_layers, freeze_layer_norm)
 
     def forward(
             self,

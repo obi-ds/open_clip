@@ -98,7 +98,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
         data_time_m.update(time.time() - end)
         optimizer.zero_grad()
 
-        if args.accum_freq == 1:
+        if args.accum_freq == 1 or args.loss_function in ['lm']:
             with autocast():
                 model_out = model(images, texts)
                 logit_scale = model_out["logit_scale"]
@@ -107,11 +107,12 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                         dist_model_out = dist_model(images, texts)
                     model_out.update({f'dist_{k}': v for k, v in dist_model_out.items()})
                 losses = loss(**model_out, output_dict=True)
-
-                total_loss = sum(losses.values())
+                total_loss = sum(losses.values()) / args.accum_freq
                 losses["loss"] = total_loss
-
             backward(total_loss, scaler)
+
+            if ((i + 1) % args.accum_freq) > 0:
+                continue
         else:
             # First, cache the features without any gradient tracking.
             with torch.no_grad():
@@ -219,6 +220,7 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 f"Data (t): {data_time_m.avg:.3f} "
                 f"Batch (t): {batch_time_m.avg:.3f}, {samples_per_second:#g}/s, {samples_per_second_per_gpu:#g}/s/gpu "
                 f"LR: {optimizer.param_groups[0]['lr']:5f} "
+                f"Text LR: {optimizer.param_groups[-1]['lr']:5f} "
                 f"Logit Scale: {logit_scale_scalar:.3f} " + loss_log
             )
 
@@ -229,7 +231,8 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist
                 "samples_per_second": samples_per_second,
                 "samples_per_second_per_gpu": samples_per_second_per_gpu,
                 "scale": logit_scale_scalar,
-                "lr": optimizer.param_groups[0]["lr"]
+                "lr": optimizer.param_groups[0]["lr"],
+                "text_lr": optimizer.param_groups[-1]["lr"]
             }            
             log_data.update({name:val.val for name,val in losses_m.items()})
 
@@ -423,7 +426,6 @@ def evaluate_instruct_basic(
                         negative_token_id=negative_token_id,
                         eot_token_id=eot_token_id,
                         ignore_index=ignore_index,
-                        max_seq_length=args.max_seq_length,
                         device=device
                     )
 
@@ -570,7 +572,6 @@ def get_masks(
         negative_token_id,
         ignore_index,
         eot_token_id,
-        max_seq_length,
         device
 
 ):
@@ -580,7 +581,7 @@ def get_masks(
     diagnosis_mask_flipped = torch.fliplr(diagnosis_mask)
 
     no_context_diagnosis_indexes = diagnosis_mask.long().argmax(dim=1)
-    context_diagnosis_indexes = -diagnosis_mask_flipped.long().argmax(dim=1) - 1 + max_seq_length
+    context_diagnosis_indexes = -diagnosis_mask_flipped.long().argmax(dim=1) - 1 + model_labels.shape[-1]
     first_context_indexes = (~diagnosis_mask & mask).long().argmax(dim=1)
 
     no_context_diagnosis_mask = (no_context_diagnosis_indexes != 0)

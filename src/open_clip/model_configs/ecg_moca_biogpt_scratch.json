@@ -13,7 +13,7 @@
         "hf_tokenizer_name": "microsoft/biogpt",
         "hf_model_name": "microsoft/biogpt",
         "projection_type": "linear",
-        "pretrained": true
+        "pretrained": false
     },
     "custom_text": true
 }

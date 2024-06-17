@@ -14,11 +14,9 @@ from training.data import get_wds_dataset_icd_prompt
 from training.params import parse_args
 from training.precision import get_autocast, get_input_dtype
 from open_clip.tokenizer import HFTokenizer, decode
-from training.instruct.codes.processing import EncounterDataframeProcess
 from training.instruct.demographics.processing import DemographicDataframeProcess
 from training.data_utils import (
     get_demographic_dataframe,
-    get_encounter_dataframe,
     get_instruct_tokenizer
 )
 
@@ -38,11 +36,28 @@ parser.add_argument(
     help="The batch size",
 )
 parser.add_argument(
-    "--category",
+    "--attribute-file",
     type=str,
     required=True,
-    choices=['Age', 'Sex', 'Weight', 'Height', 'QRS Duration', 'QT Interval', 'Ventricular Rate', 'T Axis'],
-    help="Evaluate a specific demographic category",
+    help="Evaluate a specific attribute category",
+)
+parser.add_argument(
+    "--attribute-name-column",
+    type=str,
+    required=True,
+    help="Evaluate a specific attribute category",
+)
+parser.add_argument(
+    "--start",
+    type=int,
+    required=True,
+    help="The start position of the phecode file",
+)
+parser.add_argument(
+    "--end",
+    type=int,
+    required=True,
+    help="The end position of the phecode file",
 )
 parser.add_argument(
     "--eval-data",
@@ -128,7 +143,7 @@ def get_custom_prompt(gen_tokenizer, text, batch_size):
 
 
 # Get the true value of demographics
-def get_true_category(gen_category, patient_demographics, current_time, metadata):
+def get_true_attribute(gen_category, patient_demographics, current_time, metadata):
     if gen_category.lower() == 'age':
         return get_true_age(patient_demographics, current_time)
     elif gen_category.lower() == 'sex':
@@ -145,6 +160,9 @@ def get_true_category(gen_category, patient_demographics, current_time, metadata
         return get_true_ventricular_rate(metadata)
     elif gen_category.lower().replace(' ', '') == 'taxis':
         return get_true_t_axis(metadata)
+    else:
+        # print(f'We do not have labels for: {gen_category}. Will store labels as None)
+        return None
 
 
 def get_true_age(patient_demographics, current_time):
@@ -204,7 +222,8 @@ def get_predicted_token(generated_token, prompt_token, gen_eos_token_id, gen_pad
     return predicted_token
 
 
-def generate_text(gen_dataloader, gen_category, prompt_tokens_full, gen_pad_token_id, gen_eos_token_id, gen_args, gen_model):
+def generate_text(gen_dataloader, gen_category, prompt_tokens_full, gen_pad_token_id, gen_eos_token_id, gen_args,
+                  gen_model):
     generated_dataset = list()
     with torch.no_grad():
         for i, batch in enumerate(gen_dataloader):
@@ -230,7 +249,7 @@ def generate_text(gen_dataloader, gen_category, prompt_tokens_full, gen_pad_toke
                 patient_demographics = demographic_dataframe_process.get_patient_demographics(
                     patient_id=sample_metadata[gen_args.patient_id_column],
                 )
-                true_category = get_true_category(
+                true_category = get_true_attribute(
                     gen_category=gen_category,
                     patient_demographics=patient_demographics,
                     current_time=sample_metadata[gen_args.sample_result_date_column],
@@ -244,6 +263,9 @@ def generate_text(gen_dataloader, gen_category, prompt_tokens_full, gen_pad_toke
 
                 generated_sample = {
                     'PatientID': sample_metadata[gen_args.patient_id_column],
+                    'SampleDate': sample_metadata[gen_args.sample_result_date_column],
+                    'SampleTime': sample_metadata['TestTime'],
+                    'SampleFile': sample_metadata['file'],
                     'TrueValue': true_category,
                     'PredictedValue': predicted_value,
                     'PredictedString': predicted_string,
@@ -255,21 +277,24 @@ def generate_text(gen_dataloader, gen_category, prompt_tokens_full, gen_pad_toke
     return generated_dataset
 
 
-encounter_file = "/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na" \
-                 ".parquet.check"
+def get_prompt(attribute):
+    if attribute.lower() in ['age', 'sex', 'height', 'weight']:
+        prompt_string = f'Patient attributes\n* {attribute}: '
+    else:
+        prompt_string = f'Labs in the next 6 months\n* {attribute}: '
+    print('Prompt:\n', prompt_string)
+    return prompt_string
+
+
 demographic_file = "/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/demographics_2404.parquet"
 labs_folder = "/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs"
 
-encounter_dataframe = get_encounter_dataframe(encounter_file=encounter_file)
 demographic_dataframe = get_demographic_dataframe(filepath=demographic_file)
 
-category = eval_args.category
-if category.lower() in ['age', 'sex', 'height', 'weight']:
-    prompt = f'Patient attributes\n* {category}: '
-else:
-    prompt = f'Labs in the next 6 months\n* {category}: '
-print('Prompt:\n', prompt)
-
+eval_attributes = pd.read_csv(eval_args.attribute_file)[eval_args.attribute_name_column]
+demographic_dataframe_process = DemographicDataframeProcess(
+    demographic_dataframe=demographic_dataframe
+)
 
 for file_suffix, args_str, model_type, model_path in get_args_for_generation(
         model_type=eval_args.model_type,
@@ -303,19 +328,6 @@ for file_suffix, args_str, model_type, model_path in get_args_for_generation(
 
     os.makedirs(filepath, exist_ok=True)
 
-    encounter_dataframe_process = EncounterDataframeProcess(
-        encounter_dataframe=encounter_dataframe,
-        patient_id_column=args.patient_id_column,
-        contact_date_column=args.contact_date_column,
-        time_difference_column=args.time_difference_column,
-        code_column=args.code_column,
-        position_column=args.position_column,
-    )
-
-    demographic_dataframe_process = DemographicDataframeProcess(
-        demographic_dataframe=demographic_dataframe
-    )
-
     model, _, preprocess_val = create_model_and_transforms(
         model_type,
         pretrained=model_path,
@@ -334,23 +346,27 @@ for file_suffix, args_str, model_type, model_path in get_args_for_generation(
     model = model.eval()
     model = model.to(device)
 
-    print('Category: ', category)
-    dataloader = get_eval_dataloader(gen_args=args, gen_tokenizer=tokenizer)
     eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
+
     print('EOS Token ID: ', eos_token_id)
 
-    # This is the prompt that was used in training
-    prompt_tokens_all = get_custom_prompt(gen_tokenizer=instruct_tokenizer, text=prompt, batch_size=args.batch_size)
-    prompt_tokens_all = prompt_tokens_all.to(device=device, non_blocking=True)
-    print('Generation Start')
-    predicted_generated_dataset = generate_text(
-        gen_dataloader=dataloader,
-        gen_category=category,
-        prompt_tokens_full=prompt_tokens_all,
-        gen_eos_token_id=eos_token_id,
-        gen_pad_token_id=pad_token_id,
-        gen_args=args,
-        gen_model=model
-    )
-    print('Generation Finish')
-    pd.DataFrame(predicted_generated_dataset).to_parquet(f'{filepath}/{category}.parquet')
+    for eval_attribute in eval_attributes[eval_args.start: eval_args.end]:
+        dataloader = get_eval_dataloader(gen_args=args, gen_tokenizer=tokenizer)
+        print('Attribute: ', eval_attribute)
+        prompt = get_prompt(attribute=eval_attribute)
+        # This is the prompt that was used in training
+        prompt_tokens_all = get_custom_prompt(gen_tokenizer=instruct_tokenizer, text=prompt, batch_size=args.batch_size)
+        prompt_tokens_all = prompt_tokens_all.to(device=device, non_blocking=True)
+
+        print('Generation Start')
+        predicted_generated_dataset = generate_text(
+            gen_dataloader=dataloader,
+            gen_category=eval_attribute,
+            prompt_tokens_full=prompt_tokens_all,
+            gen_eos_token_id=eos_token_id,
+            gen_pad_token_id=pad_token_id,
+            gen_args=args,
+            gen_model=model
+        )
+        print('Generation Finish')
+        pd.DataFrame(predicted_generated_dataset).to_parquet(f'{filepath}/{eval_attribute}.parquet')

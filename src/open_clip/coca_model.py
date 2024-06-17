@@ -304,7 +304,7 @@ class CoCa(nn.Module):
 
                 cur_len += 1
 
-                if stopping_criteria(out, None):
+                if all(stopping_criteria(out, None)):
                     break
 
             if num_dims == 1:
