@@ -535,6 +535,25 @@ class MultimodalDecoder(nn.Module):
 
         return outputs[0], multi_modal_labels
 
+    def lock_text_decoder(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
+        """
+        Freeze text decoder
+
+        Args:
+            unlocked_layers:
+            freeze_layer_norm:
+
+        Returns:
+
+        """
+        if not unlocked_layers:  # full freezing
+            print('Text decoder frozen')
+            for n, p in self._text_decoder.named_parameters():
+                p.requires_grad = (not freeze_layer_norm) if "LayerNorm" in n.split(".") else False
+            return
+        else:
+            raise NotImplementedError()
+
 
 class VisionBioGPTModel(BioGptModel):
     """
