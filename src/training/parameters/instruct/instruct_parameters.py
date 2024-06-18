@@ -65,7 +65,7 @@ def get_instruct_arguments():
     parser.add_argument(
         "--loss-function",
         default=None,
-        choices=['clip', 'coca', 'focal', 'lm'],
+        choices=['clip', 'coca', 'focal', 'lm', 'lm_z'],
         type=str,
         help="What loss function to use for training"
     )
