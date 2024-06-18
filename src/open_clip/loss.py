@@ -554,6 +554,39 @@ class MoCaLoss(nn.Module):
         return caption_loss
 
 
+class MoCaZLoss(MoCaLoss):
+    def __init__(
+            self,
+            ignore_index,
+            penalty_weight,
+            reduction: str = 'mean',
+    ):
+        super().__init__(ignore_index=ignore_index)
+        self._ignore_index = ignore_index
+        self._penalty_weight = penalty_weight
+        self._reduction = reduction
+
+    def forward(self, logits, labels, logit_scale, output_dict=False):
+        caption_loss = (
+            super(MoCaZLoss, self)
+            .forward(logits=logits, labels=labels, logit_scale=logit_scale, output_dict=False)
+        )
+
+        if self._reduction == 'mean':
+            z_loss = torch.pow(torch.logsumexp(logits[labels != self._ignore_index], dim=-1), 2).mean()
+        elif self._reduction == 'sum':
+            z_loss = torch.pow(torch.logsumexp(logits[labels != self._ignore_index], dim=-1), 2).sum()
+        else:
+            raise ValueError('Invalid reduction')
+
+        total_loss = caption_loss + (self._penalty_weight * z_loss)
+
+        if output_dict:
+            return {"caption_loss": total_loss}
+
+        return total_loss
+
+
 class MoCaFocalLoss(nn.Module):
     def __init__(
             self,
