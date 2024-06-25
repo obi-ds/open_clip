@@ -193,10 +193,17 @@ class MoCa(nn.Module):
     ):
 
         if texts.dim() == 3:
-            labels = texts[:, 1, :]
-            input_ids = texts[:, 0, :]
+            if texts.shape[1] == 2:
+                labels = texts[:, 1, :]
+                input_ids = texts[:, 0, :]
+                weights = None
+            else:
+                labels = texts[:, 1, :].long()
+                input_ids = texts[:, 0, :].long()
+                weights = texts[:, 2, :]
         else:
             labels = None
+            weights = None
             input_ids = texts
 
         # 0 for pad token positions
@@ -205,17 +212,19 @@ class MoCa(nn.Module):
             .to(dtype=torch.bool, device=input_ids.device)
         )
 
-        multimodal_logits, multimodal_labels = self._multimodal_decoder(
+        multimodal_logits, multimodal_labels, multi_modal_weights = self._multimodal_decoder(
             input_ids=input_ids,
             images=images,
             attention_mask=attention_mask,
-            labels=labels
+            labels=labels,
+            weights=weights
         )
 
         return {
             "logits": multimodal_logits,
             "labels": multimodal_labels,
-            "logit_scale": self.logit_scale.to(device=multimodal_logits.device)
+            "logit_scale": self.logit_scale.to(device=multimodal_logits.device),
+            "weights": multi_modal_weights
         }
 
 

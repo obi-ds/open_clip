@@ -513,7 +513,8 @@ class MultimodalDecoder(nn.Module):
             past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
             use_cache: Optional[bool] = None,
             images: Optional[torch.FloatTensor] = None,
-            labels: Optional[torch.LongTensor] = None
+            labels: Optional[torch.LongTensor] = None,
+            weights: Optional[torch.LongTensor] = None
     ):
         """
         Get the multimodal input embeddings and pass them to the text transformer
@@ -540,6 +541,10 @@ class MultimodalDecoder(nn.Module):
             image_embeddings=image_embeddings, token_embeddings=token_embeddings
         )
         multi_modal_labels = self.get_labels(image_embeddings=image_embeddings, labels=labels)
+        if weights is not None:
+            multi_modal_weights = self.get_labels(image_embeddings=image_embeddings, labels=weights)
+        else:
+            multi_modal_weights = None
 
         if attention_mask is None:
             attention_mask = torch.ones(
@@ -561,7 +566,7 @@ class MultimodalDecoder(nn.Module):
             labels=None
         )
 
-        return outputs[0], multi_modal_labels
+        return outputs[0], multi_modal_labels, multi_modal_weights
 
     def lock_text_decoder(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
         """
