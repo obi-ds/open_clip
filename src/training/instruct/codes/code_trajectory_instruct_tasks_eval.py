@@ -36,6 +36,7 @@ class CodeLabelPredictionTaskEvaluation(CodeLabelPredictionTask):
             bin_start_column: str = 'min',
             bin_end_column: str = 'max',
             label_column: str = 'label',
+            weights_column: str = 'weights',
             ignore_instruction_column: str = 'ignore_instruction',
             position_range_column: str = 'position_range',
             seq2seq_column: str = 'seq2seq',
@@ -85,7 +86,8 @@ class CodeLabelPredictionTaskEvaluation(CodeLabelPredictionTask):
             current_bin_value=current_bin_value,
             prediction_range_limit=prediction_range_limit,
             seq2seq=seq2seq,
-            fixed_position_range=False
+            fixed_position_range=False,
+            weights_column=weights_column
         )
 
     def process_sample(self, sample, args, ignore_instruction=False):
@@ -199,7 +201,8 @@ class CodeLabelPredictionTaskEvaluation(CodeLabelPredictionTask):
             self._code_column: [code],
             self._label_column: [label],
             self._ignore_instruction_column: [ignore_instruction],
-            self._seq2seq_column: [seq2seq]
+            self._seq2seq_column: [seq2seq],
+            self._weights_column: [1]
         }
         return pd.DataFrame(code_sample)
 

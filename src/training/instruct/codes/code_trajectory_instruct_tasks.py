@@ -522,12 +522,13 @@ class CodeLabelPredictionTask(object):
         codes[self._label_column] = label_string
         codes[self._ignore_instruction_column] = ignore_instruction
         codes[self._seq2seq_column] = seq2seq
+        codes[self._weights_column] = codes[self._idf_column]
         return codes
 
     def convert_samples_to_instructions(
             self,
             instruction_samples: pd.DataFrame,
-    ) -> List[Tuple[str, str, bool, bool]]:
+    ) -> List[Tuple[str, str, bool, bool, float]]:
         """
         Return the instruction input and targets
         for the sampled instruction code status classification task with time range
@@ -536,20 +537,26 @@ class CodeLabelPredictionTask(object):
             instruction_samples (pd.DataFrame): The samples that will be used as instructions
 
         Returns:
-            (List[Tuple[str, str, bool]]): A list that contains tuples which have the instruction input and target.
+            (List[Tuple[str, str, bool, float]]): A list that contains tuples which have the instruction input and target.
             The list will contain only 1 element for zero shot training
         """
 
         instructions = list()
         for row in instruction_samples[
-            [self._code_column, self._label_column, self._ignore_instruction_column, self._seq2seq_column]
+            [
+                self._code_column,
+                self._label_column,
+                self._ignore_instruction_column,
+                self._seq2seq_column,
+                self._weights_column
+            ]
         ].itertuples(index=False):
-            code, label, ignore_instruction, seq2seq = row[0], row[1], row[2], row[3]
+            code, label, ignore_instruction, seq2seq, weight = row[0], row[1], row[2], row[3], row[4]
             code_instruct_string = self._code_instructions.get_instruction(
                 diagnosis=self._code_convert.transform_code(code=code),
                 value=label
             )
-            instructions.append(code_instruct_string + (ignore_instruction, seq2seq))
+            instructions.append(code_instruct_string + (ignore_instruction, seq2seq, weight))
         return instructions
 
     def get_random_encounters(self) -> pd.DataFrame:
@@ -675,7 +682,7 @@ class CodeLabelPredictionTask(object):
         """
         time = self.process_time_period(start_time=prediction_range[0], end_time=prediction_range[1])
         task_definition = self._code_instructions.get_task_definition(time=time)
-        return task_definition, '', True, self._seq2seq
+        return task_definition, '', True, self._seq2seq, -100
 
     # THe functions below are mainly used for evaluation
     def get_code_occurrences(self, encounter_history, code, regex):
@@ -921,6 +928,7 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
         all_instructions = list()
 
         for prediction_range in prediction_ranges:
+
             k_shot = self.sample_from_list(args.k_shot)
 
             # Get the task instruction - which should indicate we are making prediction for a given
@@ -931,13 +939,6 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             current_time_period = self.get_current_time_period(
                 encounter_history=encounter_history, prediction_range=prediction_range
             )
-
-            # Positive hash should contain a set of codes. It should contain all the ancestors for a given
-            # code - but not their siblings. The ignore_hash is used when the note is labeled with a non leaf
-            # code - we want to tell the prompt to not use the leaf codes - because we don't know which leaf code
-            # as positive. If there is a code in ignore hash but not in positive hash - don't add that code to the
-            # prompt
-            positive_hash = self.get_positives_hash(codes=current_time_period[self._code_column])
 
             # Sample counts for negatives and positives
             # K shot will give how many samples we want for a given prediction range
@@ -964,6 +965,7 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
                 time_difference_normalize=args.time_difference_normalize,
                 exclude_codes=exclude_codes_for_negatives,
                 minimum_negatives_size=sample_counts[0],
+                weights=self.get_weights_for_negative_sampling()
             )
 
             # We just keep it uniform with how we processed
@@ -983,6 +985,8 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             negatives = self.get_current_time_period(
                 encounter_history=encounter_negatives, prediction_range=prediction_range
             )
+            if len(negatives) < sample_counts[0]:
+                raise ValueError('This should not happen if code is correct')
 
             histories = [negatives, current_time_period]
 
@@ -991,9 +995,23 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
             # and not just concentrated in one portion of the time range - for both
             # positives and negatives
             sampled_codes = [
-                self.sample_codes(encounter_history=encounter_history, max_limit=counts, label=None)
-                for encounter_history, counts in zip(histories, sample_counts)
+                self.sample_codes(encounter_history=encounter_history, max_limit=counts, label=label)
+                for label, (encounter_history, counts) in enumerate(zip(histories, sample_counts))
             ]
+
+            if self._update_code_counts:
+                self._document_count += 1
+                for label, codes in enumerate(sampled_codes):
+                    self.update_code_counts(
+                        codes=codes[self._code_column], label=label
+                    )
+
+            # Positive hash should contain a set of codes. It should contain all the ancestors for a given
+            # code - but not their siblings. The ignore_hash is used when the note is labeled with a non leaf
+            # code - we want to tell the prompt to not use the leaf codes - because we don't know which leaf code
+            # as positive. If there is a code in ignore hash but not in positive hash - don't add that code to the
+            # prompt
+            positive_hash = self.get_positives_hash(codes=current_time_period[self._code_column])
 
             hierarchies = [
                 codes[self._code_column].apply(
@@ -1105,8 +1123,7 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
         except TypeError:
             print(code, positive_hash, full_positive_hash)
 
-    @staticmethod
-    def sample_hierarchy(hierarchy, probabilities):
+    def sample_hierarchy(self, hierarchy, probabilities):
         """
         Sample codes within each hierarchy
         We can get the full trajectory - ancestor to leaf
@@ -1119,15 +1136,14 @@ class HierarchicalCodeLabelPredictionTask(CodeLabelPredictionTask):
         Returns:
 
         """
-        hierarchy_length = len(hierarchy)
         # The possible positions we can stop at in the hierarchy
         # We ignore the positions where ignore instruction is True
         indexes = [index for index, code_obj in enumerate(hierarchy) if not code_obj[-1]]
-        if indexes:
-            end = np.random.choice(indexes)
-        else:
-            end = hierarchy_length - 1
-        end = np.random.choice([end, hierarchy_length - 1], p=probabilities)
+        weights = np.array(
+            [1 / len(self._tree.subtree(code_obj[0]).leaves()) for code_obj in hierarchy if not code_obj[-1]]
+        )
+        probabilities = weights / weights.sum()
+        end = np.random.choice(indexes, p=probabilities)
         return hierarchy[0:end + 1]
 
     def process_hierarchy(self, hierarchy):
