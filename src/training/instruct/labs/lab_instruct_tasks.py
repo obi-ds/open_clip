@@ -257,13 +257,14 @@ class LabPredictionTask(CodeLabelPredictionTask):
         """
         codes[self._ignore_instruction_column] = ignore_instruction
         codes[self._seq2seq_column] = seq2seq
+        codes[self._weights_column] = codes[self._idf_column]
         return codes
 
     def convert_samples_to_instructions(
             self,
             instruction_samples: pd.DataFrame,
             include_reference_range: bool = False
-    ) -> List[Tuple[str, str, bool, bool]]:
+    ) -> List[Tuple[str, str, bool, bool, float]]:
         """
         Return the instruction input and targets
         for the sampled instruction code status classification task with time range
@@ -288,7 +289,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
     def convert_samples_to_instructions_with_reference_range(
             self,
             instruction_samples: pd.DataFrame,
-    ) -> List[Tuple[str, str, bool, bool]]:
+    ) -> List[Tuple[str, str, bool, bool, float]]:
         """
         Return the instruction input and targets
         for the sampled instruction code status classification task with time range
@@ -297,8 +298,8 @@ class LabPredictionTask(CodeLabelPredictionTask):
             instruction_samples (pd.DataFrame): The samples that will be used as instructions
 
         Returns:
-            (List[Tuple[str, str, bool]]): A list that contains tuples which have the instruction input and target.
-            The list will contain only 1 element for zero shot training
+            (List[Tuple[str, str, bool, float]]): A list that contains tuples which have the instruction input and
+            target. The list will contain only 1 element for zero shot training
         """
 
         instructions = list()
@@ -309,11 +310,12 @@ class LabPredictionTask(CodeLabelPredictionTask):
                 self._reference_range_low_column,
                 self._reference_range_high_column,
                 self._ignore_instruction_column,
-                self._seq2seq_column
+                self._seq2seq_column,
+                self._weights_column
             ]
         ].itertuples(index=False):
-            (lab, label, reference_range_low, reference_range_high, ignore_instruction, seq2seq) = (
-                row[0], row[1], row[2], row[3], row[4], row[5]
+            (lab, label, reference_range_low, reference_range_high, ignore_instruction, seq2seq, weight) = (
+                row[0], row[1], row[2], row[3], row[4], row[5], row[6]
             )
             lab_string_with_reference_ranges = self.get_lab_string_with_reference_ranges(
                 lab=lab,
@@ -324,13 +326,13 @@ class LabPredictionTask(CodeLabelPredictionTask):
                 diagnosis=lab_string_with_reference_ranges,
                 value=label
             )
-            instructions.append(lab_instruct_string + (ignore_instruction, seq2seq))
+            instructions.append(lab_instruct_string + (ignore_instruction, seq2seq, weight))
         return instructions
 
     def convert_samples_to_instructions_without_reference_range(
             self,
             instruction_samples: pd.DataFrame,
-    ) -> List[Tuple[str, str, bool, bool]]:
+    ) -> List[Tuple[str, str, bool, bool, float]]:
         """
         Return the instruction input and targets
         for the sampled instruction code status classification task with time range
@@ -339,8 +341,8 @@ class LabPredictionTask(CodeLabelPredictionTask):
             instruction_samples (pd.DataFrame): The samples that will be used as instructions
 
         Returns:
-            (List[Tuple[str, str, bool]]): A list that contains tuples which have the instruction input and target.
-            The list will contain only 1 element for zero shot training
+            (List[Tuple[str, str, bool, float]]): A list that contains tuples which have the instruction input and
+            target. The list will contain only 1 element for zero shot training
         """
 
         instructions = list()
@@ -349,15 +351,16 @@ class LabPredictionTask(CodeLabelPredictionTask):
                 self._lab_name_normalized_column,
                 self._label_column,
                 self._ignore_instruction_column,
-                self._seq2seq_column
+                self._seq2seq_column,
+                self._weights_column
             ]
         ].itertuples(index=False):
-            lab, label, ignore_instruction, seq2seq = row[0], row[1], row[2], row[3]
+            lab, label, ignore_instruction, seq2seq, weight = row[0], row[1], row[2], row[3], row[4]
             lab_instruct_string = self._code_instructions.get_instruction(
                 diagnosis=lab,
                 value=label
             )
-            instructions.append(lab_instruct_string + (ignore_instruction, seq2seq))
+            instructions.append(lab_instruct_string + (ignore_instruction, seq2seq, weight))
         return instructions
 
     @staticmethod
