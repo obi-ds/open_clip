@@ -1,9 +1,6 @@
 """Make training data"""
-import random
 import numpy as np
-import pandas as pd
-from dateutil import relativedelta
-from typing import Union, Tuple, List, Optional
+from typing import Optional
 
 from .processing.demographic_dataframe_process import DemographicDataframeProcess
 from .templates import PatientDemographicsTemplate
@@ -104,7 +101,10 @@ class DemographicPredictionPrompt(DemographicPredictionTask):
         instruction_samples = [
             patient_demographics[self._attribute_index_map[attribute]]
             for attribute in attributes
-            if attribute == patient_demographics[self._attribute_index_map[attribute]][0]
+            if (
+                    self._attribute_index_map[attribute] < len(patient_demographics) and
+                    attribute == patient_demographics[self._attribute_index_map[attribute]][0]
+            )
         ]
 
         # Convert samples to text instructions (prompt)
