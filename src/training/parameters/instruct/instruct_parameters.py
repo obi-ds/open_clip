@@ -57,6 +57,12 @@ def get_instruct_arguments():
         help="Whether to add a special token to separate image and text - applicable for decoder only model"
     )
     parser.add_argument(
+        "--token-loss-weighting",
+        default=False,
+        action="store_true",
+        help="Whether to do a instance weighted token loss"
+    )
+    parser.add_argument(
         "--eval-mode",
         default=False,
         action="store_true",
@@ -65,7 +71,7 @@ def get_instruct_arguments():
     parser.add_argument(
         "--loss-function",
         default=None,
-        choices=['clip', 'coca', 'focal', 'lm'],
+        choices=['clip', 'coca', 'focal', 'lm', 'lm_z'],
         type=str,
         help="What loss function to use for training"
     )

@@ -10,4 +10,10 @@ def get_prompt_eval_arguments():
         default=None,
         help="The demographic attributes to use in the prompt"
     )
+    parser.add_argument(
+        "--lab-prompt-attributes",
+        nargs='+',
+        default=None,
+        help="The lab attributes to use in the prompt"
+    )
     return parser

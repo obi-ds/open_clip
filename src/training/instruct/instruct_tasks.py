@@ -4,6 +4,7 @@ import random
 from typing import Union
 
 from .demographics import DemographicPredictionTask, DemographicPredictionPrompt
+from .labs import LabPredictionPrompt
 from .instruct_tokenizer import HFInstructTokenizer, InstructTokenizer
 
 
@@ -13,9 +14,11 @@ class InstructTasks(object):
             self,
             task_list,
             instruct_tokenizer: Union[HFInstructTokenizer, InstructTokenizer],
+            token_loss_weighting: bool
     ):
         self._task_list = task_list
         self._instruct_tokenizer = instruct_tokenizer
+        self._token_loss_weighting = token_loss_weighting
 
     def process_sample_from_args(self, sample, args):
         task_instructions = list()
@@ -23,12 +26,16 @@ class InstructTasks(object):
             random.shuffle(self._task_list)
 
         if args.add_img_token:
-            task_instructions.append([self.get_img_sep_token_instruction(), '', True, False])
+            task_instructions.append([self.get_img_sep_token_instruction(), '', True, False, -100])
 
         for task in self._task_list:
             if isinstance(task, DemographicPredictionPrompt):
                 instructions = task.process_sample(
                     sample=sample, args=args, attributes=args.demographic_prompt_attributes
+                )
+            elif isinstance(task, LabPredictionPrompt):
+                instructions = task.process_sample(
+                    sample=sample, args=args, labs=args.lab_prompt_attributes
                 )
             elif isinstance(task, DemographicPredictionTask):
                 instructions = task.process_sample(
@@ -40,18 +47,22 @@ class InstructTasks(object):
                 instructions = task.process_sample(sample=sample, args=args)
             task_instructions.extend(instructions)
             if len(instructions):
-                task_instructions.append([self.get_task_separator_instruction(), '', True, False])
+                task_instructions.append([self.get_task_separator_instruction(), '', True, False, -100])
 
         if self._instruct_tokenizer is None:
             return task_instructions
 
-        input_ids, labels = self._instruct_tokenizer.get_tokens(
+        input_ids, labels, weights = self._instruct_tokenizer.get_tokens(
             task_instructions=task_instructions, return_tensor=True
         )
         input_ids = input_ids.unsqueeze(0)
         labels = labels.unsqueeze(0)
 
-        return torch.cat([input_ids, labels])
+        if self._token_loss_weighting:
+            weights = weights.unsqueeze(0)
+            return torch.cat([input_ids, labels, weights])
+        else:
+            return torch.cat([input_ids, labels])
 
     def get_task_separator_instruction(self):
         if self._instruct_tokenizer is None:

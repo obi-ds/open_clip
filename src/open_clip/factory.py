@@ -12,7 +12,9 @@ import torch
 from .constants import OPENAI_DATASET_MEAN, OPENAI_DATASET_STD
 from .model import CLIP, CustomTextCLIP, convert_weights_to_lp, convert_to_custom_text_state_dict,\
     resize_pos_embed, get_cast_dtype, resize_text_pos_embed, set_model_preprocess_cfg
-from .loss import ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, CaptionLoss, FocalLoss, MoCaLoss, MoCaFocalLoss
+from .loss import (
+    ClipLoss, DistillClipLoss, CoCaLoss, SigLipLoss, CaptionLoss, FocalLoss, MoCaLoss, MoCaFocalLoss, MoCaZLoss
+)
 from .coca_model import CoCa, ECGCoCa, CytoCoCa
 from .moca_model import MoCa
 from .openai import load_openai_model
@@ -396,6 +398,11 @@ def create_loss(args):
                 world_size=args.world_size,
                 use_horovod=args.horovod,
             )
+    elif args.loss_function == 'lm_z':
+        if 'moca' in args.model.lower():
+            return MoCaZLoss(ignore_index=-100, penalty_weight=1e-4)
+        else:
+            raise NotImplementedError()
     elif args.siglip:
         assert not args.horovod, "Horovod not currently supported for SigLip"
         return SigLipLoss(
