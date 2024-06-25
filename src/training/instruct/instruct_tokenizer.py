@@ -16,6 +16,7 @@ class InstructTokenizer(object):
             tokenizer,
             max_seq_length,
             pad_id,
+            token_loss_weighting,
             ignore_index=-100,
     ):
         """
@@ -29,6 +30,8 @@ class InstructTokenizer(object):
         self._max_seq_length = max_seq_length
         self._pad_id = pad_id
         self._ignore_index = ignore_index
+        self._token_loss_weighting = token_loss_weighting
+        self._eos_token_id = self.get_eos_token_id()
 
     def get_tokens(
             self,
@@ -47,7 +50,8 @@ class InstructTokenizer(object):
         """
         all_input_ids = []
         all_labels = []
-        for instruction_input, instruction_output, ignore_instruction, seq2seq in task_instructions:
+        all_weights = []
+        for instruction_input, instruction_output, ignore_instruction, seq2seq, weight in task_instructions:
             # Get the tokens for the instruction input - The eos and padding tokens are removed
             input_tokens = self.get_input_tokens(input_text=instruction_input)
             # Get the tokens for the instruction target - the bos and padding tokens are removed
@@ -61,6 +65,8 @@ class InstructTokenizer(object):
                 output_tokens=output_tokens,
                 seq2seq=seq2seq
             )
+            all_input_ids.extend(input_ids)
+
             # Get the tensor that will contain the labels for autoregressive training, such that we
             # only train on the instruction targets
             labels = self.get_labels(
@@ -69,10 +75,18 @@ class InstructTokenizer(object):
                 ignore_instruction=ignore_instruction,
                 seq2seq=seq2seq
             )
-
-            # Concatenate inputs ids and labels from the different instructions
-            all_input_ids.extend(input_ids)
             all_labels.extend(labels)
+
+            if self._token_loss_weighting:
+                # Get the weights for the loss on each token
+                weights = self.get_token_loss_weights(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    ignore_instruction=ignore_instruction,
+                    seq2seq=seq2seq,
+                    weight=weight
+                )
+                all_weights.extend(weights)
 
         # Truncate tokens, add sentence boundaries and then pad tokens
         all_input_ids = self.pad_input_tokens(
@@ -81,11 +95,15 @@ class InstructTokenizer(object):
         all_labels = self.pad_label_tokens(
             tokens=self.truncate_tokens(tokens=all_labels)
         )
+        if self._token_loss_weighting:
+            all_weights = self.pad_label_tokens(
+                tokens=self.truncate_tokens(tokens=all_weights)
+            )
 
         if return_tensor:
-            return torch.tensor(all_input_ids), torch.tensor(all_labels)
+            return torch.tensor(all_input_ids), torch.tensor(all_labels), torch.tensor(all_weights)
         else:
-            return all_input_ids, all_labels
+            return all_input_ids, all_labels, all_weights
 
     def get_input_tokens(self, input_text: str) -> List[int]:
         """
@@ -220,7 +238,34 @@ class InstructTokenizer(object):
             elif len(output_tokens) == 2:
                 return [self._ignore_index] * (len(input_tokens) - 3) + output_tokens + [self._ignore_index]
             else:
-                raise NotImplementedError('Only works when output tokens are of length 1')
+                raise NotImplementedError('Only works when output tokens are of length 1 or 2')
+
+    def get_token_loss_weights(self, input_tokens, output_tokens, ignore_instruction: bool, seq2seq: bool, weight):
+        """
+        Get weights for loss computed at each token position
+
+        Args:
+            input_tokens:
+            output_tokens:
+            ignore_instruction:
+            seq2seq:
+            weight:
+
+        Returns:
+
+        """
+        # TODO: Include EOS token in this?
+        weight = weight / max(1, len(output_tokens))
+        weights = [weight] * len(output_tokens)
+        if seq2seq:
+            token_weights = self.get_seq2seq_labels(
+                input_tokens=input_tokens, output_tokens=weights, ignore_instruction=ignore_instruction
+            )
+        else:
+            token_weights = self.get_sft_labels(
+                input_tokens=input_tokens, output_tokens=weights, ignore_instruction=ignore_instruction
+            )
+        return token_weights
 
     def pad_input_tokens(self, tokens: List[int]) -> List[int]:
         """
@@ -285,6 +330,14 @@ class InstructTokenizer(object):
         """
         return '<end_of_text>'
 
+    def get_eos_token_id(self):
+        """
+
+        Returns:
+
+        """
+        return self._tokenizer.eot_token_id
+
     def get_bos_token(self):
         """
 
@@ -302,7 +355,7 @@ class HFInstructTokenizer(InstructTokenizer):
     predicting the next word.
     """
 
-    def __init__(self, tokenizer, max_seq_length, pad_id, ignore_index=-100):
+    def __init__(self, tokenizer, max_seq_length, pad_id, token_loss_weighting, ignore_index=-100):
         """
         Initialize variables
         Args:
@@ -310,7 +363,7 @@ class HFInstructTokenizer(InstructTokenizer):
             max_seq_length (int): The maximum sequence length allowed by model/tokenizer
             pad_id (int): The id used for padding tokens
         """
-        super().__init__(tokenizer, max_seq_length, pad_id, ignore_index)
+        super().__init__(tokenizer, max_seq_length, pad_id, token_loss_weighting, ignore_index)
         if 'biogpt' in self._tokenizer.tokenizer.name_or_path:
             self._start_pos = 1
         else:
@@ -351,6 +404,18 @@ class HFInstructTokenizer(InstructTokenizer):
 
         """
         return self._tokenizer.tokenizer.eos_token
+
+    def get_eos_token_id(self):
+        """
+
+        Returns:
+
+        """
+        if 'biogpt' in self._tokenizer.tokenizer.name_or_path or 'bio_gpt' in self._tokenizer.tokenizer.name_or_path:
+            return self._tokenizer.tokenizer.eos_token_id
+        elif 'gpt' in self._tokenizer.tokenizer.name_or_path:
+            return self._tokenizer.tokenizer.encode('\n')[0]
+            # return tokenizer.tokenizer.eos_token_id
 
     def get_bos_token(self):
         """

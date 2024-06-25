@@ -253,17 +253,21 @@ def get_lab_prompt(args):
     Returns:
 
     """
+
+    lab_dataframes = get_lab_dataframes(labs_folder=args.labs_folder)
     lab_prediction_instructions = get_patient_labs_instruction_template(
         example_separator=get_example_separator(args=args)
     )
-    lab_dataframe_process = None
+    lab_dataframe_process = get_lab_dataframe_process(lab_dataframes=lab_dataframes, args=args)
+    time_bins = get_time_bins(args)
     return LabPredictionPrompt(
         lab_dataframe_process=lab_dataframe_process,
         lab_instructions=lab_prediction_instructions,
+        time_bins=time_bins,
         patient_id_column=args.patient_id_column,
         lab_name_column=args.lab_name_column,
         position_column=args.position_column,
-        fixed_position_range=args.fixed_position_range
+        fixed_position_range=args.fixed_position_range,
     )
 
 
@@ -283,6 +287,7 @@ def get_instruct_tokenizer(tokenizer, ignore_index, args):
             tokenizer=tokenizer,
             pad_id=args.pad_id,
             max_seq_length=args.max_seq_length,
+            token_loss_weighting=args.token_loss_weighting,
             ignore_index=ignore_index,
         )
     else:
@@ -290,6 +295,7 @@ def get_instruct_tokenizer(tokenizer, ignore_index, args):
             tokenizer=tokenizer,
             pad_id=args.pad_id,
             max_seq_length=args.max_seq_length,
+            token_loss_weighting=args.token_loss_weighting,
             ignore_index=ignore_index,
         )
 

@@ -1,9 +1,6 @@
 """Make training data"""
 import sys
 import numpy as np
-import pandas as pd
-from typing import Tuple, List, Optional
-from ..codes.code_trajectory_instruct_tasks import CodeLabelPredictionTask
 from .lab_instruct_tasks import LabPredictionTask
 sys.path.append('..')
 
@@ -17,12 +14,13 @@ class LabPredictionPrompt(LabPredictionTask):
 
     def __init__(
             self,
+            lab_dataframe_process,
             lab_instructions,
-            lab_dataframe_process: Optional = None,
-            time_bins: Optional = None,
-            fixed_position_range: bool = False,
+            time_bins,
+            fixed_position_range: bool,
             patient_id_column: str = 'PatientID',
-            lab_name_column: str = 'ExternalNM',
+            lab_name_column: str = 'ExternalNM_lower',
+            lab_name_normalized_column: str = 'ExternalNM',
             position_column: str = 'position',
             bins_column: str = 'bins',
             bin_start_column: str = 'min',
@@ -38,7 +36,8 @@ class LabPredictionPrompt(LabPredictionTask):
             weights_column: str = 'weights',
             current_bin_value: int = -100,
             prediction_range_limit: int = None,
-            seq2seq: bool = False
+            seq2seq: bool = False,
+            update_lab_counts: bool = False
     ):
         """
         Initialize variables
@@ -65,8 +64,8 @@ class LabPredictionPrompt(LabPredictionTask):
             lab_dataframe_process=lab_dataframe_process,
             lab_instructions=lab_instructions,
             time_bins=time_bins,
-            lab_name_column=lab_name_column,
             patient_id_column=patient_id_column,
+            lab_name_column=lab_name_column,
             position_column=position_column,
             fixed_position_range=fixed_position_range,
             bins_column=bins_column,
@@ -81,12 +80,14 @@ class LabPredictionPrompt(LabPredictionTask):
             weights_column=weights_column,
             current_bin_value=current_bin_value,
             prediction_range_limit=prediction_range_limit,
-            seq2seq=seq2seq
+            seq2seq=seq2seq,
+            update_lab_counts=update_lab_counts,
+            lab_name_normalized_column=lab_name_normalized_column,
+            reference_range_high_column=reference_range_high_column,
+            reference_range_low_column=reference_range_low_column
         )
-        self._reference_range_low_column = reference_range_low_column
-        self._reference_range_high_column = reference_range_high_column
 
-    def process_sample(self, sample, args, ignore_instruction=None, lab=None, prediction_range=None):
+    def process_sample(self, sample, args, ignore_instruction=True, labs=None):
         """
         Process sample
 
@@ -94,8 +95,7 @@ class LabPredictionPrompt(LabPredictionTask):
             sample:
             args:
             ignore_instruction:
-            lab:
-            prediction_range:
+            labs:
 
         Returns:
 
@@ -104,18 +104,92 @@ class LabPredictionPrompt(LabPredictionTask):
         # Store all the prompt elements (input, output)
         all_instructions = list()
 
-        # Get the task instruction - which should indicate we are making prediction for a given
-        # time range
-        all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
+        # If for some reason we don't have encounter data for this person - we ignore training
+        # on this person
+        if (
+                not self._encounter_dataframe_process.check_patient_id(patient_id=sample[args.patient_id_column])
+        ):
+            print('Missing labs for patient: XXX')
+            return []
 
-        # Convert samples to text instructions (prompt)
-        all_instructions.append(
-            self.get_lab_prompt(
-                lab=lab,
-            )
+        # Get the full encounter history
+        lab_history = self.get_full_encounter_history(
+            patient_id=sample[args.patient_id_column],
+            current_time=sample[args.sample_result_date_column],
+            use_log_position=args.use_log_position,
+            time_difference_normalize=args.time_difference_normalize
         )
+
+        # Filter encounters by time if the time delta values are not None
+        # Compute which time bins the encounters belong too - based on some clustering
+        # Also compute the position range buckets they fall into
+        lab_history = self.transform_encounter_history_for_task(
+            encounter_history=lab_history,
+            past_time_delta=args.past_time_delta,
+            future_time_delta=args.future_time_delta,
+        )
+
+        # Group 3 elements together (Lab Name, Start Time, End Time)
+        labs = list(zip(*[iter(labs)] * 3))
+
+        start_flag = None
+        end_flag = None
+        current_time_period = None
+        for lab_name, start_time, end_time in labs:
+            start_time = int(start_time)
+            end_time = int(end_time)
+            prediction_range = start_time, end_time
+            if start_time != start_flag or end_time != end_flag:
+                # Get the task instruction - which should indicate we are making prediction for a given
+                # time range
+                all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
+
+                # Get dataframe that contain encounter in the current time period
+                current_time_period = self.get_current_time_period(
+                    encounter_history=lab_history, prediction_range=prediction_range
+                )
+
+                start_flag = start_time
+                end_flag = end_time
+
+            lab_details = self.get_lab_details(lab_history=current_time_period, lab_name=lab_name)
+
+            if lab_details.empty:
+                continue
+
+            instruction_samples = self.prepare_sampled_codes(
+                codes=lab_details,
+                label_string=None,
+                ignore_instruction=ignore_instruction,
+                seq2seq=self._seq2seq
+            )
+
+            # Convert samples to text instructions (prompt)
+            all_instructions.extend(
+                self.convert_samples_to_instructions(
+                    instruction_samples=instruction_samples,
+                    include_reference_range=args.include_reference_range
+                )
+            )
 
         return all_instructions
 
-    def get_lab_prompt(self, lab):
-        return self._code_instructions.get_instruction_input(diagnosis=lab), '', True, self._seq2seq
+    def get_lab_details(self, lab_history, lab_name):
+        """
+        Get the value of the lab from the dataframe
+
+        Args:
+            lab_history:
+            lab_name:
+
+        Returns:
+
+        """
+
+        lab_history = lab_history[lab_history[self._code_column] == lab_name.lower()].sort_values(
+            by=self._position_column, key=abs
+        )
+        if lab_history.empty:
+            return lab_history
+        else:
+            return lab_history.iloc[0]

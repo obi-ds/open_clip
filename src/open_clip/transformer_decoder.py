@@ -10,7 +10,7 @@ from transformers import (
     BioGptConfig,
 )
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
-from .q_former import BertConfig, BertLMHeadModel
+from .q_former import BertLMHeadModel
 
 
 class QFormer(nn.Module):
@@ -94,9 +94,11 @@ class CNNEncoder(nn.Module):
             patch_size: int,
             hidden_size: int,
             in_channels: int,
-            normalization: Optional[int]
+            normalization: Optional[int],
+            initializer_range: float
     ):
         super().__init__()
+        self._initializer_range = initializer_range
         if image_input_type == 'ecg':
             self._encoder = ECGCNNEncoder(
                 patch_size=patch_size,
@@ -113,6 +115,21 @@ class CNNEncoder(nn.Module):
             )
         else:
             raise NotImplementedError(f'CNN Encoder for {image_input_type} not implemented')
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module) -> None:
+        """Initialize the weights"""
+        if isinstance(module, (nn.Linear, nn.Conv2d, nn.Conv1d)):
+            # Upcast the input in `fp32` and cast it back to desired `dtype` to avoid
+            # `trunc_normal_cpu` not implemented in `half` issues
+            module.weight.data = nn.init.trunc_normal_(
+                module.weight.data.to(torch.float32), mean=0.0, std=self._initializer_range
+            ).to(module.weight.dtype)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, (nn.LayerNorm, nn.GroupNorm)):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
 
     def forward(self, image):
         """
@@ -143,10 +160,17 @@ class ECGCNNEncoder(nn.Module):
             self._norm = nn.Identity()
         else:
             self._norm = nn.GroupNorm(num_groups=normalization, num_channels=in_channels)
-        self.conv1 = nn.Conv1d(
-            in_channels=in_channels,
+        # self.conv1 = nn.Conv1d(
+        #     in_channels=in_channels,
+        #     out_channels=hidden_size,
+        #     kernel_size=patch_size,
+        #     stride=patch_size,
+        #     bias=False
+        # )
+        self.conv1 = nn.Conv2d(
+            in_channels=1,
             out_channels=hidden_size,
-            kernel_size=patch_size,
+            kernel_size=(in_channels, patch_size),
             stride=patch_size,
             bias=False
         )
@@ -167,7 +191,10 @@ class ECGCNNEncoder(nn.Module):
         # resulting length after applying a single convolution filter and striding along
         # the image. Since the HF transformer expects input as (batch_size, seq_len, hidden_size)
         # we permute the dimensions
-        return self.conv1(self._norm(image)).permute(0, 2, 1)
+        # If using 1D Convolution
+        # return self.conv1(self._norm(image)).permute(0, 2, 1)
+        # If using 2D Convolution
+        return self.conv1(self._norm(image).unsqueeze(1)).squeeze(2).permute(0, 2, 1)
 
 
 class CytoCNNEncoder(nn.Module):
@@ -246,7 +273,8 @@ class VisionEncoder(nn.Module):
             patch_size=patch_size,
             hidden_size=self._hidden_size,
             in_channels=in_channels,
-            normalization=normalization
+            normalization=normalization,
+            initializer_range=self._config.initializer_range
         )
 
     def get_hidden_size(self):
@@ -485,7 +513,8 @@ class MultimodalDecoder(nn.Module):
             past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
             use_cache: Optional[bool] = None,
             images: Optional[torch.FloatTensor] = None,
-            labels: Optional[torch.LongTensor] = None
+            labels: Optional[torch.LongTensor] = None,
+            weights: Optional[torch.LongTensor] = None
     ):
         """
         Get the multimodal input embeddings and pass them to the text transformer
@@ -512,6 +541,10 @@ class MultimodalDecoder(nn.Module):
             image_embeddings=image_embeddings, token_embeddings=token_embeddings
         )
         multi_modal_labels = self.get_labels(image_embeddings=image_embeddings, labels=labels)
+        if weights is not None:
+            multi_modal_weights = self.get_labels(image_embeddings=image_embeddings, labels=weights)
+        else:
+            multi_modal_weights = None
 
         if attention_mask is None:
             attention_mask = torch.ones(
@@ -533,7 +566,7 @@ class MultimodalDecoder(nn.Module):
             labels=None
         )
 
-        return outputs[0], multi_modal_labels
+        return outputs[0], multi_modal_labels, multi_modal_weights
 
     def lock_text_decoder(self, unlocked_layers: int = 0, freeze_layer_norm: bool = True):
         """
@@ -611,7 +644,7 @@ class VisionBioGPTModel(BioGptModel):
     ) -> Union[Tuple, BaseModelOutputWithPastAndCrossAttentions]:
         """
         Same function as defined in BioGptModel with a modification to the
-        attention mask - we replace th causal mask with bidirectional mask
+        attention mask - we replace the causal mask with bidirectional mask
         so that the vision tokens can attend in both directions.
 
         Args:

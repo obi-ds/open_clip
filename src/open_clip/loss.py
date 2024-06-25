@@ -535,23 +535,72 @@ class MoCaLoss(nn.Module):
             ignore_index
     ):
         super().__init__()
+        self._ignore_index = ignore_index
 
-        self.caption_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
-
-    def forward(self, logits, labels, logit_scale, output_dict=False):
+    def forward(self, logits, labels, logit_scale, weights, output_dict=False):
         logits = logits[:, :, :].contiguous()
         labels = labels[:, :].contiguous()
 
-        caption_loss = self.caption_loss(
-            logits.view(-1, logits.size(-1)),
-            labels.view(-1),
-        )
+        if weights is None:
+            caption_loss_obj = nn.CrossEntropyLoss(ignore_index=self._ignore_index, reduction='mean')
+            caption_loss = caption_loss_obj(
+                logits.view(-1, logits.size(-1)),
+                labels.view(-1),
+            )
+        else:
+            caption_loss_obj = nn.CrossEntropyLoss(ignore_index=self._ignore_index, reduction='none')
+            mask = labels != self._ignore_index
+            logits = logits[mask]
+            labels = labels[mask]
+            weights = weights[mask]
+
+            caption_loss = caption_loss_obj(
+                logits,
+                labels,
+            )
+
+            caption_loss = caption_loss * weights.view(-1)
+            caption_loss = caption_loss.sum() / weights.sum()
+
         caption_loss = caption_loss * logit_scale
 
         if output_dict:
             return {"caption_loss": caption_loss}
 
         return caption_loss
+
+
+class MoCaZLoss(MoCaLoss):
+    def __init__(
+            self,
+            ignore_index,
+            penalty_weight,
+            reduction: str = 'mean',
+    ):
+        super().__init__(ignore_index=ignore_index)
+        self._ignore_index = ignore_index
+        self._penalty_weight = penalty_weight
+        self._reduction = reduction
+
+    def forward(self, logits, labels, logit_scale, weights, output_dict=False):
+        caption_loss = (
+            super(MoCaZLoss, self)
+            .forward(logits=logits, labels=labels, logit_scale=logit_scale, weights=weights, output_dict=False)
+        )
+
+        if self._reduction == 'mean':
+            z_loss = torch.pow(torch.logsumexp(logits[labels != self._ignore_index], dim=-1), 2).mean()
+        elif self._reduction == 'sum':
+            z_loss = torch.pow(torch.logsumexp(logits[labels != self._ignore_index], dim=-1), 2).sum()
+        else:
+            raise ValueError('Invalid reduction')
+
+        total_loss = caption_loss + (self._penalty_weight * z_loss)
+
+        if output_dict:
+            return {"caption_loss": total_loss}
+
+        return total_loss
 
 
 class MoCaFocalLoss(nn.Module):
@@ -573,7 +622,17 @@ class MoCaFocalLoss(nn.Module):
             ignore_index=ignore_index
         )
 
-    def forward(self, logits, labels, logit_scale, output_dict=False):
+    def reduce_loss(self, loss, weights):
+        if self._reduction == 'mean':
+            if weights is None:
+                loss = loss.mean()
+            else:
+                loss = loss.sum() / weights.sum()
+        elif self._reduction == 'sum':
+            loss = loss.sum()
+        return loss
+
+    def forward(self, logits, labels, logit_scale, weights, output_dict=False):
 
         logits = logits[:, :, :].contiguous()
         labels = labels[:, :].contiguous()
@@ -589,16 +648,17 @@ class MoCaFocalLoss(nn.Module):
         log_probabilities = F.log_softmax(logits, dim=-1)
         negative_log_pt = self.nll_loss(log_probabilities, labels)
 
-        # get true class column from each row
+        # Get true class column from each row
         indexes = torch.arange(len(log_probabilities))
         pt = log_probabilities[indexes, labels].exp()
 
         caption_loss = ((1 - pt) ** self._gamma) * negative_log_pt
 
-        if self._reduction == 'mean':
-            caption_loss = caption_loss.mean()
-        elif self._reduction == 'sum':
-            caption_loss = caption_loss.sum()
+        if weights is not None:
+            weights = weights[mask]
+            caption_loss = caption_loss * weights.view(-1)
+
+        caption_loss = self.reduce_loss(loss=caption_loss, weights=weights)
 
         caption_loss = caption_loss * logit_scale
 
