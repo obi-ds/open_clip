@@ -107,10 +107,11 @@ class DemographicPredictionPrompt(DemographicPredictionTask):
             )
         ]
 
-        if len(attributes) != len(instruction_samples):
-            # Don't compute metrics on samples where we don't have all the
-            # required information in the prompt
-            ignore_instruction = True
+        # TODO: What do we do in this case when evaluating?
+        # if len(attributes) != len(instruction_samples):
+        #     # Don't compute metrics on samples where we don't have all the
+        #     # required information in the prompt
+        #     return []
 
         # Convert samples to text instructions (prompt)
         all_instructions.extend(
