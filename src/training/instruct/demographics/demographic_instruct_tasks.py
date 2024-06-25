@@ -139,7 +139,7 @@ class DemographicPredictionTask(object):
             patient_demographics: pd.Series,
             sample,
             current_time
-    ) -> List[Tuple[str, Union[str, int]]]:
+    ) -> List[Tuple[str, Union[str, int], float]]:
         """
         Get the age and sex of the patient
 
@@ -149,40 +149,52 @@ class DemographicPredictionTask(object):
             current_time:
 
         Returns:
-            (List[Tuple[str, Union[str, int]]]): The processed demographics for the task
+            (List[Tuple[str, Union[str, int], float]]): The processed demographics for the task
         """
         age = ('Age', self.get_age(patient_demographics=patient_demographics, current_time=current_time))
         sex = ('Sex', self.get_sex(patient_demographics=patient_demographics))
         height = ('Height', self.get_height(sample=sample))
         weight = ('Weight', self.get_weight(sample=sample))
-        return [attribute for attribute in [age, sex, height, weight] if attribute[1] is not None]
+        return [
+            (attribute[0], attribute[1], self.get_weight_for_attribute(attribute=attribute))
+            for attribute in [age, sex, height, weight] if attribute[1] is not None
+        ]
+
+    @staticmethod
+    def get_weight_for_attribute(attribute) -> float:
+        """
+        TODO: Implement function
+        Returns:
+
+        """
+        return 1.0
 
     def convert_samples_to_instructions(
             self,
-            instruction_samples: List[Tuple[str, Union[str, int]]],
+            instruction_samples: List[Tuple[str, Union[str, int], float]],
             ignore_instruction: bool,
             seq2seq: bool,
-    ) -> List[Tuple[str, str, bool, bool]]:
+    ) -> List[Tuple[str, str, bool, bool, float]]:
         """
         Return the instruction input and targets
         for the sampled instruction code status classification task with time range
 
         Args:
-            instruction_samples (List[Tuple[str, Union[str, int]]]): The samples that will be used as instructions
+            instruction_samples (List[Tuple[str, Union[str, int], float]]): Samples that will be used as instructions
             ignore_instruction (bool): Whether to ignore the instruction
             seq2seq (bool)
 
         Returns:
-            (List[Tuple[str, str, bool]]): A list that contains tuples which have the instruction input and target.
-            The list will contain only 1 element for zero shot training
+            (List[Tuple[str, str, bool, float]]): A list that contains tuples which have the instruction input and
+            target. The list will contain only 1 element for zero shot training
         """
         instructions = list()
-        for category, value in instruction_samples:
+        for category, value, weight in instruction_samples:
             code_instruct_string = self._demographic_instructions.get_instruction(
                 category=category,
                 value=value
             )
-            instructions.append(code_instruct_string + (ignore_instruction, seq2seq))
+            instructions.append(code_instruct_string + (ignore_instruction, seq2seq) + (weight, ))
         return instructions
 
     def get_age(self, patient_demographics, current_time):
@@ -286,7 +298,7 @@ class DemographicPredictionTask(object):
 
         """
         task_definition = self._demographic_instructions.get_task_definition()
-        return task_definition, '', True, self._seq2seq
+        return task_definition, '', True, self._seq2seq, -100
 
     @staticmethod
     def sample_from_list(shots):
