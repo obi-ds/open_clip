@@ -1,1 +1,0 @@
-from .default_parameters import get_open_clip_arguments
