@@ -22,6 +22,7 @@ class DiagnosisLabelPredictionInstructionTemplate(object):
             targets_prefix: str = "",
             x_y_delimiter: str = " ",
             example_separator: str = '\n',
+            task_separator: str = '\n',
             task_definition: str = '',
             task_name: str = 'code_label_prediction'
     ):
@@ -47,6 +48,7 @@ class DiagnosisLabelPredictionInstructionTemplate(object):
         self._targets_prefix = targets_prefix
         self._x_y_delimiter = x_y_delimiter
         self._example_separator = example_separator
+        self._task_separator = task_separator
 
     def get_task_definition(self, time) -> str:
         """
@@ -62,7 +64,7 @@ class DiagnosisLabelPredictionInstructionTemplate(object):
         else:
             task_definition = self._task_definition.format(time=np.abs(time))
 
-        return self.fix_time_string(task_definition, np.abs(time)) + '\n'
+        return self.fix_time_string(task_definition, np.abs(time)) + self._example_separator
 
     def get_instruction(self, diagnosis: str, value: Union[str, int, float]) -> Tuple[str, str]:
         """
@@ -125,17 +127,6 @@ class DiagnosisLabelPredictionInstructionTemplate(object):
         else:
             return instruction_input
 
-    def get_example_separator(self) -> str:
-        """
-        This instruction is added as a separator between instructions
-
-        Returns:
-            (str): Example separator string
-        """
-        # \n is the separator string, '' is the label (empty - don't train)
-        # True indicates ignore this instruction for training loss
-        return self._example_separator
-
     def get_task_separator_instruction(self):
         """
         Insert this instruction after this task
@@ -143,7 +134,7 @@ class DiagnosisLabelPredictionInstructionTemplate(object):
         Returns:
 
         """
-        return [self._example_separator, '', True, False, -100]
+        return [self._task_separator, '', True, False, -100]
 
 
 class HierarchicalDiagnosisLabelPredictionInstructionTemplate(DiagnosisLabelPredictionInstructionTemplate):
@@ -161,6 +152,7 @@ class HierarchicalDiagnosisLabelPredictionInstructionTemplate(DiagnosisLabelPred
             targets_prefix: str = "",
             x_y_delimiter: str = " ",
             example_separator: str = '\n',
+            task_separator: str = '\n',
             task_definition: str = '',
             task_name: str = 'hierarchical_code_label_prediction'
     ):
@@ -185,6 +177,7 @@ class HierarchicalDiagnosisLabelPredictionInstructionTemplate(DiagnosisLabelPred
             targets_prefix=targets_prefix,
             x_y_delimiter=x_y_delimiter,
             example_separator=example_separator,
+            task_separator=task_separator,
             task_definition=task_definition,
             task_name=task_name
         )
@@ -214,8 +207,8 @@ class HierarchicalDiagnosisLabelPredictionInstructionTemplate(DiagnosisLabelPred
             if index == 0 and number_of_diagnosis > 1:
                 instruction_input = self._inputs_prefix + instruction_input
             elif index == number_of_diagnosis - 1:
-                instruction_input = self._inputs.format(diagnosis=d) + self.get_example_separator()
-                instruction_target = instruction_target + self.get_example_separator()
+                instruction_input = self._inputs.format(diagnosis=d) + self._example_separator
+                instruction_target = instruction_target + self._example_separator
                 if index == 0:
                     instruction_input = self._inputs_prefix + instruction_input
             instruction_tuples.append((instruction_input, instruction_target))

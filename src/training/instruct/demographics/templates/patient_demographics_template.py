@@ -21,6 +21,7 @@ class PatientDemographicsTemplate(object):
             targets_prefix: str = "",
             x_y_delimiter: str = " ",
             example_separator: str = '\n',
+            task_separator: str = '\n',
             task_definition: str = '',
             task_name: str = 'patient_demographics'
     ):
@@ -46,6 +47,7 @@ class PatientDemographicsTemplate(object):
         self._targets_prefix = targets_prefix
         self._x_y_delimiter = x_y_delimiter
         self._example_separator = example_separator
+        self._task_separator = task_separator
 
     def get_task_definition(self) -> str:
         """
@@ -54,7 +56,7 @@ class PatientDemographicsTemplate(object):
         Returns:
             (str): String containing the definition of the task
         """
-        return self._task_definition + '\n'
+        return self._task_definition + self._example_separator
 
     def get_instruction(self, category: str, value: Union[str, int, float]) -> Tuple[str, str]:
         """
@@ -98,17 +100,6 @@ class PatientDemographicsTemplate(object):
         """
         return str(value) + self._example_separator
 
-    def get_example_separator(self) -> str:
-        """
-        This instruction is added as a separator between instructions
-
-        Returns:
-            (str): Example separator string
-        """
-        # \n is the separator string, '' is the label (empty - don't train)
-        # True indicates ignore this instruction for training loss
-        return self._example_separator
-
     def get_task_separator_instruction(self):
         """
         Insert this instruction after this task
@@ -116,4 +107,4 @@ class PatientDemographicsTemplate(object):
         Returns:
 
         """
-        return [self._example_separator, '', True, False, -100]
+        return [self._task_separator, '', True, False, -100]
