@@ -212,7 +212,7 @@ class InstructTokenizer(object):
         if ignore_instruction:
             return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
         else:
-            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._ignore_index]
+            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._eos_token_id]
 
     def get_seq2seq_labels(
             self,
@@ -240,7 +240,7 @@ class InstructTokenizer(object):
             if len(output_tokens) == 1:
                 return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens
             elif len(output_tokens) == 2:
-                return [self._ignore_index] * (len(input_tokens) - 3) + output_tokens + [self._ignore_index]
+                return [self._ignore_index] * (len(input_tokens) - 3) + output_tokens + [self._eos_token_id]
             else:
                 raise NotImplementedError('Only works when output tokens are of length 1 or 2')
 

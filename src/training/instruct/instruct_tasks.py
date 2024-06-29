@@ -53,9 +53,6 @@ class InstructTasks(object):
 
             task_instructions.extend(instructions)
 
-            # if len(instructions):
-            #     task_instructions.append([self.get_task_separator_instruction(), '', True, False, -100])
-
         if self._instruct_tokenizer is None:
             return task_instructions
 
@@ -70,12 +67,6 @@ class InstructTasks(object):
             return torch.cat([input_ids, labels, weights])
         else:
             return torch.cat([input_ids, labels])
-
-    def get_task_separator_instruction(self):
-        if self._instruct_tokenizer is None:
-            return '\n'
-        else:
-            return self._instruct_tokenizer.get_eos_token() + '\n'
 
     def get_img_sep_token_instruction(self):
         if self._instruct_tokenizer is None:

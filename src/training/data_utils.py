@@ -79,7 +79,7 @@ def get_hierarchical_diagnosis_label_prediction_task(args):
     ) = get_diagnosis_label_task_objects(args)
 
     diagnosis_label_prediction_instructions = get_hierarchical_diagnosis_label_prediction_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
 
     return HierarchicalDiagnosisLabelPredictionTask(
@@ -140,7 +140,7 @@ def get_hierarchical_diagnosis_label_prediction_task_eval(args):
     ) = get_diagnosis_label_task_objects(args)
 
     diagnosis_label_prediction_instructions = get_diagnosis_label_prediction_instruction_template(
-        example_separator=get_example_separator(args=args),
+        task_separator=get_task_separator(args=args),
         x_y_delimiter=' '
     )
 
@@ -166,7 +166,7 @@ def get_demographic_task(args):
     """
     demographic_dataframe = get_demographic_dataframe(filepath=args.demographic_file)
     demographic_instructions = get_patient_demographics_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     demographic_dataframe_process = DemographicDataframeProcess(
         demographic_dataframe=demographic_dataframe
@@ -188,7 +188,7 @@ def get_ecg_attributes_task(args):
 
     """
     ecg_attribute_instructions = get_ecg_attributes_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     return ECGAttributePredictionTask(
         ecg_attribute_instructions=ecg_attribute_instructions,
@@ -206,7 +206,7 @@ def get_lab_task(args):
     """
     lab_dataframes = get_lab_dataframes(labs_folder=args.labs_folder)
     lab_prediction_instructions = get_patient_labs_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     lab_dataframe_process = get_lab_dataframe_process(lab_dataframes=lab_dataframes, args=args)
     return LabPredictionTask(
@@ -231,7 +231,7 @@ def get_demographic_prompt(args):
     """
     demographic_dataframe = get_demographic_dataframe(filepath=args.demographic_file)
     demographic_instructions = get_patient_demographics_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     demographic_dataframe_process = DemographicDataframeProcess(
         demographic_dataframe=demographic_dataframe
@@ -251,7 +251,7 @@ def get_ecg_attributes_prompt(args):
 
     """
     ecg_attribute_instructions = get_ecg_attributes_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     return ECGAttributePredictionPrompt(
         ecg_attribute_instructions=ecg_attribute_instructions,
@@ -270,7 +270,7 @@ def get_lab_prompt(args):
 
     lab_dataframes = get_lab_dataframes(labs_folder=args.labs_folder)
     lab_prediction_instructions = get_patient_labs_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     lab_dataframe_process = get_lab_dataframe_process(lab_dataframes=lab_dataframes, args=args)
     return LabPredictionPrompt(
@@ -336,7 +336,7 @@ def get_diagnosis_label_task_objects(args):
     negative_code_sampling = get_negative_code_sampling(encounter_dataframe_process, args)
     code_convert = get_code_convert(args=args)
     diagnosis_label_prediction_instructions = get_diagnosis_label_prediction_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     return (
         encounter_dataframe,
@@ -486,9 +486,18 @@ def get_example_separator(args):
     Returns:
 
     """
+    return '\n'
+
+def get_task_separator(args):
+    """
+
+    Args:
+        args:
+
+    Returns:
+
+    """
     if 'biogpt' in args.model or 'bio_gpt' in args.model:
-        return ' </s>\n'
-    elif 'gpt' in args.model:
-        return '\n'
+        return '</s>\n'
     else:
-        return ' <end_of_text>\n'
+        return '<end_of_text>\n'
