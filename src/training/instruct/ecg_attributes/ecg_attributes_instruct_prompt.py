@@ -1,7 +1,7 @@
 """Make training data"""
 import numpy as np
 
-from .templates import ECGAttributesTemplate
+from ..demographics.templates import PatientDemographicsTemplate
 from .ecg_attributes_instruct_tasks import ECGAttributePredictionTask
 
 np.random.seed(42)
@@ -14,7 +14,7 @@ class ECGAttributePredictionPrompt(ECGAttributePredictionTask):
 
     def __init__(
             self,
-            ecg_attribute_instructions: ECGAttributesTemplate,
+            ecg_attribute_instructions: PatientDemographicsTemplate,
             patient_id_column: str = 'PatientID',
             label_column: str = 'label',
             ignore_instruction_column: str = 'ignore_instruction',

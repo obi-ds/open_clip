@@ -3,7 +3,7 @@ import random
 import numpy as np
 from typing import Union, Tuple, List
 
-from .templates import ECGAttributesTemplate
+from ..demographics.templates import PatientDemographicsTemplate
 
 np.random.seed(42)
 
@@ -15,7 +15,7 @@ class ECGAttributePredictionTask(object):
 
     def __init__(
             self,
-            ecg_attribute_instructions: ECGAttributesTemplate,
+            ecg_attribute_instructions: PatientDemographicsTemplate,
             patient_id_column: str = 'PatientID',
             label_column: str = 'label',
             ignore_instruction_column: str = 'ignore_instruction',
