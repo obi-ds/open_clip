@@ -167,7 +167,7 @@ def evaluate_instruct_basic(
         data,
         epoch,
         args,
-        eot_token_id,
+        eos_token_id,
         positive_token_id,
         negative_token_id,
         tb_writer=None,
@@ -223,7 +223,7 @@ def evaluate_instruct_basic(
                         model_labels=model_labels,
                         positive_token_id=positive_token_id,
                         negative_token_id=negative_token_id,
-                        eot_token_id=eot_token_id,
+                        eos_token_id=eos_token_id,
                         ignore_index=ignore_index,
                         device=device
                     )
@@ -320,12 +320,12 @@ def get_masks(
         positive_token_id,
         negative_token_id,
         ignore_index,
-        eot_token_id,
+        eos_token_id,
         device
 
 ):
     indexes = torch.arange(len(model_labels), device=device)
-    mask = (model_labels != ignore_index) & (model_labels != eot_token_id)
+    mask = (model_labels != ignore_index) & (model_labels != eos_token_id)
     diagnosis_mask = (model_labels == positive_token_id) | (model_labels == negative_token_id)
     diagnosis_mask_flipped = torch.fliplr(diagnosis_mask)
 

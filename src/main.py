@@ -396,7 +396,7 @@ def main(args):
                 data=data,
                 epoch=completed_epoch,
                 args=args,
-                eot_token_id=eos_token_id,
+                eos_token_id=eos_token_id,
                 positive_token_id=pos_token_id,
                 negative_token_id=neg_token_id,
                 tb_writer=writer
@@ -408,7 +408,7 @@ def main(args):
                     data=eval_data_object,
                     epoch=completed_epoch,
                     args=args,
-                    eot_token_id=eos_token_id,
+                    eos_token_id=eos_token_id,
                     positive_token_id=pos_token_id,
                     negative_token_id=neg_token_id,
                     tb_writer=writer,
