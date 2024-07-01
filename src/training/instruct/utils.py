@@ -7,8 +7,8 @@ from .demographics.templates import PatientDemographicsTemplate
 
 
 def get_diagnosis_label_prediction_instruction_template(
-        task_definition='Diagnoses in the next {time} months',
-        inputs='* {diagnosis}',
+        task_definition='Diagnoses in the next {time} months:',
+        inputs='\t* {diagnosis}',
         x_y_delimiter=': ',
         example_separator='\n',
         task_separator=None
@@ -30,9 +30,9 @@ def get_diagnosis_label_prediction_instruction_template(
 
 
 def get_hierarchical_diagnosis_label_prediction_instruction_template(
-        task_definition='Diagnoses in the next {time} months',
+        task_definition='Diagnoses in the next {time} months:',
         inputs='{diagnosis}',
-        inputs_prefix='* ',
+        inputs_prefix='\t* ',
         targets_prefix=':  ',
         x_y_delimiter=' -> ',
         example_separator='\n',
@@ -57,8 +57,8 @@ def get_hierarchical_diagnosis_label_prediction_instruction_template(
 
 
 def get_patient_demographics_instruction_template(
-        task_definition='Patient attributes',
-        inputs='* {category}:',
+        task_definition='Patient attributes:',
+        inputs='\t* {category}:',
         x_y_delimiter=' ',
         example_separator='\n',
         task_separator=None
@@ -80,8 +80,8 @@ def get_patient_demographics_instruction_template(
 
 
 def get_patient_labs_instruction_template(
-        task_definition='Labs in the next {time} months',
-        inputs='* {diagnosis}:',
+        task_definition='Labs in the next {time} months:',
+        inputs='\t* {diagnosis}:',
         x_y_delimiter=' ',
         example_separator='\n',
         task_separator=None
@@ -102,8 +102,8 @@ def get_patient_labs_instruction_template(
     )
 
 def get_ecg_attributes_instruction_template(
-        task_definition='ECG attributes',
-        inputs='* {category}:',
+        task_definition='ECG attributes:',
+        inputs='\t* {category}:',
         x_y_delimiter=' ',
         example_separator='\n',
         task_separator=None
