@@ -128,10 +128,6 @@ class DiagnosisLabelPredictionTaskEvaluation(DiagnosisLabelPredictionTask):
         # Store all the prompt elements (input, output)
         all_instructions = list()
 
-        # Get the task instruction - which should indicate we are making prediction for a given
-        # time range
-        all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
-
         # Get dataframe that contain encounter in the past, current and future time periods
         current_time_period = self.get_current_time_period(
             encounter_history=encounter_history, prediction_range=prediction_range
@@ -153,9 +149,14 @@ class DiagnosisLabelPredictionTaskEvaluation(DiagnosisLabelPredictionTask):
         instructions = self.convert_samples_to_instructions(
             instruction_samples=eval_sample,
         )
-        all_instructions.extend(instructions)
 
         if len(instructions):
+            # Get the task instruction - which should indicate we are making prediction for a given
+            # time range
+            all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
+            all_instructions.extend(
+                instructions
+            )
             all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
 
         return all_instructions

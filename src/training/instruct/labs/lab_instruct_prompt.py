@@ -133,34 +133,17 @@ class LabPredictionPrompt(LabPredictionTask):
 
         start_flag = None
         end_flag = None
-        current_time_period = None
         for lab_name, start_time, end_time in labs:
             start_time = int(start_time)
             end_time = int(end_time)
-            change_flag = False
             prediction_range = start_time, end_time
-            if start_time != start_flag or end_time != end_flag:
-                # Get the task instruction - which should indicate we are making prediction for a given
-                # time range
-                all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
 
-                # Get dataframe that contain encounter in the current time period
-                current_time_period = self.get_current_time_period(
-                    encounter_history=lab_history, prediction_range=prediction_range
-                )
-
-                start_flag = start_time
-                end_flag = end_time
-                change_flag = True
+            # Get dataframe that contain encounter in the current time period
+            current_time_period = self.get_current_time_period(
+                encounter_history=lab_history, prediction_range=prediction_range
+            )
 
             lab_details = self.get_lab_details(lab_history=current_time_period, lab_name=lab_name)
-
-            if lab_details.empty:
-                if change_flag:
-                    start_flag = None
-                    end_flag = None
-                    all_instructions.pop()
-                continue
 
             instruction_samples = self.prepare_sampled_codes(
                 codes=lab_details,
@@ -174,10 +157,26 @@ class LabPredictionPrompt(LabPredictionTask):
                 instruction_samples=instruction_samples,
                 include_reference_range=args.include_reference_range
             )
-            all_instructions.extend(instructions)
 
             if len(instructions):
-                all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
+                # Get the task instruction
+                if start_time != start_flag or end_time != end_flag:
+                    # Add end instruction before adding start instruction of the next time period
+                    if start_flag is not None and end_flag is not None:
+                        all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
+                    # Start an instruction when time period changes
+                    # Get the task instruction - which should indicate we are making prediction for a given
+                    # time range
+                    all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
+                    start_flag = start_time
+                    end_flag = end_time
+
+                all_instructions.extend(
+                    instructions
+                )
+
+        if len(all_instructions):
+            all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
 
         return all_instructions
 

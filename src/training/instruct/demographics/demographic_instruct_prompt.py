@@ -94,9 +94,6 @@ class DemographicPredictionPrompt(DemographicPredictionTask):
             current_time=sample[args.sample_result_date_column]
         )
 
-        # Get the task instruction
-        all_instructions.append(self.get_task_instruction())
-
         attributes = set(attributes)
         instruction_samples = [
             patient_attribute for patient_attribute in patient_demographics if patient_attribute[0] in attributes
@@ -114,10 +111,13 @@ class DemographicPredictionPrompt(DemographicPredictionTask):
             ignore_instruction=ignore_instruction,
             seq2seq=self._seq2seq
         )
-        all_instructions.extend(
-            instructions
-        )
+
         if len(instructions):
+            # Get the task instruction
+            all_instructions.append(self.get_task_instruction())
+            all_instructions.extend(
+                instructions
+            )
             all_instructions.append(self._demographic_instructions.get_task_separator_instruction())
 
         return all_instructions

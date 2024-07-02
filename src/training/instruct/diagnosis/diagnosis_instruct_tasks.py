@@ -160,10 +160,6 @@ class DiagnosisLabelPredictionTask(object):
 
             k_shot = self.sample_from_list(args.k_shot)
 
-            # Get the task instruction - which should indicate we are making prediction for a given
-            # time range
-            all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
-
             # Get dataframe that contain encounter in the current time period
             current_time_period = self.get_current_time_period(
                 encounter_history=encounter_history, prediction_range=prediction_range
@@ -252,9 +248,14 @@ class DiagnosisLabelPredictionTask(object):
             instructions = self.convert_samples_to_instructions(
                 instruction_samples=instruction_samples,
             )
-            all_instructions.extend(instructions)
 
             if len(instructions):
+                # Get the task instruction - which should indicate we are making prediction for a given
+                # time range
+                all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
+                all_instructions.extend(
+                    instructions
+                )
                 all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
 
         return all_instructions

@@ -155,10 +155,6 @@ class LabPredictionTask(DiagnosisLabelPredictionTask):
             if k_shot == 0 or current_time_period.empty:
                 continue
 
-            # Get the task instruction - which should indicate we are making prediction for a given
-            # time range
-            all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
-
             # Now that we have sizes - we move on to sampling the codes
             # We try and sample such that we get codes spread across the time range
             # and not just concentrated in one portion of the time range - for both
@@ -182,11 +178,15 @@ class LabPredictionTask(DiagnosisLabelPredictionTask):
                 instruction_samples=instruction_samples,
                 include_reference_range=args.include_reference_range
             )
-            all_instructions.extend(instructions)
 
             if len(instructions):
+                # Get the task instruction - which should indicate we are making prediction for a given
+                # time range
+                all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
+                all_instructions.extend(
+                    instructions
+                )
                 all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
-
         return all_instructions
 
     def get_prediction_ranges(

@@ -100,24 +100,16 @@ class DiagnosisLabelPredictionPrompt(DiagnosisLabelPredictionTaskEvaluation):
 
         start_flag = None
         end_flag = None
-        current_time_period = None
 
         for code, start_time, end_time in diagnoses:
             start_time = int(start_time)
             end_time = int(end_time)
             prediction_range = start_time, end_time
-            if start_time != start_flag or end_time != end_flag:
-                # Get the task instruction - which should indicate we are making prediction for a given
-                # time range
-                all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
 
-                # Get dataframe that contain encounter in the current time period
-                current_time_period = self.get_current_time_period(
-                    encounter_history=encounter_history, prediction_range=prediction_range
-                )
-
-                start_flag = start_time
-                end_flag = end_time
+            # Get dataframe that contain encounter in the current time period
+            current_time_period = self.get_current_time_period(
+                encounter_history=encounter_history, prediction_range=prediction_range
+            )
 
             # TODO: What if code is not present in the given time period but is present in a different
             #  time period
@@ -138,9 +130,25 @@ class DiagnosisLabelPredictionPrompt(DiagnosisLabelPredictionTaskEvaluation):
             instructions = self.convert_samples_to_instructions(
                 instruction_samples=eval_sample,
             )
-            all_instructions.extend(instructions)
 
             if len(instructions):
-                all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
+                # Get the task instruction
+                if start_time != start_flag or end_time != end_flag:
+                    # Add end instruction before adding start instruction of the next time period
+                    if start_flag is not None and end_flag is not None:
+                        all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
+                    # Start an instruction when time period changes
+                    # Get the task instruction - which should indicate we are making prediction for a given
+                    # time range
+                    all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
+                    start_flag = start_time
+                    end_flag = end_time
+
+                all_instructions.extend(
+                    instructions
+                )
+
+        if len(all_instructions):
+            all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
 
         return all_instructions

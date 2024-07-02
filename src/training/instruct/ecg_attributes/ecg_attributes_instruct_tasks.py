@@ -64,9 +64,6 @@ class ECGAttributePredictionTask(object):
         # Store all the prompt elements (input, output)
         all_instructions = list()
 
-        # Get the task instruction
-        all_instructions.append(self.get_task_instruction())
-
         # Sample and shuffle the data
         instruction_samples = random.sample(ecg_attributes, k=min(sample_size, len(ecg_attributes)))
 
@@ -80,10 +77,13 @@ class ECGAttributePredictionTask(object):
             ignore_instruction=ignore_instruction,
             seq2seq=self._seq2seq
         )
-        all_instructions.extend(
-            instructions
-        )
+
         if len(instructions):
+            # Get the task instruction
+            all_instructions.append(self.get_task_instruction())
+            all_instructions.extend(
+                instructions
+            )
             all_instructions.append(self._ecg_attribute_instructions.get_task_separator_instruction())
 
         return all_instructions
