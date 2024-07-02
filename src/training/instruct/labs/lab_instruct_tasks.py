@@ -3,13 +3,13 @@ import sys
 import numpy as np
 import pandas as pd
 from typing import Tuple, List
-from ..codes.code_trajectory_instruct_tasks import CodeLabelPredictionTask
+from ..diagnosis.diagnosis_instruct_tasks import DiagnosisLabelPredictionTask
 sys.path.append('..')
 
 np.random.seed(42)
 
 
-class LabPredictionTask(CodeLabelPredictionTask):
+class LabPredictionTask(DiagnosisLabelPredictionTask):
     """
     Make instruction tuning training data from diagnostic codes
     """
@@ -18,7 +18,6 @@ class LabPredictionTask(CodeLabelPredictionTask):
             self,
             lab_dataframe_process,
             lab_instructions,
-            time_bins,
             fixed_position_range: bool,
             patient_id_column: str = 'PatientID',
             lab_name_column: str = 'ExternalNM_lower',
@@ -64,9 +63,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
 
         super().__init__(
             encounter_dataframe_process=lab_dataframe_process,
-            dataframe_sampling=None,
-            code_instructions=lab_instructions,
-            time_bins=time_bins,
+            diagnosis_instructions=lab_instructions,
             code_convert=None,
             negative_code_sampling=None,
             patient_id_column=patient_id_column,
@@ -158,10 +155,6 @@ class LabPredictionTask(CodeLabelPredictionTask):
             if k_shot == 0 or current_time_period.empty:
                 continue
 
-            # Get the task instruction - which should indicate we are making prediction for a given
-            # time range
-            all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
-
             # Now that we have sizes - we move on to sampling the codes
             # We try and sample such that we get codes spread across the time range
             # and not just concentrated in one portion of the time range - for both
@@ -181,13 +174,19 @@ class LabPredictionTask(CodeLabelPredictionTask):
             ).sample(frac=1)
 
             # Convert samples to text instructions (prompt)
-            all_instructions.extend(
-                self.convert_samples_to_instructions(
-                    instruction_samples=instruction_samples,
-                    include_reference_range=args.include_reference_range
-                )
+            instructions = self.convert_samples_to_instructions(
+                instruction_samples=instruction_samples,
+                include_reference_range=args.include_reference_range
             )
 
+            if len(instructions):
+                # Get the task instruction - which should indicate we are making prediction for a given
+                # time range
+                all_instructions.append(self.get_task_instruction(prediction_range=prediction_range))
+                all_instructions.extend(
+                    instructions
+                )
+                all_instructions.append(self._diagnosis_instructions.get_task_separator_instruction())
         return all_instructions
 
     def get_prediction_ranges(
@@ -322,7 +321,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
                 reference_range_low=reference_range_low,
                 reference_range_high=reference_range_high
             )
-            lab_instruct_string = self._code_instructions.get_instruction(
+            lab_instruct_string = self._diagnosis_instructions.get_instruction(
                 diagnosis=lab_string_with_reference_ranges,
                 value=label
             )
@@ -356,7 +355,7 @@ class LabPredictionTask(CodeLabelPredictionTask):
             ]
         ].itertuples(index=False):
             lab, label, ignore_instruction, seq2seq, weight = row[0], row[1], row[2], row[3], row[4]
-            lab_instruct_string = self._code_instructions.get_instruction(
+            lab_instruct_string = self._diagnosis_instructions.get_instruction(
                 diagnosis=lab,
                 value=label
             )

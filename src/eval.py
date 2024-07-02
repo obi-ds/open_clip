@@ -1,138 +1,27 @@
 import copy
 import os
 import sys
-import argparse
 from pathlib import Path
 
 import pandas as pd
 import torch
 from torch.nn import functional as F
 
-from eval_args import get_model_details_for_eval
-from open_clip import get_cast_dtype
+from code_eval.arguments.eval_args import parse_args
 from open_clip.factory import get_tokenizer, create_model_and_transforms
-from training.data import get_wds_dataset_icd_instruct
-from training.instruct.codes.processing import (
+from training.data import get_wds_dataset_moca_instruct
+from training.instruct.diagnosis.processing import (
     EncounterDataframeProcess,
 )
-from training.params import parse_args
-from training.precision import get_autocast, get_input_dtype
+from training.precision import get_input_dtype
 
 from main import get_token_id, get_eos_token_id
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--gpu",
-    type=str,
-    required=True,
-    help="The GPU to run eval on",
-)
-parser.add_argument(
-    "--batch-size",
-    type=int,
-    required=True,
-    help="The batch size",
-)
-parser.add_argument(
-    "--phecode-file",
-    type=str,
-    required=True,
-    help="The location to the phecode file",
-)
-parser.add_argument(
-    "--start",
-    type=int,
-    required=True,
-    help="The start position of the phecode file",
-)
-parser.add_argument(
-    "--end",
-    type=int,
-    required=True,
-    help="The end position of the phecode file",
-)
-parser.add_argument(
-    "--eval-data",
-    type=str,
-    required=True,
-    help="The path where the shards are located",
-)
-parser.add_argument(
-    "--num-samples",
-    type=str,
-    required=True,
-    help="The number of samples in the shards",
-)
-parser.add_argument(
-    "--model-type",
-    type=str,
-    required=True,
-    help="The config file used to train the model",
-)
-parser.add_argument(
-    "--model-folder",
-    type=str,
-    required=True,
-    help="The path to the model we are evaluating",
-)
-parser.add_argument(
-    "--eval-every-epoch",
-    type=int,
-    required=True,
-    help="Evaluate the models at every epoch",
-)
-parser.add_argument(
-    "--epoch-start",
-    type=int,
-    required=True,
-    help="Start evaluating from this epoch",
-)
-parser.add_argument(
-    "--code-column",
-    type=str,
-    default='phecode',
-    help="Column containing the codes",
-)
-parser.add_argument(
-    "--result-date-column",
-    type=str,
-    default='TestDate',
-    help="Column containing the codes",
-)
-parser.add_argument(
-    "--output-folder",
-    type=str,
-    required=True,
-    help="Where to write the binned data",
-)
-parser.add_argument(
-    "--file-suffix",
-    type=str,
-    required=True,
-    help="A suffix to distinguish between different dataset",
-)
-parser.add_argument(
-    "--overwrite",
-    type=bool,
-    default=False,
-    help="Overwrite existing results",
-)
-parser.add_argument(
-    "--demographic-prompt-attributes",
-    nargs='+',
-    default=None,
-    help="The demographic attributes to use in the prompt"
-)
-
-
-eval_args = parser.parse_args(sys.argv[1:])
-
-os.environ["CUDA_VISIBLE_DEVICES"] = str(eval_args.gpu)
 
 def get_eval_dataloader(args, eval_code, tokenizer):
     args = copy.deepcopy(args)
     args.eval_code = eval_code
-    eval_dataset_image = get_wds_dataset_icd_instruct(
+    eval_dataset_image = get_wds_dataset_moca_instruct(
         args,
         preprocess_img=lambda x: x,
         is_train=False,
@@ -156,7 +45,7 @@ def compute_probability(loss):
     return torch.exp(-loss_mean)
 
 
-def get_token_scores(model_name, logits, tokens):
+def get_token_scores(model_name, logits, tokens, tokenizer):
     return {token: logits[:, get_token_id(model_name, tokenizer, token)] for token in tokens}
 
 
@@ -167,7 +56,18 @@ def convert_instructions_list_to_string(instructions):
     return full_string
 
 
-def evaluate_label(dataloader, tokens, eos_token_id, args, ignore_index=-100):
+def evaluate_label(
+        model,
+        dataloader,
+        tokenizer,
+        device,
+        input_dtype,
+        tokens,
+        eos_token_id,
+        args,
+        encounter_dataframe_process,
+        ignore_index=-100
+):
     all_labels, all_metadata = [], []
     all_scores = {token: [] for token in tokens}
     all_scores['probability'] = []
@@ -197,7 +97,7 @@ def evaluate_label(dataloader, tokens, eos_token_id, args, ignore_index=-100):
                 reduction='none'
             )
 
-            token_scores = get_token_scores(model_name=args.model, logits=logits, tokens=tokens)
+            token_scores = get_token_scores(model_name=args.model, logits=logits, tokens=tokens, tokenizer=tokenizer)
             probability = compute_probability(loss)
 
             all_scores['probability'].extend(probability.cpu().tolist())
@@ -232,38 +132,22 @@ def get_eval_dataframe(metadata, scores, labels):
     eval_df['labels'] = labels
     return eval_df
 
-print('STARTING')
 
-for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
-        model_type=eval_args.model_type,
-        model_folder=eval_args.model_folder,
-        eval_every_epoch=eval_args.eval_every_epoch,
-        eval_data=eval_args.eval_data,
-        num_samples=eval_args.num_samples,
-        batch_size=eval_args.batch_size,
-        epoch_start=eval_args.epoch_start,
-        code_column=eval_args.code_column,
-        file_suffix=eval_args.file_suffix,
-        result_date_column=eval_args.result_date_column,
-        demographic_prompt_attributes=eval_args.demographic_prompt_attributes
-    ):
-
-    args_str = args_str.replace('"', '')
-    args = parse_args(args_str.split())
-
+def main(eval_arguments):
+    print('STARTING')
+    args = parse_args(eval_arguments)
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
     print('Dataset: ', args.val_data)
-    print('Model: ', model_path)
+    print('Model: ', args.pretrained)
 
-    prefix = Path(model_path).parent.parent.name
-    epoch = Path(model_path).name.split('.')[0]
+    prefix = Path(args.pretrained).parent.parent.name
+    epoch = Path(args.pretrained).name.split('.')[0]
 
-    filepath = f'{eval_args.output_folder}{file_suffix}/{prefix}/' \
+    filepath = f'{args.output_folder}{args.file_suffix}/{prefix}/' \
                f'{epoch}/' \
                f'{args.eval_start_time}-{args.eval_end_time}'
 
-    # if os.path.exists(filepath) and not args.overwrite:
-    #     print('Skipping: This result already exists')
-    #     continue
+    print(filepath)
 
     os.makedirs(filepath, exist_ok=True)
 
@@ -282,31 +166,28 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
     )
 
     model, _, preprocess_val = create_model_and_transforms(
-        model_type,
-        pretrained=model_path,
+        args.model,
+        pretrained=args.pretrained,
     )
 
-    tokenizer = get_tokenizer(model_type, context_length=args.max_seq_length)
+    tokenizer = get_tokenizer(args.model, context_length=args.max_seq_length)
 
-    autocast = get_autocast(args.precision)
-    cast_dtype = get_cast_dtype(args.precision)
     input_dtype = get_input_dtype(args.precision)
 
     device = torch.device('cuda')
     model = model.eval()
     model = model.to(device)
 
-    #test_phecodes_df = pd.read_csv(eval_args.phecode_file, encoding='ISO-8859-1')
-    if eval_args.phecode_file.endswith('phecodeX_info.csv'):
-        test_phecodes_df = pd.read_csv(eval_args.phecode_file, encoding='ISO-8859-1')
+    if args.phecode_file.endswith('phecodeX_info.csv'):
+        test_phe_codes_df = pd.read_csv(args.phecode_file, encoding='ISO-8859-1')
     else:
-        test_phecodes_df = pd.read_csv(eval_args.phecode_file, sep='\t')
-    
-    test_phecodes = test_phecodes_df[eval_args.code_column]
+        test_phe_codes_df = pd.read_csv(args.phecode_file, sep='\t')
 
-    print('Number of codes: ', len(test_phecodes))
+    test_phe_codes = test_phe_codes_df[args.code_column]
 
-    for phecode in test_phecodes[int(eval_args.start): int(eval_args.end)]:
+    print('Number of codes: ', len(test_phe_codes))
+
+    for phecode in test_phe_codes[int(args.start): int(args.end)]:
         print('PHECODE: ', phecode)
         if os.path.exists(f'{filepath}/{phecode}.parquet'):
             print('Skipping: This result already exists')
@@ -317,7 +198,20 @@ for file_suffix, args_str, model_type, model_path in get_model_details_for_eval(
         dataloader = get_eval_dataloader(args=args, eval_code=phecode, tokenizer=tokenizer)
         eos_token_id = get_eos_token_id(model_name=args.model, tokenizer=tokenizer)
         print('EOS Token ID: ', eos_token_id)
-        metadata, scores, labels = evaluate_label(dataloader=dataloader, tokens=['yes', 'no'],
-                                                  eos_token_id=eos_token_id, args=args)
+        metadata, scores, labels = evaluate_label(
+            model=model,
+            tokenizer=tokenizer,
+            dataloader=dataloader,
+            device=device,
+            input_dtype=input_dtype,
+            tokens=['yes', 'no'],
+            eos_token_id=eos_token_id,
+            encounter_dataframe_process=encounter_dataframe_process,
+            args=args
+        )
         eval_df = get_eval_dataframe(metadata, scores, labels)
         eval_df.to_parquet(f'{filepath}/{phecode}.parquet')
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

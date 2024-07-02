@@ -1,5 +1,5 @@
 """
-Define the diagnostic code status classification task - The task uses templates, inputs and targets.
+Define the patient demographic prediction task - The task uses templates, inputs and targets.
 This class will return the instruction string. It will make use of the  instruction data
 and the instruction template to create the instruction string.
 """
@@ -21,6 +21,7 @@ class PatientDemographicsTemplate(object):
             targets_prefix: str = "",
             x_y_delimiter: str = " ",
             example_separator: str = '\n',
+            task_separator: str = '\n',
             task_definition: str = '',
             task_name: str = 'patient_demographics'
     ):
@@ -46,21 +47,20 @@ class PatientDemographicsTemplate(object):
         self._targets_prefix = targets_prefix
         self._x_y_delimiter = x_y_delimiter
         self._example_separator = example_separator
+        self._task_separator = task_separator
 
     def get_task_definition(self) -> str:
         """
-        Return the task definition - add the time object to task
+        Return the task definition
 
         Returns:
             (str): String containing the definition of the task
         """
-        return self._task_definition + '\n'
+        return self._task_definition + self._example_separator
 
     def get_instruction(self, category: str, value: Union[str, int, float]) -> Tuple[str, str]:
         """
-        Given a positive diagnosis and the relative time of diagnosis
-        return the instruction input and instruction target containing
-        these attributes
+
 
         Args:
             category (str): A demographic category
@@ -100,13 +100,11 @@ class PatientDemographicsTemplate(object):
         """
         return str(value) + self._example_separator
 
-    def get_example_separator(self) -> str:
+    def get_task_separator_instruction(self):
         """
-        This instruction is added as a separator between instructions
+        Insert this instruction after this task
 
         Returns:
-            (str): Example separator string
+
         """
-        # \n is the separator string, '' is the label (empty - don't train)
-        # True indicates ignore this instruction for training loss
-        return self._example_separator
+        return [self._task_separator, '', True, False, -100]

@@ -54,8 +54,8 @@ def get_open_clip_arguments():
     )
     parser.add_argument(
         "--dataset-type",
-        choices=["webdataset", "csv", "synthetic", "auto", "icddataset"],
-        default="auto",
+        choices=["icddataset"],
+        default="icddataset",
         help="Which type of dataset to process."
     )
     parser.add_argument(
@@ -69,30 +69,6 @@ def get_open_clip_arguments():
         type=str,
         default="\t",
         help="For csv-like datasets, which separator to use."
-    )
-    parser.add_argument(
-        "--csv-img-key",
-        type=str,
-        default="filepath",
-        help="For csv-like datasets, the name of the key for the image paths."
-    )
-    parser.add_argument(
-        "--csv-caption-key",
-        type=str,
-        default="title",
-        help="For csv-like datasets, the name of the key for the captions."
-    )
-    parser.add_argument(
-        "--imagenet-val",
-        type=str,
-        default=None,
-        help="Path to imagenet val set for conducting zero shot evaluation.",
-    )
-    parser.add_argument(
-        "--imagenet-v2",
-        type=str,
-        default=None,
-        help="Path to imagenet v2 for conducting zero shot evaluation.",
     )
     parser.add_argument(
         "--logs",
@@ -171,9 +147,6 @@ def get_open_clip_arguments():
         help="Always save the most recent model trained to epoch_latest.pt.",
     )
     parser.add_argument(
-        "--zeroshot-frequency", type=int, default=2, help="How often to run zero shot."
-    )
-    parser.add_argument(
         "--val-frequency", type=int, default=1, help="How often to run evaluation with val data."
     )
     parser.add_argument(
@@ -191,7 +164,7 @@ def get_open_clip_arguments():
     parser.add_argument(
         "--model",
         type=str,
-        default="RN50",
+        default=None,
         help="Name of the vision backbone to use.",
     )
     parser.add_argument(
@@ -225,39 +198,10 @@ def get_open_clip_arguments():
         help="Freeze BatchNorm running stats in image tower for any locked layers.",
     )
     parser.add_argument(
-        '--image-mean', type=float, nargs='+', default=None, metavar='MEAN',
-        help='Override default image mean value of dataset')
-    parser.add_argument(
-        '--image-std', type=float, nargs='+', default=None, metavar='STD',
-        help='Override default image std deviation of of dataset')
-    parser.add_argument(
-        '--image-interpolation',
-        default=None, type=str, choices=['bicubic', 'bilinear', 'random'],
-        help="Override default image resize interpolation"
-    )
-    parser.add_argument(
-        '--image-resize-mode',
-        default=None, type=str, choices=['shortest', 'longest', 'squash'],
-        help="Override default image resize (& crop) mode during inference"
-    )
-    parser.add_argument('--aug-cfg', nargs='*', default={}, action=ParseKwargs)
-    parser.add_argument(
         "--grad-checkpointing",
         default=False,
         action='store_true',
         help="Enable gradient checkpointing.",
-    )
-    parser.add_argument(
-        "--local-loss",
-        default=False,
-        action="store_true",
-        help="calculate loss w/ local features @ global (instead of realizing full global @ global matrix)"
-    )
-    parser.add_argument(
-        "--gather-with-grad",
-        default=False,
-        action="store_true",
-        help="enable full distributed gradient for feature gather"
     )
     parser.add_argument(
         '--force-image-size', type=int, nargs='+', default=None,
@@ -276,16 +220,10 @@ def get_open_clip_arguments():
         help="Override the patch dropout during training, for fine tuning with no dropout near the end as in the paper",
     )
     parser.add_argument(
-        "--force-custom-text",
-        default=False,
-        action='store_true',
-        help="Force use of CustomTextCLIP model (separate text-tower).",
+        "--max_seq_length", type=int, default=None, help="Maximum sequence length of text"
     )
     parser.add_argument(
-        "--max_seq_length", type=int, default=77, help="Maximum sequence length of text"
-    )
-    parser.add_argument(
-        "--pad_id", type=int, default=0, help="The ID of the padding token"
+        "--pad_id", type=int, default=None, help="The ID of the padding token"
     )
     parser.add_argument(
         "--torchscript",
@@ -397,61 +335,15 @@ def get_open_clip_arguments():
         help="Log every n steps to tensorboard/console/wandb.",
     )
     parser.add_argument(
-        "--coca-caption-loss-weight",
-        type=float,
-        default=2.0,
-        help="Weight assigned to caption loss in CoCa."
-    )
-    parser.add_argument(
-        "--coca-contrastive-loss-weight",
-        type=float,
-        default=1.0,
-        help="Weight assigned to contrastive loss when training CoCa."
-    )
-    parser.add_argument(
-        "--remote-sync",
-        type=str,
-        default=None,
-        help="Optinoally sync with a remote path specified by this arg",
-    )
-    parser.add_argument(
-        "--remote-sync-frequency",
-        type=int,
-        default=300,
-        help="How frequently to sync to a remote directly if --remote-sync is not None.",
-    )
-    parser.add_argument(
-        "--remote-sync-protocol",
-        choices=["s3", "fsspec"],
-        default="s3",
-        help="How to do the remote sync backup if --remote-sync is not None.",
-    )
-    parser.add_argument(
         "--delete-previous-checkpoint",
         default=False,
         action="store_true",
         help="If true, delete previous checkpoint after storing a new one."
     )
     parser.add_argument(
-        "--distill-model",
-        default=None,
-        help='Which model arch to distill from, if any.'
-    )
-    parser.add_argument(
-        "--distill-pretrained",
-        default=None,
-        help='Which pre-trained weights to distill from, if any.'
-    )
-    parser.add_argument(
         "--use-bnb-linear",
         default=None,
         help='Replace the network linear layers from the bitsandbytes library. '
              'Allows int8 training/inference, etc.'
-    )
-    parser.add_argument(
-        "--siglip",
-        default=False,
-        action="store_true",
-        help='Use SigLip (sigmoid) loss.'
     )
     return parser

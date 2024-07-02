@@ -11,9 +11,21 @@ def get_prompt_eval_arguments():
         help="The demographic attributes to use in the prompt"
     )
     parser.add_argument(
-        "--lab-prompt-attributes",
+        "--ecg-prompt-attributes",
         nargs='+',
         default=None,
-        help="The lab attributes to use in the prompt"
+        help="The ECG attributes to use in the prompt"
+    )
+    parser.add_argument(
+        "--lab-prompt-attributes",
+        type=str,
+        default=None,
+        help="The lab attributes to use in the prompt - separate with a comma"
+    )
+    parser.add_argument(
+        "--diagnosis-prompt-attributes",
+        type=str,
+        default=None,
+        help="The diagnosis attributes to use in the prompt - separate with a comma"
     )
     return parser

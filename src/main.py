@@ -7,7 +7,6 @@ import subprocess
 import sys
 import random
 from datetime import datetime
-from functools import partial
 
 import numpy as np
 import torch
@@ -29,14 +28,14 @@ try:
 except ImportError:
     hvd = None
 
-from open_clip import create_model_and_transforms, trace_model, get_tokenizer, create_loss
-from training.data import get_data, get_wds_dataset_icd_instruct
+from open_clip import create_model_and_transforms, get_tokenizer, create_loss
+from training.data import get_data, get_wds_dataset_moca_instruct
 from training.distributed import is_master, init_distributed_device, broadcast_object
 from training.logger import setup_logging
 from training.params import parse_args
-from training.scheduler import cosine_lr, const_lr, const_lr_cooldown, cosine_lr_multiple
-from training.train import train_one_epoch, evaluate, evaluate_instruct_basic, get_step, log_metrics
-from training.file_utils import pt_load, check_exists, start_sync_process, remote_sync
+from training.scheduler import cosine_lr, const_lr, const_lr_cooldown, cosine_lr
+from training.train import train_one_epoch, evaluate_instruct_basic
+from training.file_utils import pt_load
 
 LATEST_CHECKPOINT_NAME = "epoch_latest.pt"
 
@@ -131,15 +130,6 @@ def main(args):
     if resume_latest:
         resume_from = None
         checkpoint_path = args.checkpoint_path
-        # If using remote_sync, need to check the remote instead of the local checkpoints folder.
-        if args.remote_sync is not None:
-            checkpoint_path = os.path.join(args.remote_sync, args.name, "checkpoints")
-            if args.save_most_recent:
-                print('Error. Cannot use save-most-recent with remote_sync and resume latest.')
-                return -1
-            if args.remote_sync_protocol != 's3':
-                print('Error. Sync protocol not supported when using resume latest.')
-                return -1
         if is_master(args):
             # Checking for existing checkpoint via master rank only. It is possible for
             # different rank processes to see different files if a shared file-system is under
@@ -165,29 +155,6 @@ def main(args):
     if args.copy_codebase:
         copy_codebase(args)
 
-    # start the sync proces if remote-sync is not None
-    remote_sync_process = None
-    if is_master(args) and args.remote_sync is not None:
-        # first make sure it works
-        result = remote_sync(
-            os.path.join(args.logs, args.name),
-            os.path.join(args.remote_sync, args.name),
-            args.remote_sync_protocol
-        )
-        if result:
-            logging.info('remote sync successful.')
-        else:
-            logging.info('Error: remote sync failed. Exiting.')
-            return -1
-        # if all looks good, start a process to do this every args.remote_sync_frequency seconds
-        remote_sync_process = start_sync_process(
-            args.remote_sync_frequency,
-            os.path.join(args.logs, args.name),
-            os.path.join(args.remote_sync, args.name),
-            args.remote_sync_protocol
-        )
-        remote_sync_process.start()
-
     if args.precision == 'fp16':
         logging.warning(
             'It is recommended to use AMP mixed-precision instead of FP16. '
@@ -204,22 +171,11 @@ def main(args):
     else:
         logging.info(f'Running with a single process. Device {args.device}.')
 
-    dist_model = None
-    args.distill = args.distill_model is not None and args.distill_pretrained is not None
-    if args.distill:
-        # FIXME: support distillation with grad accum.
-        assert args.accum_freq == 1
-        # FIXME: support distillation with coca.
-        assert 'coca' not in args.model.lower()
-
     if isinstance(args.force_image_size, (tuple, list)) and len(args.force_image_size) == 1:
         # arg is nargs, single (square) image size list -> int
         args.force_image_size = args.force_image_size[0]
     random_seed(args.seed, 0)
     model_kwargs = {}
-    if args.siglip:
-        model_kwargs['init_logit_scale'] = np.log(10)  # different from CLIP
-        model_kwargs['init_logit_bias'] = -10
     model, preprocess_train, preprocess_val = create_model_and_transforms(
         args.model,
         args.pretrained,
@@ -227,53 +183,26 @@ def main(args):
         device=device,
         jit=args.torchscript,
         force_quick_gelu=args.force_quick_gelu,
-        force_custom_text=args.force_custom_text,
         force_patch_dropout=args.force_patch_dropout,
         force_image_size=args.force_image_size,
-        image_mean=args.image_mean,
-        image_std=args.image_std,
-        image_interpolation=args.image_interpolation,
-        image_resize_mode=args.image_resize_mode,  # only effective for inference
-        aug_cfg=args.aug_cfg,
         pretrained_image=args.pretrained_image,
         output_dict=True,
         **model_kwargs,
     )
-    if args.distill:
-        # FIXME: currently assumes the model you're distilling from has the same tokenizer & transforms.
-        dist_model, _, _ = create_model_and_transforms(
-            args.distill_model,
-            args.distill_pretrained,
-            device=device,
-            precision=args.precision,
-            output_dict=True,
-        )
-    if args.use_bnb_linear is not None:
-        print('=> using a layer from bitsandbytes.\n'
-              '   this is an experimental feature which requires two extra pip installs\n'
-              '   pip install bitsandbytes triton'
-              '   please make sure to use triton 2.0.0')
-        import bitsandbytes as bnb
-        from open_clip.utils import replace_linear
-        print(f'=> replacing linear layers with {args.use_bnb_linear}')
-        linear_replacement_cls = getattr(bnb.nn.triton_based_modules, args.use_bnb_linear)
-        replace_linear(model, linear_replacement_cls)
-        model = model.to(device)
 
     random_seed(args.seed, args.rank)
-
-    if args.trace:
-        model = trace_model(model, batch_size=args.batch_size, device=device)
 
     if args.lock_image:
         # lock image tower as per LiT - https://arxiv.org/abs/2111.07991
         model.lock_image_tower(
             unlocked_groups=args.lock_image_unlocked_groups,
-            freeze_bn_stats=args.lock_image_freeze_bn_stats)
+            freeze_bn_stats=args.lock_image_freeze_bn_stats
+        )
     if args.lock_text:
         model.lock_text_tower(
             unlocked_layers=args.lock_text_unlocked_layers,
-            freeze_layer_norm=args.lock_text_freeze_layer_norm)
+            freeze_layer_norm=args.lock_text_freeze_layer_norm
+        )
 
     if args.grad_checkpointing:
         model.set_grad_checkpointing()
@@ -298,9 +227,6 @@ def main(args):
             ddp_args['static_graph'] = True
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], **ddp_args)
 
-        if args.distill:
-            dist_model = torch.nn.parallel.DistributedDataParallel(dist_model, device_ids=[device], **ddp_args)
-
     # create optimizer and scaler
     optimizer = None
     scaler = None
@@ -314,24 +240,17 @@ def main(args):
         named_parameters = list(model.named_parameters())
         gain_or_bias_params = [p for n, p in named_parameters if exclude(n, p) and p.requires_grad]
 
-        if 'moca' in args.model:
-            text_include = lambda n, p: not exclude(n, p) and 'text_decoder' in n
-            vision_include = lambda n, p: not exclude(n, p) and 'text_decoder' not in n
-            vision_params = [p for n, p in named_parameters if vision_include(n, p) and p.requires_grad]
-            text_params = [p for n, p in named_parameters if text_include(n, p) and p.requires_grad]
-            text_lr = args.text_decoder_lr if args.text_decoder_lr is not None else args.lr
-            text_wd = args.text_decoder_wd if args.text_decoder_wd is not None else args.wd
-            optimizer_parameters = [
-                {"params": gain_or_bias_params, "weight_decay": 0.},
-                {"params": vision_params, "weight_decay": args.wd},
-                {"params": text_params, "weight_decay": text_wd, "lr": text_lr},
-            ]
-        else:
-            rest_params = [p for n, p in named_parameters if include(n, p) and p.requires_grad]
-            optimizer_parameters = [
-                {"params": gain_or_bias_params, "weight_decay": 0.},
-                {"params": rest_params, "weight_decay": args.wd}
-            ]
+        text_include = lambda n, p: not exclude(n, p) and 'text_decoder' in n
+        vision_include = lambda n, p: not exclude(n, p) and 'text_decoder' not in n
+        vision_params = [p for n, p in named_parameters if vision_include(n, p) and p.requires_grad]
+        text_params = [p for n, p in named_parameters if text_include(n, p) and p.requires_grad]
+        text_lr = args.text_decoder_lr if args.text_decoder_lr is not None else args.lr
+        text_wd = args.text_decoder_wd if args.text_decoder_wd is not None else args.wd
+        optimizer_parameters = [
+            {"params": gain_or_bias_params, "weight_decay": 0.},
+            {"params": vision_params, "weight_decay": args.wd},
+            {"params": text_params, "weight_decay": text_wd, "lr": text_lr},
+        ]
 
         optimizer = optim.AdamW(
             optimizer_parameters,
@@ -385,7 +304,13 @@ def main(args):
             # We changed this code to support scheduler when we have different learning rates for
             # different layers/models
             base_lr_list = [param_group["lr"] for param_group in optimizer.param_groups]
-            scheduler = cosine_lr_multiple(optimizer, base_lr_list, args.warmup, total_steps)
+            scheduler = cosine_lr(
+                optimizer=optimizer,
+                base_lr_list=base_lr_list,
+                warmup_length=args.warmup,
+                steps=total_steps,
+                cooldown_end_lr=args.lr_cooldown_end
+            )
         elif args.lr_scheduler == "const":
             scheduler = const_lr(optimizer, args.lr, args.warmup, total_steps)
         elif args.lr_scheduler == "const-cooldown":
@@ -437,12 +362,7 @@ def main(args):
         model = torch.compile(original_model)
 
     if 'train' not in data:
-        # If using int8, convert to inference mode.
-        if args.use_bnb_linear is not None:
-            from open_clip.utils import convert_int8_model_to_inference_mode
-            convert_int8_model_to_inference_mode(model)
-        # Evaluate.
-        evaluate(model, data, start_epoch, args, tb_writer=writer, tokenizer=tokenizer)
+        # TODO: ??
         return
 
     loss = create_loss(args)
@@ -467,7 +387,7 @@ def main(args):
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
 
-        train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, dist_model, args, tb_writer=writer)
+        train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, args, tb_writer=writer)
         completed_epoch = epoch + 1
 
         if any(v in data for v in ('val', 'imagenet-val', 'imagenet-v2')):
@@ -476,7 +396,7 @@ def main(args):
                 data=data,
                 epoch=completed_epoch,
                 args=args,
-                eot_token_id=eos_token_id,
+                eos_token_id=eos_token_id,
                 positive_token_id=pos_token_id,
                 negative_token_id=neg_token_id,
                 tb_writer=writer
@@ -488,7 +408,7 @@ def main(args):
                     data=eval_data_object,
                     epoch=completed_epoch,
                     args=args,
-                    eot_token_id=eos_token_id,
+                    eos_token_id=eos_token_id,
                     positive_token_id=pos_token_id,
                     negative_token_id=neg_token_id,
                     tb_writer=writer,
@@ -528,20 +448,6 @@ def main(args):
     if args.wandb and is_master(args):
         wandb.finish()
 
-    # run a final sync.
-    if remote_sync_process is not None:
-        logging.info('Final remote sync.')
-        remote_sync_process.terminate()
-        result = remote_sync(
-            os.path.join(args.logs, args.name),
-            os.path.join(args.remote_sync, args.name),
-            args.remote_sync_protocol
-        )
-        if result:
-            logging.info('Final remote sync successful.')
-        else:
-            logging.info('Final remote sync failed.')
-
 
 def copy_codebase(args):
     from shutil import copytree, ignore_patterns
@@ -567,7 +473,7 @@ def get_eos_token_id(model_name, tokenizer):
         return tokenizer.tokenizer.encode('\n')[0]
         # return tokenizer.tokenizer.eos_token_id
     else:
-        return tokenizer.eot_token_id
+        raise ValueError('Invalid tokenizer')
 
 
 def get_token_id(model_name, tokenizer, token):
@@ -576,7 +482,7 @@ def get_token_id(model_name, tokenizer, token):
     elif 'gpt' in model_name:
         return tokenizer.tokenizer.convert_tokens_to_ids(token)
     else:
-        return tokenizer.encode(token)[0]
+        raise ValueError('Invalid tokenizer')
 
 
 def get_eval_data_object(args, eval_code, tokenizer, eval_start_time, eval_end_time):
@@ -586,7 +492,7 @@ def get_eval_data_object(args, eval_code, tokenizer, eval_start_time, eval_end_t
     args.eval_mode = True
     args.eval_start_time = eval_start_time
     args.eval_end_time = eval_end_time
-    eval_dataset = get_wds_dataset_icd_instruct(
+    eval_dataset = get_wds_dataset_moca_instruct(
         args,
         preprocess_img=lambda x: x,
         is_train=False,
