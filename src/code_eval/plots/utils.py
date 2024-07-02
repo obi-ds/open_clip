@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 def get_past_and_future_ranges(binned_data_columns):
@@ -159,11 +160,21 @@ def get_metrics(eval_df, phecode, positive_column, negative_column):
     negative_counts = len(negatives)
 
     if positives.empty or negatives.empty:
-        auc = None
+        y_auc = None
+        p_auc = None
     else:
-        scores = pd.concat([positives['yes'], negatives['yes']])
+        y_scores = pd.concat([positives['yes'], negatives['yes']])
+        p_scores = pd.concat(
+            [
+                np.exp(positives['yes']) / (np.exp(positives['yes']) + np.exp(positives['no'])),
+                np.exp(negatives['yes']) / (np.exp(negatives['yes']) + np.exp(negatives['no']))
+            ]
+        )
         labels = [1] * positive_counts + [0] * negative_counts
-        auc = roc_auc_score(labels, scores)
+        y_auc = roc_auc_score(labels, y_scores)
+        p_auc = roc_auc_score(labels, p_scores)
+        # TODO: Add auprc, f1,
+        
 
     return {
         'phecode': phecode,
@@ -171,5 +182,6 @@ def get_metrics(eval_df, phecode, positive_column, negative_column):
         'prediction_range': prediction_range,
         'positives_count': positive_counts,
         'negatives_count': negative_counts,
-        'auc': auc,
+        'auc': y_auc,
+        'p_auc': p_auc
     }
