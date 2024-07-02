@@ -20,12 +20,12 @@ def get_prompt_eval_arguments():
         "--lab-prompt-attributes",
         type=str,
         default=None,
-        help="The lab attributes to use in the prompt"
+        help="The lab attributes to use in the prompt - separate with a comma"
     )
     parser.add_argument(
         "--diagnosis-prompt-attributes",
         type=str,
         default=None,
-        help="The diagnosis attributes to use in the prompt"
+        help="The diagnosis attributes to use in the prompt - separate with a comma"
     )
     return parser
