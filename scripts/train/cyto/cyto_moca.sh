@@ -1,0 +1,47 @@
+# 1. Scratch - Diagnosis - Random - Fixed - Future
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6'
+torchrun \
+    --nnodes=1 --nproc_per_node=7 --master_addr=localhost --master_port=2120 \
+    -m main \
+    --train-data=""  \
+    --val-data=""  \
+    --train-num-samples  \
+    --val-num-samples  \
+    --dataset-type icddataset \
+    --workers 8 \
+    --batch-size 100 \
+    --accum-freq 3 \
+    --epochs  \
+    --lr-scheduler cosine \
+    --lr 2.5e-5 \
+    --lr-cooldown-end 2.5e-6 \
+    --beta1 0.9 \
+    --beta2 0.999 \
+    --eps 1e-8 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup  \
+    --precision amp \
+    --save-frequency 10 \
+    --val-frequency 10 \
+    --loss-function lm \
+    --report-to wandb \
+    --code-column phecode \
+    --wandb-project-name="open-clip-phe-test-runs" \
+    --encounter-file="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check" \
+    --demographic-file=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/demographics_2404.parquet \
+    --labs-folder=/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/labs \
+    --time-difference-normalize 1 \
+    --number-of-instructions 1 \
+    --k-shot 1 \
+    --max_seq_length 64 \
+    --pad_id 1 \
+    --add-img-token \
+    --negatives-type random \
+    --tasks diagnosis \
+    --training-eval-codes MS_700.11 BI_170.1 ID_092.2 CA_121.1 \
+    --fixed-position-range \
+    --future-only \
+    --name cyto_moca_scratch_diagnosis_k_1_random_fixed_future_250_trial_1 \
+    --model cyto_moca_biogpt_scratch \
+    --seed 0

@@ -15,7 +15,7 @@ python eval.py \
 --start {2} \
 --end {3} \
 --model ecg_moca_biogpt_scratch \
---pretrained='/mnt/obi0/pk621/projects/med_instruct/vision/open_clip/src/logs/ecg_moca_scratch_diagnosis_k_1_random_fixed_future_250_trial_18/checkpoints/.pt' \
+--pretrained='/mnt/obi0/pk621/projects/med_instruct/vision/open_clip/src/logs/ecg_moca_scratch_diagnosis_k_1_random_fixed_future_250_trial_18/checkpoints/epoch_140.pt' \
 --code-column phecode \
 --sample-result-date-column TestDate \
 --encounter-file='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/all_encounters_2308_with_phecodes_with_na.parquet.check' \
