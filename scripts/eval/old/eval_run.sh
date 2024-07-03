@@ -76,32 +76,126 @@ python eval.py \
 --model-folder /mnt/obi0/pk621/projects/med_instruct/vision/open_clip/src/logs/ecg_moca_scratch_diagnosis_k_1_random_fixed_future_250_trial_11/checkpoints/ \
 --phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
 --code-column phecode \
---eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar' \
---num-samples 35200 \
---epoch-start 140 \
---eval-every-epoch 90 \
---file-suffix 24_03_mgh_val \
---output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: $(seq 0 6) :::+ $(seq 0 26 180) :::+ $(seq 26 26 190)
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/bwh/bwh_all_23_10_23/shard_{0000..0033}.tar' \
+--num-samples 105600 \
+--epoch-start 150 \
+--eval-every-epoch 150 \
+--file-suffix 23_10_bwh_all \
+--result-date-column TestDate_x \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: $(seq 0 7) :::+ $(seq 0 23 180) :::+ $(seq 23 23 190)
 
 
-
-# 5. Model: ECGMoca - Scratch - QFormer - MGH Validation
-parallel -j 7 --progress --eta --delay 1 "
+parallel -j 4 --progress --eta --delay 1 "
 python eval.py \
 --gpu {1} \
---start {2} \
---end {3} \
+--start 0 \
+--end 180 \
 --batch-size 512 \
---model-type ecg_moca_biogpt_scratch_q_former \
---model-folder /mnt/obi0/pk621/projects/med_instruct/vision/open_clip/src/logs/ecg_moca_scratch_q_former_diagnosis_k_1_random_fixed_future_250_trial_4/checkpoints/ \
+--model-type ecg_cnn_windowed_biogpt5 \
+--model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
 --phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
 --code-column phecode \
---eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar' \
---num-samples 35200 \
---epoch-start 200 \
---eval-every-epoch 30 \
---file-suffix 24_03_mgh_val \
---output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: $(seq 0 6) :::+ $(seq 0 26 180) :::+ $(seq 26 26 190)
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/bwh/bwh_all_23_10_23/shard_{0000..0033}.tar' \
+--num-samples 105600 \
+--epoch-start 150 \
+--eval-every-epoch 150 \
+--file-suffix 23_10_bwh_all \
+--result-date-column TestDate_x \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: $(seq 4 7)
+
+
+
+python eval.py \
+--gpu 0 \
+--start 0 \
+--end 180 \
+--batch-size 512 \
+--model-type ecg_cnn_windowed_biogpt5 \
+--model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
+--code-column phecode \
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/bwh/bwh_all_23_10_23/shard_{0000..0033}.tar' \
+--num-samples 105600 \
+--epoch-start 150 \
+--eval-every-epoch 150 \
+--file-suffix 23_10_bwh_all \
+--result-date-column TestDate_x \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/
+
+
+# --phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
+python eval.py \
+--gpu 0 \
+--start 0 \
+--end 13 \
+--batch-size 64 \
+--model-type ecg_cnn_windowed_biogpt5 \
+--model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_26.tsv \
+--code-column phecode \
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/bwh/bwh_all_23_10_23/shard_{0000..0033}.tar' \
+--num-samples 105600 \
+--epoch-start 150 \
+--eval-every-epoch 150 \
+--file-suffix 23_10_bwh_all \
+--result-date-column TestDate_x \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/
+
+python eval.py \
+--gpu 1 \
+--start 13 \
+--end 27 \
+--batch-size 64 \
+--model-type ecg_cnn_windowed_biogpt5 \
+--model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_26.tsv \
+--code-column phecode \
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/bwh/bwh_all_23_10_23/shard_{0000..0033}.tar' \
+--num-samples 105600 \
+--epoch-start 150 \
+--eval-every-epoch 150 \
+--file-suffix 23_10_bwh_all \
+--result-date-column TestDate_x \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/
+
+# debug on 1080
+export WORLD_SIZE=1
+python eval.py \
+--gpu 0 \
+--start 20 \
+--end 27 \
+--batch-size 32 \
+--model-type ecg_cnn_windowed_biogpt5 \
+--model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
+--phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_26.tsv \
+--code-column phecode \
+--eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/bwh/bwh_all_23_10_23/shard_{0000..0033}.tar' \
+--num-samples 105600 \
+--epoch-start 150 \
+--eval-every-epoch 150 \
+--file-suffix 23_10_bwh_all \
+--result-date-column TestDate_x \
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/
+
+
+# ecg biogpt5 24_03_mgh_val on GPU2
+#ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1_epoch_150
+    parallel -j 2 --progress --eta --delay 1 "
+    python eval.py \
+    --gpu {1} \
+    --start {2} \
+    --end {3} \
+    --batch-size 64 \
+    --model-type ecg_cnn_windowed_biogpt5 \
+    --model-folder /home/mhomilius/projects/bloodcell_clip/vision/open_clip/scripts/logs/ecg_labs_diagnosis_demographic_random_cnn_windowed_biogpt5_frozen_future_250_trial_1/checkpoints/ \
+    --phecode-file /mnt/obi0/phi/ehr_projects/bloodcell_clip/data/phecode/phecodeX_info_subset_ecg_178.tsv \
+    --code-column phecode \
+    --eval-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar' \
+    --num-samples 35200 \
+    --epoch-start 150 \
+    --eval-every-epoch 150 \
+    --file-suffix 24_03_mgh_val \
+    --output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: 0 1 :::+ 0 90 :::+ 90 180 
 
 
 python eval.py \
