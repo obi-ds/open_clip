@@ -94,9 +94,6 @@ class DemographicPredictionTask(object):
         # Store all the prompt elements (input, output)
         all_instructions = list()
 
-        # Get the task instruction
-        all_instructions.append(self.get_task_instruction())
-
         # Sample and shuffle the data
         instruction_samples = random.sample(patient_demographics, k=min(sample_size, len(patient_demographics)))
 
@@ -105,13 +102,19 @@ class DemographicPredictionTask(object):
         )
 
         # Convert samples to text instructions (prompt)
-        all_instructions.extend(
-            self.convert_samples_to_instructions(
-                instruction_samples=instruction_samples,
-                ignore_instruction=ignore_instruction,
-                seq2seq=self._seq2seq
-            )
+        instructions = self.convert_samples_to_instructions(
+            instruction_samples=instruction_samples,
+            ignore_instruction=ignore_instruction,
+            seq2seq=self._seq2seq
         )
+
+        if len(instructions):
+            # Get the task instruction
+            all_instructions.append(self.get_task_instruction())
+            all_instructions.extend(
+                instructions
+            )
+            all_instructions.append(self._demographic_instructions.get_task_separator_instruction())
 
         return all_instructions
 

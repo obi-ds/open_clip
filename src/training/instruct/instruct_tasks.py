@@ -5,7 +5,8 @@ from typing import Union
 
 from .demographics import DemographicPredictionTask, DemographicPredictionPrompt
 from .labs import LabPredictionPrompt
-from .instruct_tokenizer import HFInstructTokenizer, InstructTokenizer
+from .diagnosis import DiagnosisLabelPredictionPrompt
+from .instruct_tokenizer import InstructTokenizer
 
 
 class InstructTasks(object):
@@ -13,7 +14,7 @@ class InstructTasks(object):
     def __init__(
             self,
             task_list,
-            instruct_tokenizer: Union[HFInstructTokenizer, InstructTokenizer],
+            instruct_tokenizer: InstructTokenizer,
             token_loss_weighting: bool
     ):
         self._task_list = task_list
@@ -37,6 +38,10 @@ class InstructTasks(object):
                 instructions = task.process_sample(
                     sample=sample, args=args, labs=args.lab_prompt_attributes
                 )
+            elif isinstance(task, DiagnosisLabelPredictionPrompt):
+                instructions = task.process_sample(
+                    sample=sample, args=args, diagnoses=args.diagnosis_prompt_attributes
+                )
             elif isinstance(task, DemographicPredictionTask):
                 instructions = task.process_sample(
                     sample=sample, args=args, ignore_instruction=self.get_ignore_instruction_demographics(
@@ -45,9 +50,8 @@ class InstructTasks(object):
                 )
             else:
                 instructions = task.process_sample(sample=sample, args=args)
+
             task_instructions.extend(instructions)
-            if len(instructions):
-                task_instructions.append([self.get_task_separator_instruction(), '', True, False, -100])
 
         if self._instruct_tokenizer is None:
             return task_instructions
@@ -63,12 +67,6 @@ class InstructTasks(object):
             return torch.cat([input_ids, labels, weights])
         else:
             return torch.cat([input_ids, labels])
-
-    def get_task_separator_instruction(self):
-        if self._instruct_tokenizer is None:
-            return '\n'
-        else:
-            return self._instruct_tokenizer.get_eos_token() + '\n'
 
     def get_img_sep_token_instruction(self):
         if self._instruct_tokenizer is None:

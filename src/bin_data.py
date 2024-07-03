@@ -1,90 +1,29 @@
 import os
 import sys
-import argparse
 
 import blosc
 import pandas as pd
 import webdataset as wds
 
-from bin_args import get_args_for_binning
-from open_clip import get_cast_dtype
+from code_eval.arguments.bin_args import parse_args
 from training.data import get_sample_keys
-from training.instruct.codes.processing import (
+from training.instruct.diagnosis.processing import (
     EncounterDataframeProcess,
 )
-from training.params import parse_args
-from training.precision import get_autocast, get_input_dtype
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--phecode-file",
-    type=str,
-    required=True,
-    help="The location to the phecode file",
-)
-parser.add_argument(
-    "--start",
-    type=int,
-    required=True,
-    help="The start position of the phecode file",
-)
-parser.add_argument(
-    "--end",
-    type=int,
-    required=True,
-    help="The end position of the phecode file",
-)
-parser.add_argument(
-    "--bin-data",
-    type=str,
-    required=True,
-    help="The path where the shards are located",
-)
-parser.add_argument(
-    "--num-samples",
-    type=str,
-    required=True,
-    help="The number of samples in the shards",
-)
-parser.add_argument(
-    "--output-folder",
-    type=str,
-    required=True,
-    help="Where to write the binned data",
-)
-parser.add_argument(
-    "--file-suffix",
-    type=str,
-    required=True,
-    help="A suffix to distinguish between different dataset",
-)
-parser.add_argument(
-    "--dataset-type",
-    type=str,
-    required=True,
-    help="A suffix to distinguish between ecg and cyto",
-)
-parser.add_argument(
-    "--code-column",
-    type=str,
-    default='phecode',
-    help="Column containing the codes",
-)
-parser.add_argument(
-    "--result-date-column",
-    type=str,
-    default='TestDate',
-    help="Column containing the codes",
-)
 
-bin_data_args = parser.parse_args(sys.argv[1:])
-
-def get_encounter_history(patient_id, current_time, encounter_dataframe_process):
+def get_encounter_history(
+        patient_id,
+        current_time,
+        encounter_dataframe_process,
+        use_log_position,
+        time_difference_normalize
+):
     return encounter_dataframe_process.get_patient_encounter_history_with_position(
         patient_id=patient_id,
         current_time=current_time,
-        use_log_position=args.use_log_position,
-        time_difference_normalize=args.time_difference_normalize
+        use_log_position=use_log_position,
+        time_difference_normalize=time_difference_normalize
     )
 
 
@@ -117,19 +56,23 @@ def get_eval_dataloader(args):
     return eval_dataset_image
 
 
-def evaluate_label(dataloader, eval_code, args):
+def evaluate_label(dataloader, eval_code, args, encounter_dataframe_process):
     all_sample_history = []
     all_metadata = []
 
     print('Starting pass')
 
     for i, batch in enumerate(dataloader):
-        print(i)
         _, sample_metadata = batch
 
         sample_encounter_history = [
-            get_encounter_history(sample[args.patient_id_column], sample[args.sample_result_date_column],
-                                  encounter_dataframe_process)
+            get_encounter_history(
+                patient_id=sample[args.patient_id_column],
+                current_time=sample[args.sample_result_date_column],
+                encounter_dataframe_process=encounter_dataframe_process,
+                use_log_position=args.use_log_position,
+                time_difference_normalize=args.time_difference_normalize
+            )
             for sample in sample_metadata if
             encounter_dataframe_process.check_patient_id(patient_id=sample[args.patient_id_column])
         ]
@@ -162,22 +105,10 @@ def evaluate_label(dataloader, eval_code, args):
     return pd.concat([metadata_df, binned_status_df.reset_index(drop=True)], axis=1)
 
 
-tokenizer = None
+def main(bin_arguments):
+    args = parse_args(bin_arguments)
 
-for file_suffix, args_str in get_args_for_binning(
-        bin_data=bin_data_args.bin_data,
-        num_samples=bin_data_args.num_samples,
-        file_suffix=bin_data_args.file_suffix,
-        model_type=bin_data_args.dataset_type,
-        result_date_column=bin_data_args.result_date_column,
-        code_column=bin_data_args.code_column
-    ):
-    args_str = args_str.replace('"', '')
-    args = parse_args(args_str.split())
-    # added
-    args.model = bin_data_args.dataset_type
-
-    print('Dataset: ', args.val_data, ' start: ', bin_data_args.start, ' end: ', bin_data_args.end)
+    print('Dataset: ', args.val_data, ' start: ', args.start, ' end: ', args.end)
 
     encounter_dataframe = pd.read_parquet(
         args.encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode']
@@ -192,22 +123,27 @@ for file_suffix, args_str in get_args_for_binning(
         position_column=args.position_column,
     )
 
-    autocast = get_autocast(args.precision)
-    cast_dtype = get_cast_dtype(args.precision)
-    input_dtype = get_input_dtype(args.precision)
-
-    if bin_data_args.phecode_file.endswith('phecodeX_info.csv'):
-        test_phecodes_df = pd.read_csv(bin_data_args.phecode_file, encoding='ISO-8859-1')
+    if args.phecode_file.endswith('phecodeX_info.csv'):
+        test_phe_codes_df = pd.read_csv(args.phecode_file, encoding='ISO-8859-1')
     else:
-        test_phecodes_df = pd.read_csv(bin_data_args.phecode_file, sep='\t')
+        test_phe_codes_df = pd.read_csv(args.phecode_file, sep='\t')
 
-    test_phecodes = test_phecodes_df[bin_data_args.code_column]
-    filepath = f'{bin_data_args.output_folder}/{file_suffix}'
+    test_phe_codes = test_phe_codes_df[args.code_column]
+    filepath = f'{args.output_folder}/{args.file_suffix}'
     os.makedirs(filepath, exist_ok=True)
 
     dataloader = get_eval_dataloader(args=args)
 
-    for phecode in test_phecodes[int(bin_data_args.start): int(bin_data_args.end)]:
+    for phecode in test_phe_codes[int(args.start): int(args.end)]:
         print('PHECODE: ', phecode)
-        binned_status_df = evaluate_label(dataloader=dataloader, eval_code=phecode, args=args)
+        binned_status_df = evaluate_label(
+            dataloader=dataloader,
+            eval_code=phecode,
+            args=args,
+            encounter_dataframe_process=encounter_dataframe_process
+        )
         binned_status_df.to_parquet(f'{filepath}/{phecode}.parquet')
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

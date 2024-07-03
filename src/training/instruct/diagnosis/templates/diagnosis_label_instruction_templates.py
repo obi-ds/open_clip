@@ -1,0 +1,241 @@
+"""
+Define the diagnostic code status classification task - The task uses templates, inputs and targets.
+This class will return the instruction string. It will make use of the  instruction data
+and the instruction template to create the instruction string.
+"""
+import numpy as np
+from typing import Tuple, Union, List
+
+
+class DiagnosisLabelPredictionInstructionTemplate(object):
+    """
+    Define the code trajectory prediction task. Encapsulate the templates
+    inputs, outputs to build the final instruction. The instruction is built based
+    on the trajectory of encounters.
+    """
+
+    def __init__(
+            self,
+            inputs,
+            targets: str = '',
+            inputs_prefix: str = "",
+            targets_prefix: str = "",
+            x_y_delimiter: str = " ",
+            example_separator: str = '\n',
+            task_separator: str = '\n',
+            task_definition: str = '',
+            task_name: str = 'code_label_prediction'
+    ):
+        """
+        Initialize the variables
+
+        Args:
+            inputs (str): The string that represents the future-time instruction input
+            targets (str): The string that represents the instruction target
+            inputs_prefix (str): Append this prefix to the instruction input
+            targets_prefix (str): Append this prefix to the instruction target
+            x_y_delimiter (str): Delimiter between instruction input and target
+            time code attributes to string
+            task_definition (str, defaults to): Add the task definition to the instruction
+            task_name (str, defaults to `status_classification`): A name to define this task.
+            Used to distinguish from other tasks
+        """
+        self._task_name = task_name
+        self._task_definition = task_definition
+        self._inputs = inputs
+        self._targets = targets
+        self._inputs_prefix = inputs_prefix
+        self._targets_prefix = targets_prefix
+        self._x_y_delimiter = x_y_delimiter
+        self._example_separator = example_separator
+        self._task_separator = task_separator
+
+    def get_task_definition(self, time) -> str:
+        """
+        Return the task definition - add the time object to task
+
+        Returns:
+            (str): String containing the definition of the task
+        """
+        if time < 0:
+            task_definition = (
+                self._task_definition.replace('next', 'past').replace('Will', 'Did').format(time=np.abs(time))
+            )
+        else:
+            task_definition = self._task_definition.format(time=np.abs(time))
+
+        return self.fix_time_string(task_definition, np.abs(time)) + self._example_separator
+
+    def get_instruction(self, diagnosis: str, value: Union[str, int, float]) -> Tuple[str, str]:
+        """
+        Given a positive diagnosis and the relative time of diagnosis
+        return the instruction input and instruction target containing
+        these attributes
+
+        Args:
+            diagnosis (str): A medical/billing diagnosis
+            value (Union[str, int, float]): A value to represent the status of the diagnosis
+
+        Returns:
+            (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
+        """
+        instruction_input = self.get_instruction_input(diagnosis=diagnosis)
+        instruction_target = self.get_instruction_target(value=value)
+
+        return instruction_input, instruction_target
+
+    def get_instruction_input(self, diagnosis: str) -> str:
+        """
+        Add the diagnosis to the instruction input
+
+        Args:
+            diagnosis (str): A medical/billing diagnosis
+
+        Returns:
+            (str): Instruction input that contains the diagnosis
+        """
+        return self._inputs_prefix + self._inputs.format(diagnosis=diagnosis) + self._x_y_delimiter
+
+    def get_instruction_target(self, value: Union[str, int, float]) -> str:
+        """
+        Return the code value - which represents some function of the code
+        in the time bin - present or absent
+
+        Args:
+            value (Union[str, int, float]): A value associated with the diagnosis
+            - e.g. count of occurrences of the code in the bin
+
+        Returns:
+            (str): The instruction target with the label
+        """
+        return str(value) + self._example_separator
+
+    @staticmethod
+    def fix_time_string(instruction_input, time):
+        """
+        When time is 1, use the singular form of the word month
+
+        Args:
+            instruction_input:
+            time:
+
+        Returns:
+
+        """
+        if time == 1:
+            return instruction_input.replace('months', 'month')
+        else:
+            return instruction_input
+
+    def get_task_separator_instruction(self):
+        """
+        Insert this instruction after this task
+
+        Returns:
+
+        """
+        return [self._task_separator, '', True, False, -100]
+
+
+class HierarchicalDiagnosisLabelPredictionInstructionTemplate(DiagnosisLabelPredictionInstructionTemplate):
+    """
+    Define the code trajectory prediction task. Encapsulate the templates
+    inputs, outputs to build the final instruction. The instruction is built based
+    on the trajectory of encounters.
+    """
+
+    def __init__(
+            self,
+            inputs,
+            targets: str = '',
+            inputs_prefix: str = "",
+            targets_prefix: str = "",
+            x_y_delimiter: str = " ",
+            example_separator: str = '\n',
+            task_separator: str = '\n',
+            task_definition: str = '',
+            task_name: str = 'hierarchical_code_label_prediction'
+    ):
+        """
+        Initialize the variables
+
+        Args:
+            inputs (str): The string that represents the future-time instruction input
+            targets (str): The string that represents the instruction target
+            inputs_prefix (str): Append this prefix to the instruction input
+            targets_prefix (str): Append this prefix to the instruction target
+            x_y_delimiter (str): Delimiter between instruction input and target
+            time code attributes to string
+            task_definition (str, defaults to): Add the task definition to the instruction
+            task_name (str, defaults to `status_classification`): A name to define this task.
+            Used to distinguish from other tasks
+        """
+        super().__init__(
+            inputs=inputs,
+            targets=targets,
+            inputs_prefix=inputs_prefix,
+            targets_prefix=targets_prefix,
+            x_y_delimiter=x_y_delimiter,
+            example_separator=example_separator,
+            task_separator=task_separator,
+            task_definition=task_definition,
+            task_name=task_name
+        )
+
+    def get_instruction(
+            self,
+            diagnosis: List[str],
+            value: List[Union[str, int, float]]
+    ) -> List[Tuple[str, str]]:
+        """
+        Given a positive diagnosis and the relative time of diagnosis
+        return the instruction input and instruction target containing
+        these attributes
+
+        Args:
+            diagnosis (str): A medical/billing diagnosis
+            value (Union[str, int, float]): A value to represent the status of the diagnosis
+
+        Returns:
+            (Tuple[str, str]): Tuple that contains the positive instruction input and instruction target
+        """
+        number_of_diagnosis = len(diagnosis)
+        instruction_tuples = list()
+        for index, (d, v) in enumerate(zip(diagnosis, value)):
+            instruction_input = self.get_instruction_input(diagnosis=d)
+            instruction_target = self.get_instruction_target(value=v)
+            if index == 0 and number_of_diagnosis > 1:
+                instruction_input = self._inputs_prefix + instruction_input
+            elif index == number_of_diagnosis - 1:
+                instruction_input = self._inputs.format(diagnosis=d) + self._example_separator
+                instruction_target = instruction_target + self._example_separator
+                if index == 0:
+                    instruction_input = self._inputs_prefix + instruction_input
+            instruction_tuples.append((instruction_input, instruction_target))
+        return instruction_tuples
+
+    def get_instruction_input(self, diagnosis: str) -> str:
+        """
+        Add the diagnosis to the instruction input
+
+        Args:
+            diagnosis (str): A medical/billing diagnosis
+
+        Returns:
+            (str): Instruction input that contains the diagnosis
+        """
+        return self._inputs.format(diagnosis=diagnosis) + self._x_y_delimiter
+
+    def get_instruction_target(self, value: Union[str, int, float]) -> str:
+        """
+        Return the code value - which represents some function of the code
+        in the time bin - present or absent
+
+        Args:
+            value (Union[str, int, float]): A value associated with the diagnosis
+            - e.g. count of occurrences of the code in the bin
+
+        Returns:
+            (str): The instruction target with the label
+        """
+        return str(value)

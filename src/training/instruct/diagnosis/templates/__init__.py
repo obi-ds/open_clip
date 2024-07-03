@@ -1,0 +1,6 @@
+from .diagnosis_label_instruction_templates import DiagnosisLabelPredictionInstructionTemplate
+from .diagnosis_label_instruction_templates import HierarchicalDiagnosisLabelPredictionInstructionTemplate
+__all__ = [
+    "DiagnosisLabelPredictionInstructionTemplate",
+    "HierarchicalDiagnosisLabelPredictionInstructionTemplate"
+]

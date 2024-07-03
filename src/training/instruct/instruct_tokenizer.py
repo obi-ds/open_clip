@@ -32,6 +32,10 @@ class InstructTokenizer(object):
         self._ignore_index = ignore_index
         self._token_loss_weighting = token_loss_weighting
         self._eos_token_id = self.get_eos_token_id()
+        if 'biogpt' in self._tokenizer.tokenizer.name_or_path:
+            self._start_pos = 1
+        else:
+            self._start_pos = 0
 
     def get_tokens(
             self,
@@ -117,7 +121,7 @@ class InstructTokenizer(object):
         Returns:
             (torch.Tensor): Return tokenized input
         """
-        return self._tokenizer.encode(input_text)
+        return self._tokenizer.tokenizer.encode(input_text)[self._start_pos:]
 
     def get_output_tokens(self, output_text: str) -> List[int]:
         """
@@ -131,7 +135,7 @@ class InstructTokenizer(object):
         Returns:
             (List[int]): Return tokenized input
         """
-        return self._tokenizer.encode(output_text)
+        return self._tokenizer.tokenizer.encode(output_text)[self._start_pos:]
 
     def get_input_ids(
             self,
@@ -208,7 +212,7 @@ class InstructTokenizer(object):
         if ignore_instruction:
             return [self._ignore_index] * (len(input_tokens) + len(output_tokens))
         else:
-            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._ignore_index]
+            return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens + [self._eos_token_id]
 
     def get_seq2seq_labels(
             self,
@@ -236,7 +240,7 @@ class InstructTokenizer(object):
             if len(output_tokens) == 1:
                 return [self._ignore_index] * (len(input_tokens) - 1) + output_tokens
             elif len(output_tokens) == 2:
-                return [self._ignore_index] * (len(input_tokens) - 3) + output_tokens + [self._ignore_index]
+                return [self._ignore_index] * (len(input_tokens) - 3) + output_tokens + [self._eos_token_id]
             else:
                 raise NotImplementedError('Only works when output tokens are of length 1 or 2')
 
@@ -321,81 +325,6 @@ class InstructTokenizer(object):
         if len(tokens) > self._max_seq_length - 1:
             tokens = tokens[:self._max_seq_length - 1]
         return tokens
-
-    def get_eos_token(self):
-        """
-
-        Returns:
-
-        """
-        return '<end_of_text>'
-
-    def get_eos_token_id(self):
-        """
-
-        Returns:
-
-        """
-        return self._tokenizer.eot_token_id
-
-    def get_bos_token(self):
-        """
-
-        Returns:
-
-        """
-        return '<start_of_text>'
-
-
-class HFInstructTokenizer(InstructTokenizer):
-    """
-    Define functions that are used to build, tokenize and return input
-    ids and labels that will be used by the model for generative tasks
-    The input, output and padding. Autoregressive LM - we give it an input and train on
-    predicting the next word.
-    """
-
-    def __init__(self, tokenizer, max_seq_length, pad_id, token_loss_weighting, ignore_index=-100):
-        """
-        Initialize variables
-        Args:
-            tokenizer (): The tokenizer used for training
-            max_seq_length (int): The maximum sequence length allowed by model/tokenizer
-            pad_id (int): The id used for padding tokens
-        """
-        super().__init__(tokenizer, max_seq_length, pad_id, token_loss_weighting, ignore_index)
-        if 'biogpt' in self._tokenizer.tokenizer.name_or_path:
-            self._start_pos = 1
-        else:
-            self._start_pos = 0
-
-    def get_input_tokens(self, input_text: str) -> List[int]:
-        """
-        Tokenize the input instruction and return the tokens
-        Returns all tokens but the eos token - since we eventually
-        add the instruction target to this
-
-        Args:
-            input_text (str): Any input text
-
-        Returns:
-            (torch.Tensor): Return tokenized input
-        """
-        return self._tokenizer.tokenizer.encode(input_text)[self._start_pos:]
-
-    def get_output_tokens(self, output_text: str) -> List[int]:
-        """
-        Tokenize the input instruction and return the tokens
-        Returns all tokens but the bos token - since we eventually
-        add the instruction input to this
-
-        Args:
-            output_text (str): Any input text
-
-        Returns:
-            (List[int]): Return tokenized input
-        """
-        return self._tokenizer.tokenizer.encode(output_text)[self._start_pos:]
 
     def get_eos_token(self):
         """

@@ -38,6 +38,13 @@ def get_instruct_arguments():
         help="The number of k_shots to use for demographic data",
     )
     parser.add_argument(
+        "--k-shot-ecg-attributes",
+        type=int,
+        nargs='+',
+        default=None,
+        help="The number of k_shots to use for demographic data",
+    )
+    parser.add_argument(
         "--tasks",
         type=str,
         nargs='+',

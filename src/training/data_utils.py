@@ -1,38 +1,37 @@
 """Util functions to set up web dataset dataloader"""
-import math
 import pandas as pd
-from .instruct.codes import (
-    CodeLabelPredictionTask,
-    CodeLabelPredictionTaskEvaluation,
-    HierarchicalCodeLabelPredictionTask,
-    HierarchicalCodeLabelPredictionTaskEvaluation
+from .instruct.diagnosis import (
+    DiagnosisLabelPredictionTask,
+    DiagnosisLabelPredictionPrompt,
+    DiagnosisLabelPredictionTaskEvaluation,
+    HierarchicalDiagnosisLabelPredictionTask,
+    HierarchicalDiagnosisLabelPredictionTaskEvaluation
 )
 from .instruct.demographics import DemographicPredictionTask, DemographicPredictionPrompt
+from .instruct.ecg_attributes import ECGAttributePredictionTask, ECGAttributePredictionPrompt
 from .instruct.labs import LabPredictionTask, LabPredictionPrompt
-from .instruct.codes.descriptions import ICDDescription, PHEDescription
-from .instruct.codes.processing import (
+from .instruct.diagnosis.descriptions import ICDDescription, PHEDescription
+from .instruct.diagnosis.processing import (
     EncounterDataframeProcess,
     NegativeCodeCacheSampling,
-    GroupBySampling,
     ICDConvert,
     PHEConvert,
 )
 from .instruct.demographics.processing import DemographicDataframeProcess
 from .instruct.labs.processing import LabsDataframeProcess
 from .instruct.utils import (
-    get_code_label_prediction_instruction_template,
+    get_diagnosis_label_prediction_instruction_template,
     get_patient_demographics_instruction_template,
     get_patient_labs_instruction_template,
-    get_hierarchical_code_label_prediction_instruction_template
+    get_ecg_attributes_instruction_template,
+    get_hierarchical_diagnosis_label_prediction_instruction_template
 )
-from .instruct.codes.processing.data_bins import AgglomerativeDataBins
 from .instruct import (
-    HFInstructTokenizer,
     InstructTokenizer
 )
 
 
-def get_all_code_label_prediction_task(args):
+def get_diagnosis_label_prediction_task(args):
     """
 
     Args:
@@ -45,17 +44,13 @@ def get_all_code_label_prediction_task(args):
         encounter_dataframe,
         encounter_dataframe_process,
         negative_code_sampling,
-        dataframe_sampling,
         code_convert,
-        code_label_prediction_instructions,
-        time_bins
-    ) = get_code_label_task_objects(args)
+        diagnosis_label_prediction_instructions,
+    ) = get_diagnosis_label_task_objects(args)
 
-    return CodeLabelPredictionTask(
+    return DiagnosisLabelPredictionTask(
         encounter_dataframe_process=encounter_dataframe_process,
-        dataframe_sampling=dataframe_sampling,
-        code_instructions=code_label_prediction_instructions,
-        time_bins=time_bins,
+        diagnosis_instructions=diagnosis_label_prediction_instructions,
         code_convert=code_convert,
         negative_code_sampling=negative_code_sampling,
         patient_id_column=args.patient_id_column,
@@ -66,7 +61,7 @@ def get_all_code_label_prediction_task(args):
     )
 
 
-def get_tree_code_label_prediction_task(args):
+def get_hierarchical_diagnosis_label_prediction_task(args):
     """
 
     Args:
@@ -79,21 +74,17 @@ def get_tree_code_label_prediction_task(args):
         encounter_dataframe,
         encounter_dataframe_process,
         negative_code_sampling,
-        dataframe_sampling,
         code_convert,
         _,
-        time_bins
-    ) = get_code_label_task_objects(args)
+    ) = get_diagnosis_label_task_objects(args)
 
-    code_label_prediction_instructions = get_hierarchical_code_label_prediction_instruction_template(
-        example_separator=get_example_separator(args=args)
+    diagnosis_label_prediction_instructions = get_hierarchical_diagnosis_label_prediction_instruction_template(
+        task_separator=get_task_separator(args=args)
     )
 
-    return HierarchicalCodeLabelPredictionTask(
+    return HierarchicalDiagnosisLabelPredictionTask(
         encounter_dataframe_process=encounter_dataframe_process,
-        dataframe_sampling=dataframe_sampling,
-        code_instructions=code_label_prediction_instructions,
-        time_bins=time_bins,
+        diagnosis_instructions=diagnosis_label_prediction_instructions,
         code_convert=code_convert,
         negative_code_sampling=negative_code_sampling,
         patient_id_column=args.patient_id_column,
@@ -103,7 +94,7 @@ def get_tree_code_label_prediction_task(args):
     )
 
 
-def get_code_label_prediction_task_eval(args):
+def get_diagnosis_label_prediction_task_eval(args):
     """
 
     Args:
@@ -116,17 +107,13 @@ def get_code_label_prediction_task_eval(args):
         encounter_dataframe,
         encounter_dataframe_process,
         negative_code_sampling,
-        dataframe_sampling,
         code_convert,
-        code_label_prediction_instructions,
-        time_bins
-    ) = get_code_label_task_objects(args)
+        diagnosis_label_prediction_instructions,
+    ) = get_diagnosis_label_task_objects(args)
 
-    return CodeLabelPredictionTaskEvaluation(
+    return DiagnosisLabelPredictionTaskEvaluation(
         encounter_dataframe_process=encounter_dataframe_process,
-        dataframe_sampling=dataframe_sampling,
-        code_instructions=code_label_prediction_instructions,
-        time_bins=time_bins,
+        diagnosis_instructions=diagnosis_label_prediction_instructions,
         code_convert=code_convert,
         negative_code_sampling=negative_code_sampling,
         patient_id_column=args.patient_id_column,
@@ -135,7 +122,7 @@ def get_code_label_prediction_task_eval(args):
     )
 
 
-def get_tree_code_label_prediction_task_eval(args):
+def get_hierarchical_diagnosis_label_prediction_task_eval(args):
     """
 
     Args:
@@ -148,22 +135,18 @@ def get_tree_code_label_prediction_task_eval(args):
         encounter_dataframe,
         encounter_dataframe_process,
         negative_code_sampling,
-        dataframe_sampling,
         code_convert,
         _,
-        time_bins
-    ) = get_code_label_task_objects(args)
+    ) = get_diagnosis_label_task_objects(args)
 
-    code_label_prediction_instructions = get_code_label_prediction_instruction_template(
-        example_separator=get_example_separator(args=args),
+    diagnosis_label_prediction_instructions = get_diagnosis_label_prediction_instruction_template(
+        task_separator=get_task_separator(args=args),
         x_y_delimiter=' '
     )
 
-    return HierarchicalCodeLabelPredictionTaskEvaluation(
+    return HierarchicalDiagnosisLabelPredictionTaskEvaluation(
         encounter_dataframe_process=encounter_dataframe_process,
-        dataframe_sampling=dataframe_sampling,
-        code_instructions=code_label_prediction_instructions,
-        time_bins=time_bins,
+        diagnosis_instructions=diagnosis_label_prediction_instructions,
         code_convert=code_convert,
         negative_code_sampling=negative_code_sampling,
         patient_id_column=args.patient_id_column,
@@ -183,7 +166,7 @@ def get_demographic_task(args):
     """
     demographic_dataframe = get_demographic_dataframe(filepath=args.demographic_file)
     demographic_instructions = get_patient_demographics_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     demographic_dataframe_process = DemographicDataframeProcess(
         demographic_dataframe=demographic_dataframe
@@ -193,6 +176,23 @@ def get_demographic_task(args):
         demographic_instructions=demographic_instructions
     )
     return demographic_prediction_task
+
+
+def get_ecg_attributes_task(args):
+    """
+
+    Args:
+        args:
+
+    Returns:
+
+    """
+    ecg_attribute_instructions = get_ecg_attributes_instruction_template(
+        task_separator=get_task_separator(args=args)
+    )
+    return ECGAttributePredictionTask(
+        ecg_attribute_instructions=ecg_attribute_instructions,
+    )
 
 
 def get_lab_task(args):
@@ -206,14 +206,12 @@ def get_lab_task(args):
     """
     lab_dataframes = get_lab_dataframes(labs_folder=args.labs_folder)
     lab_prediction_instructions = get_patient_labs_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     lab_dataframe_process = get_lab_dataframe_process(lab_dataframes=lab_dataframes, args=args)
-    time_bins = get_time_bins(args)
     return LabPredictionTask(
         lab_dataframe_process=lab_dataframe_process,
         lab_instructions=lab_prediction_instructions,
-        time_bins=time_bins,
         patient_id_column=args.patient_id_column,
         lab_name_column=args.lab_name_column,
         position_column=args.position_column,
@@ -233,7 +231,7 @@ def get_demographic_prompt(args):
     """
     demographic_dataframe = get_demographic_dataframe(filepath=args.demographic_file)
     demographic_instructions = get_patient_demographics_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     demographic_dataframe_process = DemographicDataframeProcess(
         demographic_dataframe=demographic_dataframe
@@ -241,6 +239,22 @@ def get_demographic_prompt(args):
     return DemographicPredictionPrompt(
         demographic_dataframe_process=demographic_dataframe_process,
         demographic_instructions=demographic_instructions,
+    )
+
+def get_ecg_attributes_prompt(args):
+    """
+
+    Args:
+        args:
+
+    Returns:
+
+    """
+    ecg_attribute_instructions = get_ecg_attributes_instruction_template(
+        task_separator=get_task_separator(args=args)
+    )
+    return ECGAttributePredictionPrompt(
+        ecg_attribute_instructions=ecg_attribute_instructions,
     )
 
 
@@ -256,18 +270,35 @@ def get_lab_prompt(args):
 
     lab_dataframes = get_lab_dataframes(labs_folder=args.labs_folder)
     lab_prediction_instructions = get_patient_labs_instruction_template(
-        example_separator=get_example_separator(args=args)
+        task_separator=get_task_separator(args=args)
     )
     lab_dataframe_process = get_lab_dataframe_process(lab_dataframes=lab_dataframes, args=args)
-    time_bins = get_time_bins(args)
     return LabPredictionPrompt(
         lab_dataframe_process=lab_dataframe_process,
         lab_instructions=lab_prediction_instructions,
-        time_bins=time_bins,
         patient_id_column=args.patient_id_column,
         lab_name_column=args.lab_name_column,
         position_column=args.position_column,
         fixed_position_range=args.fixed_position_range,
+    )
+
+def get_diagnosis_prompt(args):
+    (
+        encounter_dataframe,
+        encounter_dataframe_process,
+        negative_code_sampling,
+        code_convert,
+        diagnosis_label_prediction_instructions,
+    ) = get_diagnosis_label_task_objects(args)
+
+    return DiagnosisLabelPredictionPrompt(
+        encounter_dataframe_process=encounter_dataframe_process,
+        diagnosis_instructions=diagnosis_label_prediction_instructions,
+        code_convert=code_convert,
+        negative_code_sampling=negative_code_sampling,
+        patient_id_column=args.patient_id_column,
+        code_column=args.code_column,
+        position_column=args.position_column,
     )
 
 
@@ -282,25 +313,16 @@ def get_instruct_tokenizer(tokenizer, ignore_index, args):
     Returns:
 
     """
-    if 'gpt' in args.model:
-        return HFInstructTokenizer(
-            tokenizer=tokenizer,
-            pad_id=args.pad_id,
-            max_seq_length=args.max_seq_length,
-            token_loss_weighting=args.token_loss_weighting,
-            ignore_index=ignore_index,
-        )
-    else:
-        return InstructTokenizer(
-            tokenizer=tokenizer,
-            pad_id=args.pad_id,
-            max_seq_length=args.max_seq_length,
-            token_loss_weighting=args.token_loss_weighting,
-            ignore_index=ignore_index,
-        )
+    return InstructTokenizer(
+        tokenizer=tokenizer,
+        pad_id=args.pad_id,
+        max_seq_length=args.max_seq_length,
+        token_loss_weighting=args.token_loss_weighting,
+        ignore_index=ignore_index,
+    )
 
 
-def get_code_label_task_objects(args):
+def get_diagnosis_label_task_objects(args):
     """
 
     Args:
@@ -312,20 +334,16 @@ def get_code_label_task_objects(args):
     encounter_dataframe = get_encounter_dataframe(encounter_file=args.encounter_file)
     encounter_dataframe_process = get_encounter_dataframe_process(encounter_dataframe, args)
     negative_code_sampling = get_negative_code_sampling(encounter_dataframe_process, args)
-    dataframe_sampling = GroupBySampling()
     code_convert = get_code_convert(args=args)
-    code_label_prediction_instructions = get_code_label_prediction_instruction_template(
-        example_separator=get_example_separator(args=args)
+    diagnosis_label_prediction_instructions = get_diagnosis_label_prediction_instruction_template(
+        task_separator=get_task_separator(args=args)
     )
-    time_bins = get_time_bins(args)
     return (
         encounter_dataframe,
         encounter_dataframe_process,
         negative_code_sampling,
-        dataframe_sampling,
         code_convert,
-        code_label_prediction_instructions,
-        time_bins
+        diagnosis_label_prediction_instructions,
     )
 
 
@@ -404,21 +422,6 @@ def get_code_convert(args):
         )
 
 
-def get_time_bins(args):
-    """
-
-    Args:
-        args:
-
-    Returns:
-
-    """
-    return [
-        AgglomerativeDataBins(distance_threshold=distance_threshold)
-        for distance_threshold in args.distance_threshold
-    ]
-
-
 def get_demographic_dataframe(filepath):
     """
 
@@ -483,9 +486,18 @@ def get_example_separator(args):
     Returns:
 
     """
+    return '\n'
+
+def get_task_separator(args):
+    """
+
+    Args:
+        args:
+
+    Returns:
+
+    """
     if 'biogpt' in args.model or 'bio_gpt' in args.model:
-        return ' </s>\n'
-    elif 'gpt' in args.model:
-        return '\n'
+        return '</s>\n'
     else:
-        return ' <end_of_text>\n'
+        return '<end_of_text>\n'

@@ -1,6 +1,6 @@
 """Process patient information"""
 import pandas as pd
-from ...codes.processing import EncounterDataframeProcess
+from ...diagnosis.processing import EncounterDataframeProcess
 
 
 class LabsDataframeProcess(EncounterDataframeProcess):
