@@ -13,6 +13,8 @@ from .loss import (
 from .model import convert_weights_to_lp
 from .moca_model import MoCa
 from .tokenizer import HFTokenizer
+from .transformer_decoder import MaskedAutoencoderVisionEncoder
+
 
 _MODEL_CONFIG_PATHS = [Path(__file__).parent / f"model_configs/"]
 _MODEL_CONFIGS = {}  # directory (model_name: config) of model architecture configs
@@ -143,9 +145,16 @@ def create_model(
         model_cfg["vision_cfg"]["image_size"] = force_image_size
 
     model_cfg = dict(model_cfg, **model_kwargs)  # merge cfg dict w/ kwargs (kwargs overrides cfg)
-    model = MoCa(
-        **model_cfg,
+    if 'moca' in model_name:
+        model = MoCa(
+            **model_cfg,
     )
+    elif 'mae' in model_name:
+        model = MaskedAutoencoderVisionEncoder(
+            **model_cfg,
+        )
+    else:
+        raise ValueError(f'Invalid model name: {model_name}')
 
     if precision in ("fp16", "bf16"):
         dtype = torch.float16 if 'fp16' in precision else torch.bfloat16

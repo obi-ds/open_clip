@@ -23,6 +23,7 @@ class MocaVisionEncoderConfig:
     # InstanceNorm: normalization = in_channels
     # GroupNorm: normalization = 1 < x < in_channels
     normalization: int = None
+    mask_ratio: float = 0.0
 
 
 @dataclass
