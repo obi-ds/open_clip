@@ -4,6 +4,7 @@ import random
 from typing import Union
 
 from .demographics import DemographicPredictionTask, DemographicPredictionPrompt
+from .ecg_attributes import ECGAttributePredictionPrompt
 from .labs import LabPredictionPrompt
 from .diagnosis import DiagnosisLabelPredictionPrompt
 from .instruct_tokenizer import InstructTokenizer
@@ -41,6 +42,10 @@ class InstructTasks(object):
             elif isinstance(task, DiagnosisLabelPredictionPrompt):
                 instructions = task.process_sample(
                     sample=sample, args=args, diagnoses=args.diagnosis_prompt_attributes
+                )
+            elif isinstance(task, ECGAttributePredictionPrompt):
+                instructions = task.process_sample(
+                    sample=sample, args=args, attributes=args.ecg_prompt_attributes
                 )
             elif isinstance(task, DemographicPredictionTask):
                 instructions = task.process_sample(
