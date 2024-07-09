@@ -174,7 +174,7 @@ def get_metrics(eval_df, phecode, positive_column, negative_column):
         y_auc = roc_auc_score(labels, y_scores)
         p_auc = roc_auc_score(labels, p_scores)
         # TODO: Add auprc, f1,
-        
+
 
     return {
         'phecode': phecode,
