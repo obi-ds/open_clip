@@ -6,6 +6,7 @@ from typing import Optional
 from transformers import AutoConfig, AutoModelForCausalLM
 
 from .model import MocaVisionEncoderConfig, MocaTextDecoderConfig
+from .biogpt_vision import VisionBioGPTModel
 from .transformer_decoder import VisionEncoder, MultimodalDecoder, QFormer
 
 from transformers import (
@@ -83,7 +84,24 @@ class MoCa(nn.Module):
         self.text = None
 
     @staticmethod
+    def get_vision_encoder_model(model_name_or_path):
+        """
+        Get the vision encoder model
+        Args:
+            model_name_or_path:
+
+        Returns:
+
+        """
+        # TODO: Currently we only support the BioGPT architecture
+        #       for other architectures - we need to modify the attention mask accordingly
+        #       and create another subclass
+        config = AutoConfig.from_pretrained(model_name_or_path)
+        transformer = VisionBioGPTModel(config=config)
+        return config, transformer
+
     def get_vision_encoder(
+            self,
             image_input_type: str,
             image_size: int,
             patch_size: int,
@@ -105,11 +123,13 @@ class MoCa(nn.Module):
         Returns:
 
         """
+        config, transformer = self.get_vision_encoder_model(model_name_or_path=model_name_or_path)
         return VisionEncoder(
             image_input_type=image_input_type,
             image_size=image_size,
             patch_size=patch_size,
-            model_name_or_path=model_name_or_path,
+            config=config,
+            transformer=transformer,
             in_channels=in_channels,
             normalization=normalization
         )
