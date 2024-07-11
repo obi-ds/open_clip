@@ -34,6 +34,15 @@ class MocaTextDecoderConfig:
     pretrained: bool = None
     ignore_index: int = -100
 
+@dataclass
+class MAEEncoderConfig(MocaVisionEncoderConfig):
+    mask_ratio: float = None
+
+@dataclass
+class MAEDecoderConfig:
+    hf_model_name: Optional[str] = None
+    size_factor: int = None
+
 
 def get_cast_dtype(precision: str):
     cast_dtype = None
