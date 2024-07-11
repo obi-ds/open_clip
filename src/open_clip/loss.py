@@ -11,6 +11,7 @@ class MoCaLoss(nn.Module):
     LM Loss function
 
     """
+
     def __init__(
             self,
             ignore_index
@@ -66,6 +67,7 @@ class MoCaZLoss(MoCaLoss):
     LM Loss function with Z-loss regularization
 
     """
+
     def __init__(
             self,
             ignore_index,
@@ -171,3 +173,36 @@ class MoCaFocalLoss(nn.Module):
             return {"caption_loss": caption_loss}
 
         return caption_loss
+
+
+class MAELoss(nn.Module):
+    """
+    MAE Loss function
+
+    """
+
+    def __init__(
+            self,
+            norm_pixel_loss,
+    ):
+        super().__init__()
+        self._norm_pixel_loss = norm_pixel_loss
+
+    def forward(self, predictions, labels, mask, output_dict=False):
+        """
+        MAE Loss
+        """
+
+        if self._norm_pixel_loss:
+            mean = labels.mean(dim=-1, keepdim=True)
+            var = labels.var(dim=-1, keepdim=True)
+            labels = (labels - mean) / (var + 1.e-6) ** .5
+
+        loss = (predictions - labels) ** 2
+        loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
+
+        loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
+        if output_dict:
+            return {"loss": loss}
+
+        return loss
