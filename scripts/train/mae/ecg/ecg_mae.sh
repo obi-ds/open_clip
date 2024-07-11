@@ -1,0 +1,31 @@
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6'
+torchrun \
+    --nnodes=1 --nproc_per_node=7 --master_addr=localhost --master_port=2120 \
+    -m main_mae \
+    --train-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_train_2403/shard_{0000..0078}.tar"  \
+    --val-data="/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar"  \
+    --train-num-samples 252800 \
+    --val-num-samples 35200 \
+    --dataset-type mae \
+    --workers 8 \
+    --batch-size 2 \
+    --accum-freq 3 \
+    --epochs 5 \
+    --lr-scheduler cosine \
+    --lr 2.5e-5 \
+    --lr-cooldown-end 2.5e-6 \
+    --beta1 0.9 \
+    --beta2 0.999 \
+    --eps 1e-8 \
+    --wd 0.1 \
+    --grad-clip-norm 1.0 \
+    --warmup 10000 \
+    --precision amp \
+    --save-frequency 1 \
+    --val-frequency 1 \
+    --loss-function mae \
+    --report-to wandb \
+    --wandb-project-name="mae-test-runs" \
+    --name ecg_mae_scratch_test_19 \
+    --model ecg_mae_biogpt_scratch \
+    --seed 0
