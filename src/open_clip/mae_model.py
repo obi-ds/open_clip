@@ -1,0 +1,155 @@
+"""Moca model"""
+import torch
+from torch import nn
+from typing import Optional
+from transformers import AutoConfig
+
+from .model import MAEEncoderConfig, MAEDecoderConfig
+from .biogpt_vision import MaskedVisionBioGPTModel, VisionBioGPTModel
+from .transformer_decoder import VisionEncoder, MaskedAutoencoderVisionEncoder
+
+_has_transformers = True
+
+
+class MAE(nn.Module):
+    """
+    MAE class
+    """
+    def __init__(
+            self,
+            encoder_cfg: MAEEncoderConfig,
+            decoder_cfg: MAEDecoderConfig,
+            **kwargs
+    ):
+        print('MAE Model')
+        super().__init__()
+        encoder_cfg = (
+            MAEEncoderConfig(**encoder_cfg)
+            if isinstance(encoder_cfg, dict) else encoder_cfg
+        )
+
+        decoder_cfg = (
+            MAEDecoderConfig(**decoder_cfg)
+            if isinstance(decoder_cfg, dict) else decoder_cfg
+        )
+
+        print('Encoder Config: ', encoder_cfg)
+        print('Decoder Config: ', decoder_cfg)
+
+        if encoder_cfg.mask_ratio is None:
+            raise ValueError('Mask Ratio not set')
+
+        encoder = self.get_encoder(
+            image_input_type=encoder_cfg.image_input_type,
+            image_size=encoder_cfg.image_size,
+            patch_size=encoder_cfg.patch_size,
+            in_channels=encoder_cfg.in_channels,
+            model_name_or_path=encoder_cfg.hf_model_name,
+            normalization=encoder_cfg.normalization,
+            mask_ratio=encoder_cfg.mask_ratio
+        )
+
+        # TODO: We need to replace this correctly
+        # I think we use just the vision biogpt model
+        decoder = self.get_decoder(
+            model_name_or_path=decoder_cfg.hf_model_name,
+        )
+
+        self._masked_auto_encoder_vision_encoder = MaskedAutoencoderVisionEncoder(
+            encoder=encoder,
+            decoder=decoder,
+            image_input_type=encoder_cfg.image_input_type,
+            patch_size=encoder_cfg.patch_size,
+            in_channels=encoder_cfg.in_channels,
+        )
+
+        # Set these to None - so that it works with the existing open_clip implementation
+        self.visual = None
+        self.text = None
+
+    @staticmethod
+    def get_encoder(
+            image_input_type: str,
+            image_size: int,
+            patch_size: int,
+            model_name_or_path: str,
+            in_channels: int,
+            normalization: Optional[int],
+            mask_ratio: float
+    ):
+        """
+        Return the vision encoder object
+
+        Args:
+            image_input_type:
+            image_size:
+            patch_size:
+            model_name_or_path:
+            in_channels:
+            normalization:
+            mask_ratio:
+
+        Returns:
+
+        """
+        # TODO: Currently we only support the BioGPT architecture
+        #       for other architectures - we need to modify the attention mask accordingly
+        #       and create another subclass
+        config = AutoConfig.from_pretrained(model_name_or_path)
+        transformer = MaskedVisionBioGPTModel(config=config, mask_ratio=mask_ratio)
+        return VisionEncoder(
+            image_input_type=image_input_type,
+            image_size=image_size,
+            patch_size=patch_size,
+            config=config,
+            transformer=transformer,
+            in_channels=in_channels,
+            normalization=normalization
+        )
+
+    @staticmethod
+    def get_decoder(
+            model_name_or_path: str,
+    ):
+        """
+        Return the vision encoder object
+
+        Args:
+            model_name_or_path:
+
+        Returns:
+
+        """
+        # TODO: We want to use a smaller model for the decoder - modify the config accordingly
+        #  Use the scale factor from config file?
+        config = AutoConfig.from_pretrained(model_name_or_path)
+        return VisionBioGPTModel(config=config)
+
+    @torch.jit.ignore
+    def set_grad_checkpointing(self, enable: bool = True):
+        """
+        Gradient checkpointing
+
+        Args:
+            enable:
+
+        Returns:
+
+        """
+        self.visual.set_grad_checkpointing(enable)
+
+    def forward(
+            self,
+            images,
+            texts=None,
+    ):
+
+        hidden_states, mask, ids_restore = self._masked_auto_encoder_vision_encoder.forward_encoder(x=images)
+        predictions = self._masked_auto_encoder_vision_encoder.forward_decoder(hidden_states, ids_restore)
+        labels = self._masked_auto_encoder_vision_encoder.patchify(images, normalize_labels=True)
+
+        return {
+            "predictions": predictions,
+            "labels": labels,
+            "mask": mask
+        }
