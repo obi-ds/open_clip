@@ -12,7 +12,6 @@ def get_encounter_file_arguments():
     parser.add_argument(
         "--encounter-file",
         type=str,
-        required=True,
         help="The file containing the encounter history",
     )
     parser.add_argument(

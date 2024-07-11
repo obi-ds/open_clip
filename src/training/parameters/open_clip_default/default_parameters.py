@@ -54,8 +54,8 @@ def get_open_clip_arguments():
     )
     parser.add_argument(
         "--dataset-type",
-        choices=["icddataset"],
-        default="icddataset",
+        choices=["icddataset", "mae"],
+        default=None,
         help="Which type of dataset to process."
     )
     parser.add_argument(
