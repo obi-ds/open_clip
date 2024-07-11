@@ -42,6 +42,7 @@ class MAEEncoderConfig(MocaVisionEncoderConfig):
 class MAEDecoderConfig:
     hf_model_name: Optional[str] = None
     size_factor: int = None
+    normalize_labels: bool = False
 
 
 def get_cast_dtype(precision: str):

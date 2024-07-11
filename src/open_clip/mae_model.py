@@ -53,6 +53,7 @@ class MAE(nn.Module):
         # I think we use just the vision biogpt model
         decoder = self.get_decoder(
             model_name_or_path=decoder_cfg.hf_model_name,
+            size_factor=decoder_cfg.size_factor
         )
 
         self._masked_auto_encoder_vision_encoder = MaskedAutoencoderVisionEncoder(
@@ -62,6 +63,8 @@ class MAE(nn.Module):
             patch_size=encoder_cfg.patch_size,
             in_channels=encoder_cfg.in_channels,
         )
+
+        self._normalize_labels = decoder_cfg.normalize_labels
 
         # Set these to None - so that it works with the existing open_clip implementation
         self.visual = None
@@ -110,12 +113,14 @@ class MAE(nn.Module):
     @staticmethod
     def get_decoder(
             model_name_or_path: str,
+            size_factor: int
     ):
         """
         Return the vision encoder object
 
         Args:
             model_name_or_path:
+            size_factor:
 
         Returns:
 
@@ -146,7 +151,7 @@ class MAE(nn.Module):
 
         hidden_states, mask, ids_restore = self._masked_auto_encoder_vision_encoder.forward_encoder(x=images)
         predictions = self._masked_auto_encoder_vision_encoder.forward_decoder(hidden_states, ids_restore)
-        labels = self._masked_auto_encoder_vision_encoder.patchify(images, normalize_labels=True)
+        labels = self._masked_auto_encoder_vision_encoder.patchify(images, normalize_labels=self._normalize_labels)
 
         return {
             "predictions": predictions,

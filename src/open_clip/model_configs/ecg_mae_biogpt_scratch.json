@@ -12,7 +12,8 @@
     },
     "decoder_cfg": {
         "hf_model_name": "microsoft/biogpt",
-        "size_factor": 2
+        "size_factor": 2,
+        "normalize_labels": false
     },
     "text_cfg": null,
     "vision_cfg": null,
