@@ -125,9 +125,11 @@ class MAE(nn.Module):
         Returns:
 
         """
-        # TODO: We want to use a smaller model for the decoder - modify the config accordingly
-        #  Use the scale factor from config file?
         config = AutoConfig.from_pretrained(model_name_or_path)
+        config.num_attention_heads = config.num_attention_heads // size_factor
+        config.num_hidden_layers = config.num_hidden_layers // size_factor
+        config.intermediate_size = config.intermediate_size // size_factor
+        config.hidden_size = config.hidden_size // size_factor
         return VisionBioGPTModel(config=config)
 
     @torch.jit.ignore

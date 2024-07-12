@@ -8,12 +8,12 @@ torchrun \
     --val-num-samples 35200 \
     --dataset-type mae \
     --workers 8 \
-    --batch-size 2 \
-    --accum-freq 3 \
-    --epochs 5 \
+    --batch-size 600 \
+    --accum-freq 1 \
+    --epochs 250 \
     --lr-scheduler cosine \
-    --lr 2.5e-5 \
-    --lr-cooldown-end 2.5e-6 \
+    --lr 1e-4 \
+    --lr-cooldown-end 1e-5 \
     --beta1 0.9 \
     --beta2 0.999 \
     --eps 1e-8 \
@@ -21,11 +21,11 @@ torchrun \
     --grad-clip-norm 1.0 \
     --warmup 10000 \
     --precision amp \
-    --save-frequency 1 \
-    --val-frequency 1 \
+    --save-frequency 10 \
+    --val-frequency 10 \
     --loss-function mae \
     --report-to wandb \
     --wandb-project-name="mae-test-runs" \
-    --name ecg_mae_scratch_test_19 \
+    --name ecg_mae_scratch_trial_3 \
     --model ecg_mae_biogpt_scratch \
     --seed 0
