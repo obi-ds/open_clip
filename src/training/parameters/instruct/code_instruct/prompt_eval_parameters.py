@@ -28,4 +28,10 @@ def get_prompt_eval_arguments():
         default=None,
         help="The diagnosis attributes to use in the prompt - separate with a comma"
     )
+    parser.add_argument(
+        "--text-generation",
+        default=False,
+        action="store_true",
+        help="Whether we are doing text generation tasks"
+    )
     return parser
