@@ -16,6 +16,7 @@ class InstructTokenizer(object):
             tokenizer,
             max_seq_length,
             pad_id,
+            padding_side,
             token_loss_weighting,
             ignore_index=-100,
     ):
@@ -29,6 +30,7 @@ class InstructTokenizer(object):
         self._tokenizer = tokenizer
         self._max_seq_length = max_seq_length
         self._pad_id = pad_id
+        self._padding_side = padding_side
         self._ignore_index = ignore_index
         self._token_loss_weighting = token_loss_weighting
         self._eos_token_id = self.get_eos_token_id()
@@ -94,14 +96,17 @@ class InstructTokenizer(object):
 
         # Truncate tokens, add sentence boundaries and then pad tokens
         all_input_ids = self.pad_input_tokens(
-            tokens=self.truncate_tokens(tokens=all_input_ids)
+            tokens=self.truncate_tokens(tokens=all_input_ids),
+            padding_side=self._padding_side
         )
         all_labels = self.pad_label_tokens(
-            tokens=self.truncate_tokens(tokens=all_labels)
+            tokens=self.truncate_tokens(tokens=all_labels),
+            padding_side=self._padding_side
         )
         if self._token_loss_weighting:
             all_weights = self.pad_label_tokens(
-                tokens=self.truncate_tokens(tokens=all_weights)
+                tokens=self.truncate_tokens(tokens=all_weights),
+                padding_side=self._padding_side
             )
 
         if return_tensor:
@@ -271,33 +276,35 @@ class InstructTokenizer(object):
             )
         return token_weights
 
-    def pad_input_tokens(self, tokens: List[int]) -> List[int]:
+    def pad_input_tokens(self, tokens: List[int], padding_side: str) -> List[int]:
         """
         Return a tensor that contains the padding id. This will be used
         to pad the final instruction (that contains instruction input and target)
 
         Args:
             tokens (List[int]): The input tokens
+            padding_side (str): The side to pad from
 
         Returns:
             (List[int]): Tensor containing the padding tokens
         """
-        return self.pad_tokens_with_id(tokens=tokens, pad_id=self._pad_id)
+        return self.pad_tokens_with_id(tokens=tokens, pad_id=self._pad_id, padding_side=padding_side)
 
-    def pad_label_tokens(self, tokens: List[int]) -> List[int]:
+    def pad_label_tokens(self, tokens: List[int], padding_side: str) -> List[int]:
         """
         Return a tensor that contains the padding id. This will be used
         to pad the final instruction (that contains instruction input and target)
 
         Args:
             tokens (List[int]): The input tokens
+            padding_side (str): The side to pad from
 
         Returns:
             (List[int]): Tensor containing the padding tokens
         """
-        return self.pad_tokens_with_id(tokens=tokens, pad_id=self._ignore_index)
+        return self.pad_tokens_with_id(tokens=tokens, pad_id=self._ignore_index, padding_side=padding_side)
 
-    def pad_tokens_with_id(self, tokens: List[int], pad_id) -> List[int]:
+    def pad_tokens_with_id(self, tokens: List[int], pad_id, padding_side: str) -> List[int]:
         """
         Return a tensor that contains the padding id. This will be used
         to pad the final instruction (that contains instruction input and target)
@@ -305,11 +312,17 @@ class InstructTokenizer(object):
         Args:
             tokens (List[int]): The input tokens
             pad_id (int): The ID to use for padding
+            padding_side (str): The side to pad from
 
         Returns:
             (List[int]): Tensor containing the padding tokens
         """
-        return tokens + [pad_id] * (self._max_seq_length - len(tokens))
+        if padding_side == 'right':
+            return tokens + [pad_id] * (self._max_seq_length - len(tokens))
+        elif padding_side == 'left':
+            return [pad_id] * (self._max_seq_length - len(tokens)) + tokens
+        else:
+            raise ValueError()
 
     def truncate_tokens(self, tokens: List[int]) -> List[int]:
         """
