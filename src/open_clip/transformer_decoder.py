@@ -570,7 +570,10 @@ class MultimodalDecoder(nn.Module):
         multi_modal_embeddings = self.concat_image_token_embeddings(
             image_embeddings=image_embeddings, token_embeddings=token_embeddings
         )
-        multi_modal_labels = self.get_labels(image_embeddings=image_embeddings, labels=labels)
+        if labels is not None:
+            multi_modal_labels = self.get_labels(image_embeddings=image_embeddings, labels=labels)
+        else:
+            multi_modal_labels = None
         if weights is not None:
             multi_modal_weights = self.get_labels(image_embeddings=image_embeddings, labels=weights)
         else:
