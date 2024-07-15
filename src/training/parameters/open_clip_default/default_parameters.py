@@ -226,6 +226,9 @@ def get_open_clip_arguments():
         "--pad_id", type=int, default=None, help="The ID of the padding token"
     )
     parser.add_argument(
+        "--padding-side", type=str, default='right', help="The side to pad tokens"
+    )
+    parser.add_argument(
         "--torchscript",
         default=False,
         action='store_true',
