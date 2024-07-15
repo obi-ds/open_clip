@@ -316,6 +316,7 @@ def get_instruct_tokenizer(tokenizer, ignore_index, args):
     return InstructTokenizer(
         tokenizer=tokenizer,
         pad_id=args.pad_id,
+        padding_side=args.padding_side,
         max_seq_length=args.max_seq_length,
         token_loss_weighting=args.token_loss_weighting,
         ignore_index=ignore_index,
