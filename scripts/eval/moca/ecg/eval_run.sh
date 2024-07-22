@@ -76,7 +76,7 @@ python eval.py \
 
 
 # 2b - MGH Val - Full - With demographics
-parallel -j 7 --progress --eta --delay 1 "
+parallel -j 8 --progress --eta --delay 1 "
 python eval.py \
 --gpu {1} \
 --val-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar'  \
@@ -107,7 +107,7 @@ python eval.py \
 --eval-mode \
 --eval-start-time 0 \
 --eval-end-time 180 \
---output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: $(seq 0 6) :::+ $(seq 0 516 3097) :::+ $(seq 516 516 3613)
+--output-folder /mnt/obi0/phi/ehr_projects/bloodcell_clip/evaluation/ecg/forward_pass/" ::: $(seq 0 7) :::+ $(seq 0 452 3263) :::+ $(seq 452 452 3717)
 
 
 
