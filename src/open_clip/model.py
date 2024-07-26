@@ -23,6 +23,8 @@ class MocaVisionEncoderConfig:
     # InstanceNorm: normalization = in_channels
     # GroupNorm: normalization = 1 < x < in_channels
     normalization: int = None
+    lora: bool = False
+    pretrained: Optional[str] = None
 
 
 @dataclass
@@ -33,6 +35,17 @@ class MocaTextDecoderConfig:
     projection_type: str = None
     pretrained: bool = None
     ignore_index: int = -100
+    lora: bool = False
+
+@dataclass
+class MAEEncoderConfig(MocaVisionEncoderConfig):
+    mask_ratio: float = None
+
+@dataclass
+class MAEDecoderConfig:
+    hf_model_name: Optional[str] = None
+    size_factor: int = None
+    normalize_labels: bool = False
 
 
 def get_cast_dtype(precision: str):

@@ -6,10 +6,10 @@ from torch import nn
 
 from transformers import (
     AutoConfig,
-    BioGptModel,
-    BioGptConfig,
+    BioGptConfig, AutoModel, BioGptModel
 )
-from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions
+from peft import LoraModel
+from .biogpt_vision import VisionBioGPTModel, MaskedVisionBioGPTModel
 from .q_former import BertLMHeadModel
 
 
@@ -131,6 +131,14 @@ class CNNEncoder(nn.Module):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
 
+    def get_pre_cnn_norm_layer(self):
+        """
+
+        Returns:
+
+        """
+        return self._encoder.get_pre_cnn_norm_layer()
+
     def forward(self, image):
         """
         Pass image through the CNN
@@ -174,6 +182,14 @@ class ECGCNNEncoder(nn.Module):
             stride=patch_size,
             bias=False
         )
+
+    def get_pre_cnn_norm_layer(self):
+        """
+
+        Returns:
+
+        """
+        return self._norm
 
     def forward(self, image):
         """
@@ -222,6 +238,14 @@ class CytoCNNEncoder(nn.Module):
             bias=False
         )
 
+    def get_pre_cnn_norm_layer(self):
+        """
+
+        Returns:
+
+        """
+        return self._norm
+
     def forward(self, image):
         """
         Pass the Cyto sample through the defined CNN architecture
@@ -253,17 +277,15 @@ class VisionEncoder(nn.Module):
             image_input_type: str,
             image_size: int,
             patch_size: int,
-            model_name_or_path: str,
+            config: Union[AutoConfig, BioGptConfig],
+            transformer: Union[VisionBioGPTModel, MaskedVisionBioGPTModel],
             in_channels: int,
             normalization: Optional[int]
     ):
         # TODO: Add init parameters?
         super().__init__()
-        self._config = AutoConfig.from_pretrained(model_name_or_path)
-        # TODO: Currently we only support the BioGPT architecture
-        #       for other architectures - we need to modify the attention mask accordingly
-        #       and create another subclass
-        self._transformer = VisionBioGPTModel(config=self._config)
+        self._config = config
+        self._transformer = transformer
         self._hidden_size = self.get_hidden_size()
         self._scale = self.get_text_embedding_scale()
 
@@ -276,6 +298,14 @@ class VisionEncoder(nn.Module):
             normalization=normalization,
             initializer_range=self._config.initializer_range
         )
+
+    def get_pre_cnn_norm_layer(self):
+        """
+
+        Returns:
+
+        """
+        return self._cnn_encoder.get_pre_cnn_norm_layer()
 
     def get_hidden_size(self):
         """
@@ -339,8 +369,8 @@ class VisionEncoder(nn.Module):
 
         # Output of say a 1-D CNN - representation that is appropriate for transformers
         input_embeddings = self.get_input_embeddings(image=image)
-        hidden_states = self._transformer(inputs_embeds=input_embeddings)
-        return hidden_states
+        outputs = self._transformer(inputs_embeds=input_embeddings)
+        return outputs
 
 
 class MultimodalDecoder(nn.Module):
@@ -349,11 +379,11 @@ class MultimodalDecoder(nn.Module):
     """
     def __init__(
             self,
-            vision_encoder,
-            text_decoder,
-            q_former,
+            vision_encoder: VisionEncoder,
+            text_decoder: Union[AutoModel, BioGptModel],
+            q_former: QFormer,
             projection_type: str,
-            ignore_index: int
+            ignore_index: int,
     ):
 
         super().__init__()
@@ -432,7 +462,10 @@ class MultimodalDecoder(nn.Module):
         Returns:
 
         """
-        return self._text_decoder.base_model.embed_tokens(input_ids)
+        if isinstance(self._text_decoder.base_model, LoraModel):
+            return self._text_decoder.base_model.base_model.embed_tokens(input_ids)
+        else:
+            return self._text_decoder.base_model.embed_tokens(input_ids)
 
     def get_text_embedding_scale(self):
         """
@@ -440,7 +473,10 @@ class MultimodalDecoder(nn.Module):
         Returns:
 
         """
-        return self._text_decoder.base_model.embed_tokens.embed_scale
+        if isinstance(self._text_decoder.base_model, LoraModel):
+            return self._text_decoder.base_model.base_model.embed_tokens.embed_scale
+        else:
+            return self._text_decoder.base_model.embed_tokens.embed_scale
 
     def get_text_config(self):
         """
@@ -526,6 +562,7 @@ class MultimodalDecoder(nn.Module):
             use_cache:
             images:
             labels:
+            weights:
 
         Returns:
 
@@ -540,7 +577,10 @@ class MultimodalDecoder(nn.Module):
         multi_modal_embeddings = self.concat_image_token_embeddings(
             image_embeddings=image_embeddings, token_embeddings=token_embeddings
         )
-        multi_modal_labels = self.get_labels(image_embeddings=image_embeddings, labels=labels)
+        if labels is not None:
+            multi_modal_labels = self.get_labels(image_embeddings=image_embeddings, labels=labels)
+        else:
+            multi_modal_labels = None
         if weights is not None:
             multi_modal_weights = self.get_labels(image_embeddings=image_embeddings, labels=weights)
         else:
@@ -588,203 +628,169 @@ class MultimodalDecoder(nn.Module):
             raise NotImplementedError()
 
 
-class VisionBioGPTModel(BioGptModel):
+# TODO check if CLS/register tokens improve reconstruction - One of the papers I read said it doesn't help, but we
+#  can still try if required
+class MaskedAutoencoderVisionEncoder(nn.Module):
     """
-    Modify the BioGPT model to support bidirectional (full) attention mask
+    Encode the ECG using a transformer architecture
     """
 
-    def __init__(self, config: BioGptConfig):
-        super().__init__(config)
-        self._embed_scale = self.embed_tokens.embed_scale
-        self.embed_tokens = None
-        # Turning this one was causing the loss to go to NaN
-        self.layer_norm = None
-
-    @staticmethod
-    def get_attention_mask(batch_size, sequence_length, device, dtype):
-        """
-        Build an attention mask. We want to use a bid-directional attention mask since
-        we are using an encoder. We set the attention mask manually to avoid the HF transformer
-        from using a causal mask. We use a full attention mask
-
-        Returns:
-
-        """
-        attention_mask = torch.ones(
-            size=(batch_size, 1, sequence_length, sequence_length), dtype=torch.long, device=device
-        )
-        # if the 4D mask has correct shape - invert it and fill with negative infinity
-        inverted_mask = 1.0 - attention_mask
-        attention_mask = inverted_mask.masked_fill(
-            inverted_mask.to(torch.bool), torch.finfo(dtype).min
-        )
-        return attention_mask
-
-    def get_embedding_scale(self):
-        """
-        Return the embedding scale value
-
-        Returns:
-
-        """
-        return self._embed_scale
-
-    def forward(
+    def __init__(
             self,
-            input_ids: Optional[torch.LongTensor] = None,
-            attention_mask: Optional[torch.FloatTensor] = None,
-            head_mask: Optional[torch.FloatTensor] = None,
-            inputs_embeds: Optional[torch.FloatTensor] = None,
-            past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
-            use_cache: Optional[bool] = None,
-            output_attentions: Optional[bool] = None,
-            output_hidden_states: Optional[bool] = None,
-            return_dict: Optional[bool] = None,
-            default_attention_mask: Optional[torch.FloatTensor] = None,
-    ) -> Union[Tuple, BaseModelOutputWithPastAndCrossAttentions]:
+            encoder: VisionEncoder,
+            decoder: VisionBioGPTModel,
+            image_input_type: str,
+            patch_size: int,
+            in_channels: int,
+    ):
+        super(MaskedAutoencoderVisionEncoder, self).__init__()
+        self._encoder = encoder
+        self._decoder = decoder
+
+        # MAE decoder specifics
+        self._decoder_embedding = nn.Linear(self._encoder.get_hidden_size(), self._decoder.get_hidden_size())
+        self._mask_token = nn.Parameter(torch.zeros(1, 1, self._decoder.get_hidden_size()))
+
+        # Normalization layers
+        self._encoder_norm = nn.LayerNorm(self._encoder.get_hidden_size())
+        self._decoder_norm = nn.LayerNorm(self._decoder.get_hidden_size())
+
+        self._image_input_type = image_input_type
+        self._patch_size = patch_size
+        self._in_channels = in_channels
+
+        # Decoder to patch
+        if self._image_input_type == 'ecg':
+            self._decoder_prediction = nn.Linear(
+                self._decoder.get_hidden_size(),
+                patch_size * in_channels,
+                bias=True
+            )
+        elif self._image_input_type == 'cyto':
+            self._decoder_prediction = nn.Linear(
+                self._decoder.get_hidden_size(),
+                (patch_size ** 2) * in_channels,
+                bias=True
+            )
+        else:
+            raise ValueError(f'Invalid image input type: {self._image_input_type}')
+
+    def forward_encoder(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Same function as defined in BioGptModel with a modification to the
-        attention mask - we replace the causal mask with bidirectional mask
-        so that the vision tokens can attend in both directions.
+        Encoder
 
         Args:
-            input_ids:
-            attention_mask:
-            head_mask:
-            inputs_embeds:
-            past_key_values:
-            use_cache:
-            output_attentions:
-            output_hidden_states:
-            return_dict:
-            default_attention_mask:
+            x:
 
         Returns:
 
         """
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        outputs = self._encoder(x)
+        hidden_states, mask, ids_restore = outputs[0], outputs[1], outputs[2]
+        # Normalize x - because we removed final layer norm in vision bio gpt model
+        hidden_states = self._encoder_norm(hidden_states)
+        return hidden_states, mask, ids_restore
 
-        # retrieve input_ids and inputs_embeds
-        if input_ids is not None and inputs_embeds is not None:
-            raise ValueError("You cannot specify both input_ids and inputs_embeds at the same time")
-        elif input_ids is not None:
-            input = input_ids
-            input_shape = input.size()
-        elif inputs_embeds is not None:
-            input_shape = inputs_embeds.size()[:-1]
-            input = inputs_embeds[:, :, -1]
+    def forward_decoder(self, x: torch.Tensor, ids_restore: torch.Tensor) -> torch.Tensor:
+        """
+        Decoder
+
+        Args:
+            x:
+            ids_restore:
+
+        Returns:
+
+        """
+
+        # Embed tokens - pass output of encoder through a linear projection
+        x = self._decoder_embedding(x)
+        # Append mask tokens to sequence
+        mask_tokens = self._mask_token.repeat(x.shape[0], ids_restore.shape[1] + 1 - x.shape[1], 1)
+        # Insert mask tokens and re-order
+        x_ = torch.cat([x, mask_tokens], dim=1)
+        # ids_restore can get back the original ordering
+        x = torch.gather(x_, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, x.shape[2]))
+        # Get the outputs from the decoder
+        outputs = self._decoder(inputs_embeds=x)
+        # Normalize x - because we removed final layer norm in vision bio gpt model
+        hidden_states = self._decoder_norm(outputs[0])
+        hidden_states = self._decoder_prediction(hidden_states)
+        return hidden_states
+
+    def patchify(self, images, normalize_labels):
+        """
+        Get the labels
+
+        Args:
+            images:
+            normalize_labels:
+
+        Returns:
+
+        """
+        if self._image_input_type == 'ecg':
+            return self.patchify_ecg(images=images, normalize_labels=normalize_labels)
+        elif self._image_input_type == 'cyto':
+            return self.patchify_cyto(images=images, normalize_labels=normalize_labels)
         else:
-            raise ValueError("You have to specify either input_ids or inputs_embeds")
+            raise ValueError(f'Invalid image input type: {self._image_input_type}')
 
-        # past_key_values_length
-        past_key_values_length = past_key_values[0][0].shape[2] if past_key_values is not None else 0
+    def patchify_ecg(self, images, normalize_labels):
+        """
+        Get the labels for ECG
+        """
+        if normalize_labels:
+            norm_layer = self._encoder.get_pre_cnn_norm_layer()
+            images = norm_layer(images)
 
-        if inputs_embeds is None:
-            inputs_embeds = self.embed_tokens(input)
-
-        if default_attention_mask is None:
-            default_attention_mask = torch.ones(
-                (inputs_embeds.shape[0], inputs_embeds.shape[1] + past_key_values_length),
-                dtype=torch.bool,
-                device=inputs_embeds.device,
+        x = images.reshape(
+            shape=(
+                images.shape[0],
+                images.shape[2] // self._patch_size,
+                self._patch_size * self._in_channels
             )
-        elif default_attention_mask.shape[1] != past_key_values_length + input_shape[1]:
-            raise ValueError(
-                f"The provided attention mask has length {default_attention_mask.shape[1]}, but its length should be "
-                f"{past_key_values_length + input_shape[1]} (sum of the lengths of current and past inputs)"
-            )
-
-        if attention_mask is None:
-            batch_size, seq_len, _ = inputs_embeds.shape
-            attention_mask = self.get_attention_mask(
-                batch_size=batch_size,
-                sequence_length=seq_len,
-                device=inputs_embeds.device,
-                dtype=inputs_embeds.dtype
-            )
-
-        # embed positions
-        positions = self.embed_positions(default_attention_mask, past_key_values_length)
-
-        hidden_states = inputs_embeds + positions
-
-        # TODO: Add PatchDropout?
-        hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
-
-        if self.gradient_checkpointing and self.training:
-            if use_cache:
-                use_cache = False
-
-        all_hidden_states = () if output_hidden_states else None
-        all_self_attns = () if output_attentions else None
-        all_cross_attentions = None
-        next_decoder_cache = () if use_cache else None
-
-        for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
-            if output_hidden_states:
-                all_hidden_states += (hidden_states,)
-            if self.training:
-                dropout_probability = torch.rand([])
-                if dropout_probability < self.layerdrop:
-                    continue
-
-            past_key_value = past_key_values[idx] if past_key_values is not None else None
-
-            if self.gradient_checkpointing and self.training:
-                layer_outputs = self._gradient_checkpointing_func(
-                    decoder_layer.__call__,
-                    hidden_states,
-                    attention_mask,
-                    head_mask[idx] if head_mask is not None else None,
-                    None,
-                    output_attentions,
-                    use_cache,
-                )
-            else:
-                layer_outputs = decoder_layer(
-                    hidden_states,
-                    attention_mask=attention_mask,
-                    layer_head_mask=(head_mask[idx] if head_mask is not None else None),
-                    past_key_value=past_key_value,
-                    output_attentions=output_attentions,
-                    use_cache=use_cache,
-                )
-
-            hidden_states = layer_outputs[0]
-
-            if use_cache:
-                next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
-
-            if output_attentions:
-                all_self_attns += (layer_outputs[1],)
-
-        # add hidden states from the last decoder layer
-        if output_hidden_states:
-            all_hidden_states += (hidden_states,)
-
-        # We removed the final layer norm - it leads to a loss with NaN
-        # maybe these values along with a projection and layer might
-        # lead to small values when passed to the text decoder
-        # hidden_states = self.layer_norm(hidden_states)
-
-        next_cache = next_decoder_cache if use_cache else None
-
-        if not return_dict:
-            return tuple(
-                v
-                for v in [hidden_states, next_cache, all_hidden_states, all_self_attns, all_cross_attentions]
-                if v is not None
-            )
-        return BaseModelOutputWithPastAndCrossAttentions(
-            last_hidden_state=hidden_states,
-            past_key_values=next_cache,
-            hidden_states=all_hidden_states,
-            attentions=all_self_attns,
-            cross_attentions=all_cross_attentions,
         )
+        return x
+
+    def patchify_cyto(self, images, normalize_labels):
+        """
+        images: (N, 6, H, W)
+        x: (N, L, patch_size**2 *6)
+        """
+
+        if normalize_labels:
+            norm_layer = self._encoder.get_pre_cnn_norm_layer()
+            images = norm_layer(images)
+
+        assert images.shape[2] == images.shape[1] and images.shape[2] % self._patch_size == 0
+
+        height, width = images.shape[2] // self._patch_size
+        x = images.reshape(
+            shape=(
+                images.shape[0],
+                height,
+                self._patch_size,
+                width,
+                self._patch_size,
+                self._in_channels,
+            )
+        )
+        # Basically a re-shape
+        x = torch.einsum('nhpwqc->nhwpqc', x)
+        x = x.reshape(shape=(images.shape[0], height * width, (self._patch_size ** 2) * self._in_channels))
+        return x
+
+    # def unpatchify(self, x):
+    #     """
+    #     x: (N, L, patch_size**2 *3)
+    #     imgs: (N, 3, H, W)
+    #     """
+    #     p = self.patch_embed.patch_size[0]
+    #     h = w = int(x.shape[1]**.5)
+    #     assert h * w == x.shape[1]
+
+    #     x = x.reshape(shape=(x.shape[0], h, w, p, p, 3))
+    #     x = torch.einsum('nhwpqc->nchpwq', x)
+    #     imgs = x.reshape(shape=(x.shape[0], 3, h * p, h * p))
+    #     return imgs

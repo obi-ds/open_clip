@@ -12,7 +12,6 @@ def get_encounter_file_arguments():
     parser.add_argument(
         "--encounter-file",
         type=str,
-        required=True,
         help="The file containing the encounter history",
     )
     parser.add_argument(
@@ -98,7 +97,7 @@ def get_encounter_file_arguments():
         help="Normalize the time differences by this number - to represent in terms of moths - this would be set to 30",
     )
     parser.add_argument(
-        "--use_log_position",
+        "--use-log-position",
         default=False,
         action="store_true",
         help="Represent time differences in terms of log of days"

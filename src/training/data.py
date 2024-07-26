@@ -38,7 +38,6 @@ from .data_utils import (
 )
 
 
-
 class SharedEpoch:
     def __init__(self, epoch: int = 0):
         self.shared_epoch = Value('i', epoch)
@@ -393,6 +392,50 @@ def get_wds_dataset_moca_prompt(
     )
 
 
+def get_wds_dataset_mae(
+        args,
+        preprocess_img,
+        is_train,
+        epoch=0,
+        floor=False,
+        return_sample=False,
+        tokenizer=None
+):
+
+    instruct_function = lambda x: torch.tensor([])
+
+    image_key, text_key = get_sample_keys(args)
+    if return_sample:
+        rename = wds.rename(image=image_key, text=text_key, labels=text_key)
+        return_tuple = wds.to_tuple("image", "text", "labels")
+    else:
+        rename = wds.rename(image=image_key, text=text_key)
+        return_tuple = wds.to_tuple("image", "text")
+
+    torch_blosc_convert = get_torch_blosc_convert(args)
+
+    # Build pipeline extension
+    pipeline_extension = [
+        wds.decode(
+            wds.handle_extension("blosc", blosc.unpack_array),
+        ),
+        rename,
+        wds.map_dict(text=instruct_function),
+        wds.map_dict(image=torch_blosc_convert),
+        wds.map_dict(image=preprocess_img),
+        return_tuple,
+        wds.batched(args.batch_size, partial=not is_train),
+    ]
+
+    return get_wds_data_info(
+        args=args,
+        pipeline_extension=pipeline_extension,
+        is_train=is_train,
+        epoch=epoch,
+        floor=floor
+    )
+
+
 def get_sample_keys(args):
     if 'ecg' in args.model.lower():
         return 'dict.x.blosc', 'dict.meta.pyd'
@@ -414,6 +457,10 @@ def get_torch_blosc_convert(args):
 def get_dataset_fn(data_path, dataset_type):
     if dataset_type == "icddataset":
         return get_wds_dataset_moca_instruct
+    elif dataset_type == "mae":
+        return get_wds_dataset_mae
+    else:
+        raise ValueError('Invalid dataset type')
 
 
 def get_data(args, preprocess_fns, epoch=0, tokenizer=None):

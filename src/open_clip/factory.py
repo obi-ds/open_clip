@@ -8,10 +8,11 @@ from typing import Optional, Tuple, Union
 import torch
 
 from .loss import (
-    MoCaLoss, MoCaFocalLoss, MoCaZLoss
+    MoCaLoss, MoCaFocalLoss, MoCaZLoss, MAELoss
 )
 from .model import convert_weights_to_lp
 from .moca_model import MoCa
+from .mae_model import MAE
 from .tokenizer import HFTokenizer
 
 _MODEL_CONFIG_PATHS = [Path(__file__).parent / f"model_configs/"]
@@ -142,10 +143,18 @@ def create_model(
         # override model config's image size
         model_cfg["vision_cfg"]["image_size"] = force_image_size
 
-    model_cfg = dict(model_cfg, **model_kwargs)  # merge cfg dict w/ kwargs (kwargs overrides cfg)
-    model = MoCa(
-        **model_cfg,
-    )
+    if 'moca' in model_name:
+        model_cfg = dict(model_cfg, **model_kwargs)  # merge cfg dict w/ kwargs (kwargs overrides cfg)
+        model = MoCa(
+            **model_cfg,
+        )
+    elif 'mae' in model_name:
+        model_cfg = dict(model_cfg, **model_kwargs)  # merge cfg dict w/ kwargs (kwargs overrides cfg)
+        model = MAE(
+            **model_cfg,
+        )
+    else:
+        raise ValueError('Invalid model name')
 
     if precision in ("fp16", "bf16"):
         dtype = torch.float16 if 'fp16' in precision else torch.bfloat16
@@ -193,6 +202,8 @@ def create_loss(args):
         return MoCaLoss(ignore_index=-100)
     elif args.loss_function == 'lm_z':
         return MoCaZLoss(ignore_index=-100, penalty_weight=1e-4)
+    elif args.loss_function == 'mae':
+        return MAELoss(norm_pixel_loss=False)
     else:
         raise ValueError(f'Invalid loss function: {args.loss_function}')
 

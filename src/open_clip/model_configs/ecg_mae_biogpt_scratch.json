@@ -1,0 +1,21 @@
+{
+    "embed_dim": null,
+    "encoder_cfg": {
+        "image_input_type": "ecg",
+        "hf_model_name": "microsoft/biogpt",
+        "patch_size": 20,
+        "image_size": null,
+        "in_channels": 12,
+        "normalization": 1,
+        "mask_ratio": 0.8,
+        "q_former": false
+    },
+    "decoder_cfg": {
+        "hf_model_name": "microsoft/biogpt",
+        "size_factor": 2,
+        "normalize_labels": false
+    },
+    "text_cfg": null,
+    "vision_cfg": null,
+    "custom_text": true
+}

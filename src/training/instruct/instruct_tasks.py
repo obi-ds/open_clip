@@ -1,9 +1,9 @@
 import numpy as np
 import torch
 import random
-from typing import Union
 
 from .demographics import DemographicPredictionTask, DemographicPredictionPrompt
+from .ecg_attributes import ECGAttributePredictionPrompt
 from .labs import LabPredictionPrompt
 from .diagnosis import DiagnosisLabelPredictionPrompt
 from .instruct_tokenizer import InstructTokenizer
@@ -42,6 +42,10 @@ class InstructTasks(object):
                 instructions = task.process_sample(
                     sample=sample, args=args, diagnoses=args.diagnosis_prompt_attributes
                 )
+            elif isinstance(task, ECGAttributePredictionPrompt):
+                instructions = task.process_sample(
+                    sample=sample, args=args, attributes=args.ecg_prompt_attributes
+                )
             elif isinstance(task, DemographicPredictionTask):
                 instructions = task.process_sample(
                     sample=sample, args=args, ignore_instruction=self.get_ignore_instruction_demographics(
@@ -52,6 +56,9 @@ class InstructTasks(object):
                 instructions = task.process_sample(sample=sample, args=args)
 
             task_instructions.extend(instructions)
+
+        if args.text_generation:
+            task_instructions = self.get_task_instruction_for_generation(task_instructions=task_instructions)
 
         if self._instruct_tokenizer is None:
             return task_instructions
@@ -86,3 +93,20 @@ class InstructTasks(object):
             return np.random.rand() > 1
         else:
             return np.random.rand() > 0.5
+
+    @staticmethod
+    def get_task_instruction_for_generation(task_instructions):
+        """
+        Modify the task instructions for generation tasks
+
+        Args:
+            task_instructions:
+
+        Returns:
+
+        """
+        task_instructions.pop()
+        task_instructions[-1] = (
+            task_instructions[-1][0], '', task_instructions[-1][2], task_instructions[-1][3], task_instructions[-1][4]
+        )
+        return task_instructions

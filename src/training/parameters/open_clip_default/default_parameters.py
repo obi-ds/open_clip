@@ -54,8 +54,8 @@ def get_open_clip_arguments():
     )
     parser.add_argument(
         "--dataset-type",
-        choices=["icddataset"],
-        default="icddataset",
+        choices=["icddataset", "mae"],
+        default=None,
         help="Which type of dataset to process."
     )
     parser.add_argument(
@@ -224,6 +224,9 @@ def get_open_clip_arguments():
     )
     parser.add_argument(
         "--pad_id", type=int, default=None, help="The ID of the padding token"
+    )
+    parser.add_argument(
+        "--padding-side", type=str, default='right', help="The side to pad tokens"
     )
     parser.add_argument(
         "--torchscript",

@@ -6,6 +6,7 @@ from typing import Optional
 from transformers import AutoConfig, AutoModelForCausalLM
 
 from .model import MocaVisionEncoderConfig, MocaTextDecoderConfig
+from .biogpt_vision import VisionBioGPTModel
 from .transformer_decoder import VisionEncoder, MultimodalDecoder, QFormer
 
 from transformers import (
@@ -17,6 +18,7 @@ from transformers import (
     MaxLengthCriteria,
     StoppingCriteriaList
 )
+from peft import get_peft_model, LoraConfig
 
 GENERATION_TYPES = {
     "top_k": TopKLogitsWarper,
@@ -54,12 +56,15 @@ class MoCa(nn.Module):
             patch_size=vision_cfg.patch_size,
             in_channels=vision_cfg.in_channels,
             model_name_or_path=vision_cfg.hf_model_name,
-            normalization=vision_cfg.normalization
+            normalization=vision_cfg.normalization,
+            pretrained=vision_cfg.pretrained,
+            lora=vision_cfg.lora
         )
 
         text = self.get_text_decoder(
             model_name_or_path=text_cfg.hf_model_name,
-            pretrained=text_cfg.pretrained
+            pretrained=text_cfg.pretrained,
+            lora=text_cfg.lora
         )
 
         if vision_cfg.q_former:
@@ -75,21 +80,23 @@ class MoCa(nn.Module):
             text_decoder=text,
             q_former=q_former,
             projection_type=text_cfg.projection_type,
-            ignore_index=ignore_index
+            ignore_index=ignore_index,
         )
 
         # Set these to None - so that it works with the existing open_clip implementation
         self.visual = None
         self.text = None
 
-    @staticmethod
     def get_vision_encoder(
+            self,
             image_input_type: str,
             image_size: int,
             patch_size: int,
             model_name_or_path: str,
             in_channels: int,
-            normalization: Optional[int]
+            normalization: Optional[int],
+            pretrained: Optional[str],
+            lora: bool
     ):
         """
         Return the vision encoder object
@@ -101,42 +108,63 @@ class MoCa(nn.Module):
             model_name_or_path:
             in_channels:
             normalization:
+            pretrained:
+            lora:
 
         Returns:
 
         """
-        return VisionEncoder(
+        # TODO: Currently we only support the BioGPT architecture
+        #       for other architectures - we need to modify the attention mask accordingly
+        #       and create another subclass
+        config = AutoConfig.from_pretrained(model_name_or_path)
+        transformer = VisionBioGPTModel(config=config)
+
+        vision_encoder = VisionEncoder(
             image_input_type=image_input_type,
             image_size=image_size,
             patch_size=patch_size,
-            model_name_or_path=model_name_or_path,
+            config=config,
+            transformer=transformer,
             in_channels=in_channels,
             normalization=normalization
         )
+        if pretrained:
+            print(f'Loading pre-trained vision encoder model: ', pretrained)
+            vision_encoder.load_state_dict(torch.load(pretrained))
+        if lora:
+            print('Adding LoRA adapters - Vision Encoder')
+            vision_encoder._transformer = self.get_lora_model(model=vision_encoder._transformer)
+        return vision_encoder
 
-    @staticmethod
-    def get_text_decoder(model_name_or_path, pretrained):
+    def get_text_decoder(self, model_name_or_path, pretrained, lora: bool):
         """
         Return the text decoder model (from huggingface)
 
         Args:
             model_name_or_path:
             pretrained:
+            lora:
 
         Returns:
 
         """
         config = AutoConfig.from_pretrained(model_name_or_path)
         if not pretrained:
-            return AutoModelForCausalLM.from_config(
+            model = AutoModelForCausalLM.from_config(
                 config=config,
             )
         else:
-            return AutoModelForCausalLM.from_pretrained(
+            print(f'Loading pre-trained text causal lm model: ', pretrained)
+            model = AutoModelForCausalLM.from_pretrained(
                 model_name_or_path,
                 from_tf=bool(".ckpt" in model_name_or_path),
                 config=config,
             )
+        if lora:
+            print('Adding LoRA adapters - Text Causal LM')
+            model = self.get_lora_model(model=model)
+        return model
 
     @staticmethod
     def get_q_former(hidden_size: int, num_query_tokens: int):
@@ -149,6 +177,7 @@ class MoCa(nn.Module):
         Returns:
 
         """
+        print('Number of query tokens: ', num_query_tokens)
         return QFormer(
             hidden_size=hidden_size,
             num_query_tokens=num_query_tokens
@@ -181,6 +210,35 @@ class MoCa(nn.Module):
 
         """
         self._multimodal_decoder.lock_text_decoder(unlocked_layers, freeze_layer_norm)
+
+    @staticmethod
+    def get_lora_model(model, rank=2, lora_alpha=16, lora_dropout=0.1, target_modules=None):
+        """
+        Add LORA adapters to the model
+        Args:
+            model:
+            rank:
+            lora_alpha:
+            lora_dropout:
+            target_modules:
+
+        Returns:
+
+        """
+        # TODO: Specify task type? - will it work without?
+        if target_modules is None:
+            target_modules = ['k_proj', 'v_proj', 'q_proj', 'out_proj', 'fc1', 'fc2']
+
+        peft_config = LoraConfig(
+            r=rank,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            bias='none',
+            target_modules=target_modules
+        )
+        model = get_peft_model(model, peft_config)
+        print(model.print_trainable_parameters())
+        return model
 
     def forward(
             self,
@@ -310,7 +368,7 @@ class MoCa(nn.Module):
 
                 cur_len += 1
 
-                if stopping_criteria(out, None):
+                if all(stopping_criteria(out, None)):
                     break
 
             if num_dims == 1:
