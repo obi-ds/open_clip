@@ -113,8 +113,6 @@ python eval.py \
 
 
 
-
-
 #python eval.py \
 #--gpu 0 \
 #--val-data='/mnt/obi0/phi/ehr_projects/bloodcell_clip/data/cardiac/mgh/mgh_val_2403/shard_{0000..0010}.tar'  \
