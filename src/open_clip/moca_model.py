@@ -80,7 +80,7 @@ class MoCa(nn.Module):
             text_decoder=text,
             q_former=q_former,
             projection_type=text_cfg.projection_type,
-            ignore_index=ignore_index
+            ignore_index=ignore_index,
         )
 
         # Set these to None - so that it works with the existing open_clip implementation
@@ -131,7 +131,7 @@ class MoCa(nn.Module):
         )
         if pretrained:
             print(f'Loading pre-trained vision encoder model: ', pretrained)
-            vision_encoder = vision_encoder.load_state_dict(torch.load(pretrained))
+            vision_encoder.load_state_dict(torch.load(pretrained))
         if lora:
             print('Adding LoRA adapters - Vision Encoder')
             vision_encoder._transformer = self.get_lora_model(model=vision_encoder._transformer)
@@ -177,6 +177,7 @@ class MoCa(nn.Module):
         Returns:
 
         """
+        print('Number of query tokens: ', num_query_tokens)
         return QFormer(
             hidden_size=hidden_size,
             num_query_tokens=num_query_tokens

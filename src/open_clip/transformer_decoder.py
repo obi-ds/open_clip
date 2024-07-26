@@ -8,6 +8,7 @@ from transformers import (
     AutoConfig,
     BioGptConfig, AutoModel, BioGptModel
 )
+from peft import LoraModel
 from .biogpt_vision import VisionBioGPTModel, MaskedVisionBioGPTModel
 from .q_former import BertLMHeadModel
 
@@ -382,7 +383,7 @@ class MultimodalDecoder(nn.Module):
             text_decoder: Union[AutoModel, BioGptModel],
             q_former: QFormer,
             projection_type: str,
-            ignore_index: int
+            ignore_index: int,
     ):
 
         super().__init__()
@@ -461,7 +462,10 @@ class MultimodalDecoder(nn.Module):
         Returns:
 
         """
-        return self._text_decoder.base_model.embed_tokens(input_ids)
+        if isinstance(self._text_decoder.base_model, LoraModel):
+            return self._text_decoder.base_model.base_model.embed_tokens(input_ids)
+        else:
+            return self._text_decoder.base_model.embed_tokens(input_ids)
 
     def get_text_embedding_scale(self):
         """
@@ -469,7 +473,10 @@ class MultimodalDecoder(nn.Module):
         Returns:
 
         """
-        return self._text_decoder.base_model.embed_tokens.embed_scale
+        if isinstance(self._text_decoder.base_model, LoraModel):
+            return self._text_decoder.base_model.base_model.embed_tokens.embed_scale
+        else:
+            return self._text_decoder.base_model.embed_tokens.embed_scale
 
     def get_text_config(self):
         """
