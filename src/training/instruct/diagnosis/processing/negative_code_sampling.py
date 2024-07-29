@@ -41,7 +41,7 @@ class NegativeCodeCacheSampling(object):
             idf = pd.read_csv(idf_file)
             codes = pd.read_csv(source_file, encoding='ISO-8859-1')
             self._codes = pd.merge(codes, idf, on='phecode', how='left')
-            self._codes[self._idf_column].fillna(idf[self._idf_column].mean(), inplace=True)
+            self._codes[self._idf_column] = self._codes[self._idf_column].fillna(idf[self._idf_column].mean())
 
         else:
             raise NotImplementedError('Custom source file yet to be implemented')

@@ -1,5 +1,7 @@
 """Process patient information"""
 import pandas as pd
+import polars as pl
+
 from typing import Optional, Union
 
 from .utils import get_log_value
@@ -11,7 +13,7 @@ class EncounterDataframeProcess(object):
     """
     def __init__(
             self,
-            encounter_dataframe: pd.DataFrame,
+            encounter_dataframe: pl.DataFrame,
             patient_id_column: str = 'PatientID',
             contact_date_column: str = 'ContactDTS',
             time_difference_column: str = 'time_difference',
@@ -52,7 +54,7 @@ class EncounterDataframeProcess(object):
         # Extract the patient info from this dataframe - this contains
         # a collection of all codes the patient ever had and the timestamp
         # of their earliest encounters
-        return self._encounter_dataframe.loc[[patient_id]]
+        return self._encounter_dataframe.filter(pl.col(self._patient_id_column) == patient_id).collect().to_pandas()
 
     def get_patient_encounter_history_with_position(
             self,

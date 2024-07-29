@@ -1,5 +1,7 @@
 """Process patient information"""
 import pandas as pd
+import polars as pl
+
 from ...diagnosis.processing import EncounterDataframeProcess
 
 
@@ -9,7 +11,7 @@ class LabsDataframeProcess(EncounterDataframeProcess):
     """
     def __init__(
             self,
-            lab_dataframes: pd.DataFrame,
+            lab_dataframes: pl.DataFrame,
             patient_id_column: str = 'PatientID',
             contact_date_column: str = 'ResultDTS',
             time_difference_column: str = 'time_difference',
@@ -39,7 +41,7 @@ class LabsDataframeProcess(EncounterDataframeProcess):
             position_column=position_column
         )
 
-    def get_encounter_dataframe(self, patient_id):
+    def get_encounter_dataframe(self, patient_id: str) -> pl.DataFrame:
         """
 
         Args:
@@ -65,7 +67,7 @@ class LabsDataframeProcess(EncounterDataframeProcess):
         # a collection of all codes the patient ever had and the timestamp
         # of their earliest encounters
         encounter_dataframe = self.get_encounter_dataframe(patient_id=patient_id)
-        return encounter_dataframe.loc[[patient_id]]
+        return encounter_dataframe.filter(pl.col(self._patient_id_column) == patient_id).collect().to_pandas()
 
     def check_patient_id(self, patient_id: str) -> bool:
         """
@@ -78,4 +80,4 @@ class LabsDataframeProcess(EncounterDataframeProcess):
             (bool): True if patient id exists, false otherwise
         """
         encounter_dataframe = self.get_encounter_dataframe(patient_id=patient_id)
-        return patient_id in encounter_dataframe.index
+        return encounter_dataframe.filter(pl.col(self._patient_id_column) == patient_id).collect().height > 0

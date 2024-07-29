@@ -1,5 +1,6 @@
 """Util functions to set up web dataset dataloader"""
 import pandas as pd
+import polars as pl
 from .instruct.diagnosis import (
     DiagnosisLabelPredictionTask,
     DiagnosisLabelPredictionPrompt,
@@ -357,8 +358,9 @@ def get_encounter_dataframe(encounter_file):
     Returns:
 
     """
-    return pd.read_parquet(
-        encounter_file, columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode', 'idf']
+    return pl.scan_parquet(
+        encounter_file,
+        #columns=['PatientID', 'ContactDTS', 'ICD10CD', 'phecode', 'idf']
     )
 
 
@@ -456,7 +458,7 @@ def get_lab_dataframes(labs_folder):
         'mgh_2020_labs_8_pd.parquet',
         'mgh_2020_labs_9_pd.parquet'
     ]
-    return [pd.read_parquet(f'{labs_folder}/{lab_suffix}') for lab_suffix in lab_suffixes]
+    return [pl.scan_parquet(f'{labs_folder}/{lab_suffix}') for lab_suffix in lab_suffixes]
 
 
 def get_lab_dataframe_process(lab_dataframes, args):
