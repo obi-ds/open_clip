@@ -780,9 +780,9 @@ class MaskedAutoencoderVisionEncoder(nn.Module):
             norm_layer = self._encoder.get_pre_cnn_norm_layer()
             images = norm_layer(images)
 
-        assert images.shape[2] == images.shape[1] and images.shape[2] % self._patch_size == 0
+        assert images.shape[2] == images.shape[3] and images.shape[2] % self._patch_size == 0, f'Shape: {images.shape}'
 
-        height, width = images.shape[2] // self._patch_size
+        height, width = images.shape[2] // self._patch_size, images.shape[2] // self._patch_size
         x = images.reshape(
             shape=(
                 images.shape[0],
