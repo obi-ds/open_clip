@@ -154,9 +154,11 @@ class MAE(nn.Module):
         hidden_states, mask, ids_restore = self._masked_auto_encoder_vision_encoder.forward_encoder(x=images)
         predictions = self._masked_auto_encoder_vision_encoder.forward_decoder(hidden_states, ids_restore)
         labels = self._masked_auto_encoder_vision_encoder.patchify(images, normalize_labels=self._normalize_labels)
+        reconstructions = self._masked_auto_encoder_vision_encoder.unpatchify_ecg(predictions)
 
         return {
             "predictions": predictions,
             "labels": labels,
-            "mask": mask
+            "mask": mask,
+            "reconstructions": reconstructions
         }
