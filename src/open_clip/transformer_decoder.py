@@ -753,6 +753,23 @@ class MaskedAutoencoderVisionEncoder(nn.Module):
         )
         return x
 
+
+    def unpatchify_ecg(self, x):
+        """
+        Reverse the patchify operation for ECG
+        """
+        # TODO normalization not reversible
+        # Reshape x back to original image dimensions
+        images = x.reshape(
+            shape=(
+                x.shape[0],
+                self._in_channels,
+                x.shape[1] * self._patch_size
+            )
+        )
+
+        return images
+
     def patchify_cyto(self, images, normalize_labels):
         """
         images: (N, 6, H, W)
