@@ -6,10 +6,13 @@ import torch.nn.functional as F
 from typing import Optional
 from transformers import AutoConfig
 
+import matplotlib.pyplot as plt
 
 from .model import MAEEncoderConfig, MAEDecoderConfig
 from .biogpt_vision import MaskedVisionBioGPTModel, VisionBioGPTModel
 from .transformer_decoder import VisionEncoder, MaskedAutoencoderVisionEncoder
+
+import numpy as np
 
 _has_transformers = True
 
@@ -151,39 +154,85 @@ class MAE(nn.Module):
         """
         self.visual.set_grad_checkpointing(enable)
 
+    def add_baseline_wander(self, images, frequency_range=(0.01, 0.5), amplitude_range=(0.05, 200), sampling_rate=250):
+        if torch.rand(1) < 0.5:
+            return images
+        
+        batch_size, num_leads, signal_length = images.shape
+        t = torch.linspace(0, signal_length / sampling_rate, signal_length, device=images.device)
+        frequencies = torch.rand(batch_size, 1, 1, device=images.device) * (frequency_range[1] - frequency_range[0]) + frequency_range[0]
+        amplitudes = torch.rand(batch_size, 1, 1, device=images.device) * (amplitude_range[1] - amplitude_range[0]) + amplitude_range[0]
+        
+        wander = amplitudes * torch.sin(2 * np.pi * frequencies * t.unsqueeze(0))
+        return images + wander.expand_as(images)
+
+    def add_powerline_interference(self, images, frequency=50, amplitude=20):
+        t = torch.linspace(0, 1, images.shape[-1], device=images.device)
+        interference = amplitude * torch.sin(2 * np.pi * frequency * t)
+        return images + interference.unsqueeze(0).unsqueeze(0)
+
+    def add_muscle_artifacts(self, images, amplitude=100):
+        artifacts = torch.randn_like(images) * amplitude
+        mask = torch.rand_like(images) < 0.05  # 10% of timepoints
+        return images + artifacts * mask
+
+    def add_noise(self, images, noise_scale):
+        std = images.std(dim=-1, keepdim=True)
+        noise_scale = noise_scale * std
+        mask = torch.rand_like(images) < 0.3  # 10% of timepoints
+        return images + torch.randn_like(images) * noise_scale * mask
+
+    def add_ecg_noise(self, images):
+        images = self.add_baseline_wander(images)
+        images = self.add_powerline_interference(images)
+        images = self.add_muscle_artifacts(images)
+        images = self.add_noise(images, noise_scale=self.input_noise)
+        return images
+
+    def log_visualizations(self, original_images, noisy_images, reconstructions, step):
+        num_samples = min(2, original_images.shape[0])
+        fig, axes = plt.subplots(num_samples, 3, figsize=(15, 10))
+        fig.suptitle(f'Samples at step {step}')
+
+        for i in range(num_samples):
+            for j, (title, image) in enumerate([
+                ('Original', original_images[i]),
+                ('Noisy', noisy_images[i]),
+                ('Reconstructed', reconstructions[i])
+            ]):
+                ax = axes[i, j]
+                ax.plot(image[0].cpu().detach().numpy(), label='Lead 1')
+                ax.plot(image[1].cpu().detach().numpy(), label='Lead 2')
+                ax.set_title(f'Sample {i+1} - {title}')
+                ax.set_xlabel('Time')
+                ax.set_ylabel('Amplitude')
+                ax.legend()
+
+        plt.tight_layout()
+
+        return fig
+
     def forward(
             self,
             images,
             texts=None,
     ):
 
-        if self.input_noise > 0:
-            std = images.std(dim=-1, keepdim=True)
-            noise_scale = self.input_noise * std
-            images = images + torch.randn_like(images) * noise_scale
+        images_orig = images
+        if self.training and self.input_noise > 0:
+            images = self.add_ecg_noise(images)
 
         hidden_states, mask, ids_restore = self._masked_auto_encoder_vision_encoder.forward_encoder(x=images)
                 
-        #encoded = self.dropout(hidden_states)
         predictions = self._masked_auto_encoder_vision_encoder.forward_decoder(hidden_states, ids_restore)
         labels = self._masked_auto_encoder_vision_encoder.patchify(images, normalize_labels=self._normalize_labels)
         reconstructions = self._masked_auto_encoder_vision_encoder.unpatchify_ecg(predictions)
 
-        # # Calculate MSE loss only on masked tokens
-        # mse_loss = (predictions - labels) ** 2
-        # mse_loss = mse_loss.mean(dim=-1)  # [N, L], mean loss per patch
-        # mse_loss = (mse_loss * mask).sum() / mask.sum()  # mean loss on removed patches
-        
-        # # TODO this is recursively called
-        # #consistency_loss = self.consistency_loss(images)
-        # amp_reg = self.amplitude_regularization(images, reconstructions)
-        # freq_reg = self.frequency_regularization(images, reconstructions)
-        # tv_reg = self.total_variation_regularization(reconstructions)
-
         return {
             'hidden_states': hidden_states,
             'reconstructions': reconstructions,
-            'images': images,
+            'images': images_orig,
+            'noisy_images': images,
             'predictions': predictions,
             'labels': labels,
             'mask': mask,

@@ -17,6 +17,7 @@ from open_clip import get_input_dtype
 from .distributed import is_master
 from .precision import get_autocast
 
+import matplotlib.pyplot as plt
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -152,10 +153,25 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, args
                 for name, val in log_data.items():
                     tb_writer.add_scalar(name, val, step)
             
+            # TODO only run when possible
+            fig = unwrap_model(model).log_visualizations(model_out['images'], model_out['noisy_images'], model_out['reconstructions'], step)
+            log_folder = os.path.join(args.checkpoint_path, 'logs')
+            os.makedirs(log_folder, exist_ok=True)
+            fig_path = os.path.join(log_folder, f'visualization_step_{step}.png')
+            fig.savefig(fig_path)
+            plt.close(fig)
+            
+
             if args.wandb:
                 assert wandb is not None, 'Please install wandb.'
                 log_data['step'] = step  # for backwards compatibility
                 wandb.log(log_data, step=step)
+
+                # Log visualizations if available
+                if hasattr(unwrap_model(model), 'log_visualizations') and 'reconstructions' in model_out:
+                    unwrap_model(model).log_visualizations(model_out['images'], model_out['noisy_images'], model_out['reconstructions'], step)
+                    wandb.log({"ecg_visualization": wandb.Image(fig)}, step=step)
+                    plt.close(fig)
             
             # resetting batch / data time meters per log window
             batch_time_m.reset()

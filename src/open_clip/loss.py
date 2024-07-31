@@ -222,7 +222,7 @@ class RegularizedMAELoss(nn.Module):
         self._norm_pixel_loss = norm_pixel_loss
 
     def forward(self,
-                hidden_states, reconstructions, images, predictions, labels, mask,
+                hidden_states, reconstructions, images, noisy_images, predictions, labels, mask,
                 output_dict=False):
         """
         MAE Loss
@@ -237,24 +237,23 @@ class RegularizedMAELoss(nn.Module):
         mse_loss = mse_loss.mean(dim=-1)  # [N, L], mean loss per patch
         mse_loss = (mse_loss * mask).sum() / mask.sum()  # mean loss on removed patches
 
-        amp_reg = self.amplitude_regularization(original=images, reconstructed=reconstructions)
-        freq_reg = self.frequency_regularization(original=images, reconstructed=reconstructions)
+        #amp_reg = self.amplitude_regularization(original=images, reconstructed=reconstructions)
+        #freq_reg = self.frequency_regularization(original=images, reconstructed=reconstructions)
         
         # could do this on the hidden states or the reconstructions
         #tv_reg = self.total_variation_regularization(x=hidden_states)
         tv_reg = self.total_variation_regularization(x=reconstructions)
+        #amp_reg = 1e-7 * amp_reg
+        #freq_reg = 1e-7 * freq_reg
+        tv_reg = 1e-4 * tv_reg
 
-        amp_reg = 0.0001 * amp_reg
-        freq_reg = 0.0001 * freq_reg
-        tv_reg = 0.01 * tv_reg
-
-        total_loss = mse_loss + amp_reg + freq_reg + tv_reg
+        total_loss = mse_loss + tv_reg # amp_reg + freq_reg + tv_reg
 
         if output_dict:
             return {#"loss": total_loss,
                     'mse_loss': mse_loss,
-                    'amp_reg': amp_reg,
-                    'freq_reg': freq_reg,
+                    #'amp_reg': amp_reg,
+                    #'freq_reg': freq_reg,
                     'tv_reg': tv_reg}
 
         return total_loss
