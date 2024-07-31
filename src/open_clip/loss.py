@@ -188,7 +188,7 @@ class MAELoss(nn.Module):
         super().__init__()
         self._norm_pixel_loss = norm_pixel_loss
 
-    def forward(self, predictions, labels, mask, output_dict=False):
+    def forward(self, hidden_states, predictions, labels, mask, output_dict=False):
         """
         MAE Loss
         """
@@ -206,3 +206,86 @@ class MAELoss(nn.Module):
             return {"loss": loss}
 
         return loss
+
+
+class RegularizedMAELoss(nn.Module):
+    """
+    MAE Loss function
+
+    """
+
+    def __init__(
+            self,
+            norm_pixel_loss,
+    ):
+        super().__init__()
+        self._norm_pixel_loss = norm_pixel_loss
+
+    def forward(self,
+                hidden_states, reconstructions, images, predictions, labels, mask,
+                output_dict=False):
+        """
+        MAE Loss
+        """
+
+        if self._norm_pixel_loss:
+            mean = labels.mean(dim=-1, keepdim=True)
+            var = labels.var(dim=-1, keepdim=True)
+            labels = (labels - mean) / (var + 1.e-6) ** .5
+
+        mse_loss = (predictions - labels) ** 2
+        mse_loss = mse_loss.mean(dim=-1)  # [N, L], mean loss per patch
+        mse_loss = (mse_loss * mask).sum() / mask.sum()  # mean loss on removed patches
+
+        amp_reg = self.amplitude_regularization(original=images, reconstructed=reconstructions)
+        freq_reg = self.frequency_regularization(original=images, reconstructed=reconstructions)
+        
+        # could do this on the hidden states or the reconstructions
+        #tv_reg = self.total_variation_regularization(x=hidden_states)
+        tv_reg = self.total_variation_regularization(x=reconstructions)
+
+        amp_reg = 0.0001 * amp_reg
+        freq_reg = 0.0001 * freq_reg
+        tv_reg = 0.01 * tv_reg
+
+        total_loss = mse_loss + amp_reg + freq_reg + tv_reg
+
+        if output_dict:
+            return {#"loss": total_loss,
+                    'mse_loss': mse_loss,
+                    'amp_reg': amp_reg,
+                    'freq_reg': freq_reg,
+                    'tv_reg': tv_reg}
+
+        return total_loss
+    
+    # def consistency_loss(self, x):
+    #     perturbed_x = x + torch.randn_like(x) * 0.1
+    #     output1 = self.forward(x)['reconstructions']
+    #     output2 = self.forward(perturbed_x)['reconstructions']
+    #     return F.mse_loss(output1, output2)
+
+    def amplitude_regularization(self, original, reconstructed):
+        original_amp = torch.max(original) - torch.min(original)
+        reconstructed_amp = torch.max(reconstructed) - torch.min(reconstructed)
+        return F.mse_loss(original_amp, reconstructed_amp)
+
+    def frequency_regularization(self, original, reconstructed):
+        def pad_to_power_of_2(x):
+            size = x.shape[-1]
+            target_size = 2 ** (size - 1).bit_length()
+            pad_size = target_size - size
+            return F.pad(x, (0, pad_size))
+
+        original_padded = pad_to_power_of_2(original)
+        reconstructed_padded = pad_to_power_of_2(reconstructed)
+
+        original_fft = torch.fft.fft(original_padded)
+        reconstructed_fft = torch.fft.fft(reconstructed_padded)
+        
+        return F.mse_loss(torch.abs(original_fft), torch.abs(reconstructed_fft))
+
+    def total_variation_regularization(self, x):
+        diff = x[:, :, 1:] - x[:, :, :-1]
+        return torch.sum(torch.abs(diff))
+    

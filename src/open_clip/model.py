@@ -40,6 +40,7 @@ class MocaTextDecoderConfig:
 @dataclass
 class MAEEncoderConfig(MocaVisionEncoderConfig):
     mask_ratio: float = None
+    input_noise: float = 0.0
 
 @dataclass
 class MAEDecoderConfig:

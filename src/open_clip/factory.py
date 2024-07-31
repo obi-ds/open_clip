@@ -8,7 +8,7 @@ from typing import Optional, Tuple, Union
 import torch
 
 from .loss import (
-    MoCaLoss, MoCaFocalLoss, MoCaZLoss, MAELoss
+    MoCaLoss, MoCaFocalLoss, MoCaZLoss, MAELoss, RegularizedMAELoss
 )
 from .model import convert_weights_to_lp
 from .moca_model import MoCa
@@ -204,6 +204,8 @@ def create_loss(args):
         return MoCaZLoss(ignore_index=-100, penalty_weight=1e-4)
     elif args.loss_function == 'mae':
         return MAELoss(norm_pixel_loss=False)
+    elif args.loss_function == 'denoising_mae':
+        return RegularizedMAELoss(norm_pixel_loss=False)
     else:
         raise ValueError(f'Invalid loss function: {args.loss_function}')
 

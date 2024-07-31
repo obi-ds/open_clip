@@ -41,6 +41,7 @@ def evaluate_mae(model, data, loss, epoch, args, tb_writer=None):
                     model_out = model(images, texts)
                     losses = loss(**model_out, output_dict=True)
                     total_loss = sum(losses.values())
+                    #total_loss = losses['loss']
 
                 batch_size = images.shape[0]
                 cumulative_loss += total_loss * batch_size

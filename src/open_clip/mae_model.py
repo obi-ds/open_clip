@@ -1,8 +1,11 @@
 """Moca model"""
 import torch
 from torch import nn
+import torch.nn.functional as F
+
 from typing import Optional
 from transformers import AutoConfig
+
 
 from .model import MAEEncoderConfig, MAEDecoderConfig
 from .biogpt_vision import MaskedVisionBioGPTModel, VisionBioGPTModel
@@ -69,6 +72,9 @@ class MAE(nn.Module):
         # Set these to None - so that it works with the existing open_clip implementation
         self.visual = None
         self.text = None
+
+        # Added to test denoising MAE
+        self.input_noise = encoder_cfg.input_noise
 
     @staticmethod
     def get_encoder(
@@ -151,14 +157,35 @@ class MAE(nn.Module):
             texts=None,
     ):
 
+        if self.input_noise > 0:
+            std = images.std(dim=-1, keepdim=True)
+            noise_scale = self.input_noise * std
+            images = images + torch.randn_like(images) * noise_scale
+
         hidden_states, mask, ids_restore = self._masked_auto_encoder_vision_encoder.forward_encoder(x=images)
+                
+        #encoded = self.dropout(hidden_states)
         predictions = self._masked_auto_encoder_vision_encoder.forward_decoder(hidden_states, ids_restore)
         labels = self._masked_auto_encoder_vision_encoder.patchify(images, normalize_labels=self._normalize_labels)
         reconstructions = self._masked_auto_encoder_vision_encoder.unpatchify_ecg(predictions)
 
+        # # Calculate MSE loss only on masked tokens
+        # mse_loss = (predictions - labels) ** 2
+        # mse_loss = mse_loss.mean(dim=-1)  # [N, L], mean loss per patch
+        # mse_loss = (mse_loss * mask).sum() / mask.sum()  # mean loss on removed patches
+        
+        # # TODO this is recursively called
+        # #consistency_loss = self.consistency_loss(images)
+        # amp_reg = self.amplitude_regularization(images, reconstructions)
+        # freq_reg = self.frequency_regularization(images, reconstructions)
+        # tv_reg = self.total_variation_regularization(reconstructions)
+
         return {
-            "predictions": predictions,
-            "labels": labels,
-            "mask": mask,
-            "reconstructions": reconstructions
+            'hidden_states': hidden_states,
+            'reconstructions': reconstructions,
+            'images': images,
+            'predictions': predictions,
+            'labels': labels,
+            'mask': mask,
         }
+    
