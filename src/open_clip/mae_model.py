@@ -224,9 +224,8 @@ class MAE(nn.Module):
         
         images_orig = images
         images_noisy = self.add_ecg_noise(images)
-        #images_cleaned = preprocess_ecg(images, self.sampling_rate)
-
-        images_cleaned = remove_baseline_wander_torch(images, self.sampling_rate)
+        # further denoise the oringinal images
+        images_cleaned = denoise_ecg(images, self.sampling_rate)
 
         hidden_states, mask, ids_restore = self._masked_auto_encoder_vision_encoder.forward_encoder(x=images_noisy)
         predictions = self._masked_auto_encoder_vision_encoder.forward_decoder(hidden_states, ids_restore)
@@ -244,96 +243,99 @@ class MAE(nn.Module):
             'mask': mask,
         }
 
-def remove_baseline_wander_torch(signal, sampling_rate=250, cutoff_freq=0.5):
+def denoise_ecg(signal, sampling_rate=250, low_cutoff_freq=0.5, high_cutoff_freq=125, median_window_size=0.2):
     """
-    Remove baseline wander using a high-pass filter implemented with PyTorch.
+    Remove baseline wander, high-frequency noise, and motion artifacts using filters implemented with PyTorch.
     Can be run on GPU if input signal is on GPU.
+    
+    Args:
+    signal (torch.Tensor): Input ECG signal of shape (batch_size, num_channels, signal_length)
+    sampling_rate (float): Sampling rate of the ECG signal in Hz
+    low_cutoff_freq (float): Low cutoff frequency for high-pass filter (removes baseline wander)
+    high_cutoff_freq (float): High cutoff frequency for low-pass filter (removes high-frequency noise)
+    median_window_size (float): Window size in seconds for median filter (removes motion artifacts)
+    
+    Returns:
+    torch.Tensor: Denoised ECG signal
     """
     device = signal.device
     batch_size, num_channels, signal_length = signal.shape
     
+    # # Step 1: Remove motion artifacts using median filter
+    # window_samples = int(median_window_size * sampling_rate)
+    # if window_samples % 2 == 0:
+    #     window_samples += 1  # Ensure odd window size for median filter
+    
+    # # Pad the signal for median filtering
+    # pad_size = window_samples // 2
+    # padded_signal = torch.nn.functional.pad(signal, (pad_size, pad_size), mode='reflect')
+    
+    # # Apply median filter
+    # motion_filtered = torch.median(padded_signal.unfold(-1, window_samples, 1), dim=-1)[0]
+    
+    # # Subtract motion artifacts from the original signal
+    # signal = signal - motion_filtered
+    
+    # Step 2: Remove baseline wander and high-frequency noise
     # Create frequency array
     freqs = fft.fftfreq(signal_length, d=1/sampling_rate).to(device)
     
-    # Create high-pass filter
-    high_pass_filter = (torch.abs(freqs) > cutoff_freq).float()
-    
+    # Create band-pass filter
+    # TODO only using baseline wander filter for now
+    band_pass_filter = ((torch.abs(freqs) > low_cutoff_freq) & (torch.abs(freqs) < high_cutoff_freq)).float()
+    #band_pass_filter = ((torch.abs(freqs) > low_cutoff_freq)).float()
+
     # Perform FFT
     signal_fft = fft.fft(signal, dim=-1)
     
     # Apply filter in frequency domain
-    filtered_signal_fft = signal_fft * high_pass_filter.unsqueeze(0).unsqueeze(0)
+    filtered_signal_fft = signal_fft * band_pass_filter.unsqueeze(0).unsqueeze(0)
     
     # Perform inverse FFT
     filtered_signal = fft.ifft(filtered_signal_fft, dim=-1).real
     
-    # Subtract the filtered (baseline) from the original signal
-    #return signal - filtered_signal
     return filtered_signal
 
-def reduce_high_frequency_noise(signal, sampling_rate=250, cutoff_freq=100):
-    """
-    Reduce high-frequency noise using a low-pass filter.
-    """
-    nyquist_freq = 0.5 * sampling_rate
-    normalized_cutoff = cutoff_freq / nyquist_freq
+# def reduce_high_frequency_noise(signal, sampling_rate=250, cutoff_freq=100):
+#     """
+#     Reduce high-frequency noise using a low-pass filter.
+#     """
+#     nyquist_freq = 0.5 * sampling_rate
+#     normalized_cutoff = cutoff_freq / nyquist_freq
     
-    # Create a low-pass filter
-    sos = scipy.signal.butter(5, normalized_cutoff, btype='low', analog=False, output='sos')
+#     # Create a low-pass filter
+#     sos = scipy.signal.butter(5, normalized_cutoff, btype='low', analog=False, output='sos')
     
-    # Apply the filter
-    filtered_signal = scipy.signal.sosfiltfilt(sos, signal, axis=-1)
+#     # Apply the filter
+#     filtered_signal = scipy.signal.sosfiltfilt(sos, signal, axis=-1)
     
-    return filtered_signal
+#     return filtered_signal
 
-def remove_powerline_interference(signal, sampling_rate=250, notch_freq=50, quality_factor=30):
-    """
-    Remove powerline interference using a notch filter.
-    """
-    nyquist_freq = 0.5 * sampling_rate
-    normalized_freq = notch_freq / nyquist_freq
+# def remove_powerline_interference(signal, sampling_rate=250, notch_freq=50, quality_factor=30):
+#     """
+#     Remove powerline interference using a notch filter.
+#     """
+#     nyquist_freq = 0.5 * sampling_rate
+#     normalized_freq = notch_freq / nyquist_freq
     
-    # Create a notch filter
-    b, a = scipy.signal.iirnotch(normalized_freq, quality_factor)
+#     # Create a notch filter
+#     b, a = scipy.signal.iirnotch(normalized_freq, quality_factor)
     
-    # Apply the filter
-    filtered_signal = scipy.signal.filtfilt(b, a, signal, axis=-1)
+#     # Apply the filter
+#     filtered_signal = scipy.signal.filtfilt(b, a, signal, axis=-1)
     
-    return filtered_signal
+#     return filtered_signal
 
-def remove_motion_artifacts(signal, sampling_rate=250, window_size=0.2):
-    """
-    Remove motion artifacts using a median filter.
-    """
-    # Convert window size from seconds to samples
-    window_samples = int(window_size * sampling_rate)
-    if window_samples % 2 == 0:
-        window_samples += 1  # Ensure odd window size for median filter
+# def remove_motion_artifacts(signal, sampling_rate=250, window_size=0.2):
+#     """
+#     Remove motion artifacts using a median filter.
+#     """
+#     # Convert window size from seconds to samples
+#     window_samples = int(window_size * sampling_rate)
+#     if window_samples % 2 == 0:
+#         window_samples += 1  # Ensure odd window size for median filter
     
-    # Apply median filter
-    filtered_signal = scipy.signal.medfilt(signal, kernel_size=[1, 1, window_samples])
+#     # Apply median filter
+#     filtered_signal = scipy.signal.medfilt(signal, kernel_size=[1, 1, window_samples])
     
-    return filtered_signal
-
-def preprocess_ecg(signal, sampling_rate=250):
-    """
-    Apply all preprocessing steps to the ECG signal.
-    """
-
-    device = signal.device
-    signal = signal.cpu().numpy()
-
-    # Remove baseline wander
-    signal = remove_baseline_wander(signal, sampling_rate)
-    
-    # Reduce high-frequency noise
-    #signal = reduce_high_frequency_noise(signal, sampling_rate)
-    
-    # Remove powerline interference
-    #signal = remove_powerline_interference(signal, sampling_rate)
-    
-    # Remove motion artifacts
-    #signal = remove_motion_artifacts(signal, sampling_rate)
-    
-    signal = torch.from_numpy(signal).to(device)
-    return signal.float()
+#     return filtered_signal

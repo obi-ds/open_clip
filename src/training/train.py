@@ -170,8 +170,8 @@ def train_one_epoch(model, data, loss, epoch, optimizer, scaler, scheduler, args
 
                 # Log visualizations if available
                 if hasattr(unwrap_model(model), 'log_visualizations') and 'reconstructions' in model_out:
-                    unwrap_model(model).log_visualizations(model_out['images'], model_out['images_noisy'],
-                                                           model_out['images_cleaned'], model_out['reconstructions'], step)
+                    #fig = unwrap_model(model).log_visualizations(model_out['images'], model_out['images_noisy'],
+                    #                                       model_out['images_cleaned'], model_out['reconstructions'], step)
                     wandb.log({"ecg_visualization": wandb.Image(fig)}, step=step)
                     plt.close(fig)
             
