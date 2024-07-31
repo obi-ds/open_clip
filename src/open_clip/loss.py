@@ -184,6 +184,7 @@ class MAELoss(nn.Module):
     def __init__(
             self,
             norm_pixel_loss,
+
     ):
         super().__init__()
         self._norm_pixel_loss = norm_pixel_loss
@@ -198,14 +199,18 @@ class MAELoss(nn.Module):
             var = labels.var(dim=-1, keepdim=True)
             labels = (labels - mean) / (var + 1.e-6) ** .5
 
-        loss = (predictions - labels) ** 2
-        loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
+        # Patch-wise MSE loss
+        patch_mse_loss = (predictions - labels) ** 2
+        patch_mse_loss = patch_mse_loss.mean(dim=-1)  # [N, L], mean loss per patch
+        patch_mse_loss = (patch_mse_loss * mask).sum() / mask.sum()  # mean loss on removed patches
 
-        loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
         if output_dict:
-            return {"loss": loss}
+            return {
+                #"loss": total_loss,
+                "loss": patch_mse_loss,
+            }
 
-        return loss
+        return patch_mse_loss
 
 
 class RegularizedMAELoss(nn.Module):
@@ -217,13 +222,19 @@ class RegularizedMAELoss(nn.Module):
     def __init__(
             self,
             norm_pixel_loss,
+            patch_loss_weight=1.0,
+            full_image_loss_weight=1.0,
+            tv_weight=1e-4,
     ):
         super().__init__()
         self._norm_pixel_loss = norm_pixel_loss
+        self.patch_loss_weight = patch_loss_weight
+        self.full_image_loss_weight = full_image_loss_weight
+        self.tv_weight = tv_weight
 
-    def forward(self,
-                hidden_states, reconstructions, images, noisy_images, predictions, labels, mask,
-                output_dict=False):
+    def forward(self, hidden_states,
+                reconstructions, images, images_noisy, images_cleaned,
+                predictions, labels, mask, output_dict=False):
         """
         MAE Loss
         """
@@ -233,28 +244,35 @@ class RegularizedMAELoss(nn.Module):
             var = labels.var(dim=-1, keepdim=True)
             labels = (labels - mean) / (var + 1.e-6) ** .5
 
-        mse_loss = (predictions - labels) ** 2
-        mse_loss = mse_loss.mean(dim=-1)  # [N, L], mean loss per patch
-        mse_loss = (mse_loss * mask).sum() / mask.sum()  # mean loss on removed patches
+        # Patch-wise MSE loss
+        patch_mse_loss = (predictions - labels) ** 2
+        patch_mse_loss = patch_mse_loss.mean(dim=-1)  # [N, L], mean loss per patch
+        patch_mse_loss = (patch_mse_loss * mask).sum() / mask.sum()  # mean loss on removed patches
 
-        #amp_reg = self.amplitude_regularization(original=images, reconstructed=reconstructions)
-        #freq_reg = self.frequency_regularization(original=images, reconstructed=reconstructions)
-        
-        # could do this on the hidden states or the reconstructions
-        #tv_reg = self.total_variation_regularization(x=hidden_states)
-        tv_reg = self.total_variation_regularization(x=reconstructions)
-        #amp_reg = 1e-7 * amp_reg
-        #freq_reg = 1e-7 * freq_reg
-        tv_reg = 1e-4 * tv_reg
+        # Full image MSE loss
+        full_image_mse_loss = F.mse_loss(reconstructions, images_cleaned)
 
-        total_loss = mse_loss + tv_reg # amp_reg + freq_reg + tv_reg
+        # Total variation regularization
+        tv_reg = self.total_variation_regularization(reconstructions)
+
+        patch_loss = self.patch_loss_weight * patch_mse_loss
+        full_image_loss = self.full_image_loss_weight * full_image_mse_loss
+        tv_loss = self.tv_weight * tv_reg
+
+        # Combine losses
+        total_loss = (
+            patch_loss +
+            full_image_loss +
+            tv_loss
+        )
 
         if output_dict:
-            return {#"loss": total_loss,
-                    'mse_loss': mse_loss,
-                    #'amp_reg': amp_reg,
-                    #'freq_reg': freq_reg,
-                    'tv_reg': tv_reg}
+            return {
+                #"loss": total_loss,
+                "patch_mse_loss": patch_mse_loss,
+                "full_image_mse_loss": full_image_mse_loss,
+                "tv_reg": tv_reg
+            }
 
         return total_loss
     

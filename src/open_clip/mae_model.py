@@ -2,6 +2,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+import torch.fft as fft
 
 from typing import Optional
 from transformers import AutoConfig
@@ -13,6 +14,7 @@ from .biogpt_vision import MaskedVisionBioGPTModel, VisionBioGPTModel
 from .transformer_decoder import VisionEncoder, MaskedAutoencoderVisionEncoder
 
 import numpy as np
+import scipy.signal
 
 _has_transformers = True
 
@@ -78,6 +80,8 @@ class MAE(nn.Module):
 
         # Added to test denoising MAE
         self.input_noise = encoder_cfg.input_noise
+
+        self.sampling_rate = 250  # Make sure this is set correctly
 
     @staticmethod
     def get_encoder(
@@ -154,12 +158,12 @@ class MAE(nn.Module):
         """
         self.visual.set_grad_checkpointing(enable)
 
-    def add_baseline_wander(self, images, frequency_range=(0.01, 0.5), amplitude_range=(0.05, 200), sampling_rate=250):
-        if torch.rand(1) < 0.5:
+    def add_baseline_wander(self, images, frequency_range=(0.01, 0.5), amplitude_range=(0.05, 200)):
+        if torch.rand(1) > 0.5:
             return images
         
         batch_size, num_leads, signal_length = images.shape
-        t = torch.linspace(0, signal_length / sampling_rate, signal_length, device=images.device)
+        t = torch.linspace(0, signal_length / self.sampling_rate, signal_length, device=images.device)
         frequencies = torch.rand(batch_size, 1, 1, device=images.device) * (frequency_range[1] - frequency_range[0]) + frequency_range[0]
         amplitudes = torch.rand(batch_size, 1, 1, device=images.device) * (amplitude_range[1] - amplitude_range[0]) + amplitude_range[0]
         
@@ -189,18 +193,19 @@ class MAE(nn.Module):
         images = self.add_noise(images, noise_scale=self.input_noise)
         return images
 
-    def log_visualizations(self, original_images, noisy_images, reconstructions, step):
+    def log_visualizations(self, original_images, noisy_images, cleaned_images, reconstructions, step):
         num_samples = min(2, original_images.shape[0])
-        fig, axes = plt.subplots(num_samples, 3, figsize=(15, 10))
+        fig, axes = plt.subplots(num_samples, 4, figsize=(20, 5*num_samples))
         fig.suptitle(f'Samples at step {step}')
 
         for i in range(num_samples):
             for j, (title, image) in enumerate([
                 ('Original', original_images[i]),
                 ('Noisy', noisy_images[i]),
+                ('Cleaned', cleaned_images[i]),
                 ('Reconstructed', reconstructions[i])
             ]):
-                ax = axes[i, j]
+                ax = axes[i, j] if num_samples > 1 else axes[j]
                 ax.plot(image[0].cpu().detach().numpy(), label='Lead 1')
                 ax.plot(image[1].cpu().detach().numpy(), label='Lead 2')
                 ax.set_title(f'Sample {i+1} - {title}')
@@ -209,7 +214,6 @@ class MAE(nn.Module):
                 ax.legend()
 
         plt.tight_layout()
-
         return fig
 
     def forward(
@@ -217,24 +221,119 @@ class MAE(nn.Module):
             images,
             texts=None,
     ):
-
+        
         images_orig = images
-        if self.training and self.input_noise > 0:
-            images = self.add_ecg_noise(images)
+        images_noisy = self.add_ecg_noise(images)
+        #images_cleaned = preprocess_ecg(images, self.sampling_rate)
 
-        hidden_states, mask, ids_restore = self._masked_auto_encoder_vision_encoder.forward_encoder(x=images)
-                
+        images_cleaned = remove_baseline_wander_torch(images, self.sampling_rate)
+
+        hidden_states, mask, ids_restore = self._masked_auto_encoder_vision_encoder.forward_encoder(x=images_noisy)
         predictions = self._masked_auto_encoder_vision_encoder.forward_decoder(hidden_states, ids_restore)
-        labels = self._masked_auto_encoder_vision_encoder.patchify(images, normalize_labels=self._normalize_labels)
+        labels = self._masked_auto_encoder_vision_encoder.patchify(images_cleaned, normalize_labels=self._normalize_labels)
         reconstructions = self._masked_auto_encoder_vision_encoder.unpatchify_ecg(predictions)
 
         return {
             'hidden_states': hidden_states,
             'reconstructions': reconstructions,
             'images': images_orig,
-            'noisy_images': images,
+            'images_noisy': images_noisy,
+            'images_cleaned': images_cleaned,
             'predictions': predictions,
             'labels': labels,
             'mask': mask,
         }
+
+def remove_baseline_wander_torch(signal, sampling_rate=250, cutoff_freq=0.5):
+    """
+    Remove baseline wander using a high-pass filter implemented with PyTorch.
+    Can be run on GPU if input signal is on GPU.
+    """
+    device = signal.device
+    batch_size, num_channels, signal_length = signal.shape
     
+    # Create frequency array
+    freqs = fft.fftfreq(signal_length, d=1/sampling_rate).to(device)
+    
+    # Create high-pass filter
+    high_pass_filter = (torch.abs(freqs) > cutoff_freq).float()
+    
+    # Perform FFT
+    signal_fft = fft.fft(signal, dim=-1)
+    
+    # Apply filter in frequency domain
+    filtered_signal_fft = signal_fft * high_pass_filter.unsqueeze(0).unsqueeze(0)
+    
+    # Perform inverse FFT
+    filtered_signal = fft.ifft(filtered_signal_fft, dim=-1).real
+    
+    # Subtract the filtered (baseline) from the original signal
+    #return signal - filtered_signal
+    return filtered_signal
+
+def reduce_high_frequency_noise(signal, sampling_rate=250, cutoff_freq=100):
+    """
+    Reduce high-frequency noise using a low-pass filter.
+    """
+    nyquist_freq = 0.5 * sampling_rate
+    normalized_cutoff = cutoff_freq / nyquist_freq
+    
+    # Create a low-pass filter
+    sos = scipy.signal.butter(5, normalized_cutoff, btype='low', analog=False, output='sos')
+    
+    # Apply the filter
+    filtered_signal = scipy.signal.sosfiltfilt(sos, signal, axis=-1)
+    
+    return filtered_signal
+
+def remove_powerline_interference(signal, sampling_rate=250, notch_freq=50, quality_factor=30):
+    """
+    Remove powerline interference using a notch filter.
+    """
+    nyquist_freq = 0.5 * sampling_rate
+    normalized_freq = notch_freq / nyquist_freq
+    
+    # Create a notch filter
+    b, a = scipy.signal.iirnotch(normalized_freq, quality_factor)
+    
+    # Apply the filter
+    filtered_signal = scipy.signal.filtfilt(b, a, signal, axis=-1)
+    
+    return filtered_signal
+
+def remove_motion_artifacts(signal, sampling_rate=250, window_size=0.2):
+    """
+    Remove motion artifacts using a median filter.
+    """
+    # Convert window size from seconds to samples
+    window_samples = int(window_size * sampling_rate)
+    if window_samples % 2 == 0:
+        window_samples += 1  # Ensure odd window size for median filter
+    
+    # Apply median filter
+    filtered_signal = scipy.signal.medfilt(signal, kernel_size=[1, 1, window_samples])
+    
+    return filtered_signal
+
+def preprocess_ecg(signal, sampling_rate=250):
+    """
+    Apply all preprocessing steps to the ECG signal.
+    """
+
+    device = signal.device
+    signal = signal.cpu().numpy()
+
+    # Remove baseline wander
+    signal = remove_baseline_wander(signal, sampling_rate)
+    
+    # Reduce high-frequency noise
+    #signal = reduce_high_frequency_noise(signal, sampling_rate)
+    
+    # Remove powerline interference
+    #signal = remove_powerline_interference(signal, sampling_rate)
+    
+    # Remove motion artifacts
+    #signal = remove_motion_artifacts(signal, sampling_rate)
+    
+    signal = torch.from_numpy(signal).to(device)
+    return signal.float()
