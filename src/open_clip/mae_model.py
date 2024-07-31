@@ -223,7 +223,12 @@ class MAE(nn.Module):
     ):
         
         images_orig = images
-        images_noisy = self.add_ecg_noise(images)
+
+        if self.training and self.add_noise:
+            images_noisy = self.add_ecg_noise(images)
+        else:
+            images_noisy = images
+
         # further denoise the oringinal images
         images_cleaned = denoise_ecg(images, self.sampling_rate)
 
